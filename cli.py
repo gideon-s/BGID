@@ -107,6 +107,14 @@ class GameCLI:
         print(room["description"])
         print()
         
+        # Show other players in the room
+        other_players = state.get("other_players_in_room", [])
+        if other_players:
+            self.print_colored("Other players here:", "green")
+            for player in other_players:
+                print(f"  • {player['name']} (Level {player['level']})")
+            print()
+        
         # Show items in the room
         items = state["items_in_room"]
         if items:

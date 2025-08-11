@@ -99,3 +99,15 @@ class PlayerState(BaseModel):
     inventory: List[Item]
     npcs_in_room: List[Npc]
     items_in_room: List[Item]
+    other_players_in_room: List[Player]  # New field for other players
+
+# Chat schemas
+class ChatMessageResponse(BaseModel):
+    id: str
+    sender_id: int
+    sender_name: str
+    message_type: str
+    content: str
+    timestamp: datetime
+    target_id: Optional[int] = None
+    metadata: Optional[dict] = None

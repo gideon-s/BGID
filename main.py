@@ -1,18 +1,95 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+import asyncio
 import models
 import schemas
 from database import engine, get_db
+from websocket_manager import manager
+from chat_system import chat_manager, ChatType
+from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
+from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats
+from ollama_integration import initialize_ollama_npcs, cleanup_ollama_npcs
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Game API", description="A FastAPI game with SQLite database")
+app = FastAPI(title="Game API", description="A FastAPI game with SQLite database and WebSocket multiplayer")
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    try:
+        # Initialize Ollama NPC manager
+        await initialize_ollama_npcs()
+        print("🚀 Ollama NPC system initialized successfully!")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not initialize Ollama NPC system: {e}")
+        print("   NPCs will use rule-based responses instead.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up services on shutdown"""
+    try:
+        await cleanup_ollama_npcs()
+        print("🧹 Ollama NPC system cleaned up successfully!")
+    except Exception as e:
+        print(f"⚠️  Warning: Error cleaning up Ollama NPC system: {e}")
 
 @app.get("/")
 async def root():
     return {"message": "Welcome to the Game API!"}
+
+@app.websocket("/ws/{player_id}")
+async def websocket_endpoint(websocket: WebSocket, player_id: int):
+    """WebSocket endpoint for real-time multiplayer communication"""
+    # Verify player exists
+    db = next(get_db())
+    player = db.query(models.Player).filter(models.Player.id == player_id).first()
+    if not player:
+        await websocket.close(code=4004, reason="Player not found")
+        return
+    
+    # Connect the player
+    await manager.connect(websocket, player_id)
+    
+    # Subscribe to their current room
+    if player.room_id:
+        manager.subscribe_to_room(player_id, player.room_id)
+        
+        # Notify others that player joined
+        player_info = {
+            "id": player.id,
+            "name": player.name,
+            "level": player.level
+        }
+        await manager.broadcast_player_joined(player_id, player.room_id, player_info)
+    
+    try:
+        # Keep connection alive and handle incoming messages
+        while True:
+            # Wait for messages from the client
+            data = await websocket.receive_text()
+            
+            # For now, just echo back (we can expand this later)
+            await manager.send_personal_message(player_id, {
+                "type": "echo",
+                "message": f"Received: {data}"
+            })
+            
+    except WebSocketDisconnect:
+        # Player disconnected
+        if player.room_id:
+            # Notify others that player left
+            player_info = {
+                "id": player.id,
+                "name": player.name,
+                "level": player.level
+            }
+            await manager.broadcast_player_left(player_id, player.room_id, player_info)
+        
+        manager.disconnect(player_id)
+        db.close()
 
 @app.post("/players/", response_model=schemas.Player)
 def create_player(player: schemas.PlayerCreate, db: Session = Depends(get_db)):
@@ -101,7 +178,9 @@ def perform_action(action: schemas.ActionRequest, db: Session = Depends(get_db))
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
     
-    # Simple action handling - you can expand this based on your game logic
+    # Store the old room for broadcasting
+    old_room_id = player.room_id
+    
     if action.action_type == "move":
         if action.target_type == "room" and action.target_id:
             # Check if room exists
@@ -114,6 +193,58 @@ def perform_action(action: schemas.ActionRequest, db: Session = Depends(get_db))
             player.room_id = action.target_id
             db.commit()
             db.refresh(player)
+            
+            # Broadcast real-time updates
+            try:
+                # Notify players in the old room that this player left
+                if old_room_id:
+                    player_info = {"id": player.id, "name": player.name, "level": player.level}
+                    # Use asyncio.run_coroutine_threadsafe for proper async execution
+                    import asyncio
+                    import threading
+                    
+                    def run_broadcast():
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(manager.broadcast_player_left(action.player_id, old_room_id, player_info))
+                        finally:
+                            loop.close()
+                    
+                    # Run in a separate thread to avoid blocking
+                    threading.Thread(target=run_broadcast, daemon=True).start()
+                    manager.unsubscribe_from_room(action.player_id, old_room_id)
+                
+                # Subscribe to new room and notify players there
+                manager.subscribe_to_room(action.player_id, action.target_id)
+                player_info = {"id": player.id, "name": player.name, "level": player.level}
+                
+                def run_join_broadcast():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(manager.broadcast_player_joined(action.player_id, action.target_id, player_info))
+                    finally:
+                        loop.close()
+                
+                threading.Thread(target=run_join_broadcast, daemon=True).start()
+                
+                # Broadcast the move action
+                def run_action_broadcast():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(manager.broadcast_player_action(
+                            action.player_id, action.target_id, "move", 
+                            {"from_room": old_room_id, "to_room": action.target_id, "room_name": room.name}
+                        ))
+                    finally:
+                        loop.close()
+                
+                threading.Thread(target=run_action_broadcast, daemon=True).start()
+                
+            except Exception as e:
+                print(f"Error broadcasting move action: {e}")
             
             return schemas.ActionResponse(
                 success=True,
@@ -191,13 +322,175 @@ def get_player_state(player_id: int, db: Session = Depends(get_db)):
     # Get NPCs in the room
     npcs_in_room = db.query(models.Npc).filter(models.Npc.room_id == player.room_id).all()
     
+    # Get other players in the room (excluding the current player)
+    other_players_in_room = db.query(models.Player).filter(
+        models.Player.room_id == player.room_id,
+        models.Player.id != player_id
+    ).all()
+    
     return schemas.PlayerState(
         player=player,
         current_room=current_room,
         inventory=inventory,
         npcs_in_room=npcs_in_room,
-        items_in_room=items_in_room
+        items_in_room=items_in_room,
+        other_players_in_room=other_players_in_room
     )
+
+# Chat System Endpoints
+@app.post("/chat/send", response_model=schemas.ChatMessageResponse)
+async def send_chat_message(chat_request: ChatMessageRequest, db: Session = Depends(get_db)):
+    """Send a chat message"""
+    # Verify sender exists
+    sender = db.query(models.Player).filter(models.Player.id == chat_request.sender_id).first()
+    if not sender:
+        raise HTTPException(status_code=404, detail="Sender not found")
+    
+    # Create and store the message
+    message = chat_manager.create_message(
+        sender_id=chat_request.sender_id,
+        sender_name=sender.name,
+        message_type=chat_request.message_type,
+        content=chat_request.content,
+        target_id=chat_request.target_id
+    )
+    
+    # Broadcast to appropriate recipients via WebSocket
+    if chat_request.message_type == ChatType.GLOBAL:
+        # Broadcast to all connected players
+        asyncio.create_task(manager.broadcast_to_all({
+            "type": "chat_message",
+            "message_type": "global",
+            "sender_id": sender.id,
+            "sender_name": sender.name,
+            "content": chat_request.content,
+            "timestamp": message.timestamp.isoformat()
+        }))
+    
+    elif chat_request.message_type == ChatType.ROOM:
+        # Broadcast to players in the room
+        if chat_request.target_id:
+            asyncio.create_task(manager.broadcast_to_room(chat_request.target_id, {
+                "type": "chat_message",
+                "message_type": "room",
+                "sender_id": sender.id,
+                "sender_name": sender.name,
+                "content": chat_request.content,
+                "timestamp": message.timestamp.isoformat(),
+                "room_id": chat_request.target_id
+            }))
+    
+    elif chat_request.message_type == ChatType.PRIVATE:
+        # Send to specific player
+        if chat_request.target_id:
+            asyncio.create_task(manager.send_personal_message(chat_request.target_id, {
+                "type": "chat_message",
+                "message_type": "private",
+                "sender_id": sender.id,
+                "sender_name": sender.name,
+                "content": chat_request.content,
+                "timestamp": message.timestamp.isoformat()
+            }))
+    
+    return message
+
+@app.get("/chat/history/{chat_type}")
+async def get_chat_history(chat_type: ChatType, target_id: Optional[int] = None, 
+                    limit: int = 50, db: Session = Depends(get_db)):
+    """Get chat history for a specific chat type"""
+    if chat_type == ChatType.GLOBAL:
+        messages = chat_manager.get_global_messages(limit)
+    elif chat_type == ChatType.ROOM:
+        if not target_id:
+            raise HTTPException(status_code=400, detail="target_id required for room chat")
+        messages = chat_manager.get_room_messages(target_id, limit)
+    elif chat_type == ChatType.PRIVATE:
+        if not target_id:
+            raise HTTPException(status_code=400, detail="target_id required for private chat")
+        messages = chat_manager.get_private_messages(target_id, limit)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid chat type")
+    
+    return {
+        "messages": messages,
+        "total_count": len(messages),
+        "chat_type": chat_type,
+        "target_id": target_id
+    }
+
+@app.post("/chat/npc")
+async def chat_with_npc(chat_request: NPCChatRequest, db: Session = Depends(get_db)):
+    """Chat with an NPC using LLM-powered responses"""
+    # Verify player exists
+    player = db.query(models.Player).filter(models.Player.id == chat_request.player_id).first()
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    
+    # Verify NPC exists
+    npc = db.query(models.Npc).filter(models.Npc.id == chat_request.npc_id).first()
+    if not npc:
+        raise HTTPException(status_code=404, detail="NPC not found")
+    
+    # Check if NPC is in the same room as player
+    if npc.room_id != player.room_id:
+        raise HTTPException(status_code=400, detail="NPC is not in the same room")
+    
+    # Create NPC context
+    context = NPCContext(
+        player_level=player.level,
+        player_reputation=getattr(player, 'reputation', 0),
+        player_health=player.health,
+        player_gold=getattr(player, 'gold', 0),
+        room_id=player.room_id
+    )
+    
+    # Create NPC context
+    context = NPCContext(
+        player_level=player.level,
+        player_reputation=getattr(player, 'reputation', 0),
+        player_health=player.health,
+        player_gold=getattr(player, 'gold', 0),
+        room_id=player.room_id
+    )
+    
+    # Try to get intelligent response from NPC
+    try:
+        # Create a temporary NPC instance to generate response
+        from llm_npcs import MerchantNPC, QuestGiverNPC, CombatMobNPC
+        
+        if npc.npc_type == "merchant":
+            npc_instance = MerchantNPC(npc.id, npc.name, npc.description)
+        elif npc.npc_type == "quest_giver":
+            npc_instance = QuestGiverNPC(npc.id, npc.name, npc.description)
+        elif npc.npc_type == "combat_mob":
+            npc_instance = CombatMobNPC(npc.id, npc.name, npc.description, npc.level)
+        else:
+            # Generic NPC
+            npc_instance = BaseLLMNPC(
+                npc.id, npc.name, npc.description,
+                NPCDisposition.NEUTRAL, NPCRole.INFORMANT,
+                NPCStats(level=npc.level, health=npc.health, max_health=npc.max_health)
+            )
+        
+        # Generate intelligent response
+        response = await npc_instance.generate_response(chat_request.message, context)
+        
+        # Check if NPC should attack (for combat mobs)
+        should_attack = npc_instance.should_attack_player(context)
+        
+    except Exception as e:
+        print(f"Error generating NPC response: {e}")
+        # Fallback response
+        response = f"{npc.name} says: 'I heard you say: {chat_request.message}'"
+        should_attack = False
+    
+    return {
+        "npc_id": npc.id,
+        "npc_name": npc.name,
+        "response": response,
+        "disposition": "neutral",
+        "should_attack": should_attack
+    }
 
 if __name__ == "__main__":
     import uvicorn
