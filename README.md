@@ -1,22 +1,28 @@
 # FastAPI Game API
 
-A FastAPI-based game API with SQLite database and SQLAlchemy models for managing players, rooms, items, and NPCs.
+A FastAPI-based RPG game API with SQLite database, SQLAlchemy models, and D&D-style character progression. Features include ability scores, NPC reactions, enhanced item system, and real-time WebSocket multiplayer support.
 
 ## Features
 
-- **Player Management**: Create, read, and manage player characters
+- **D&D-Style Character System**: Players and NPCs have STR, DEX, CON, INT, WIS, CHA ability scores with automatic modifiers
+- **Player Management**: Create, read, and manage player characters with character sheets
 - **Room System**: Navigate between different game locations
-- **Item System**: Pick up, drop, and manage inventory items
-- **NPC System**: Interact with non-player characters
-- **Action System**: Perform game actions like moving, picking up items, etc.
+- **Enhanced Item System**: Items with movable/usable flags, pick up, drop, and use items
+- **Advanced NPC System**: NPCs with ability scores, combat flags, and dynamic reactions toward players
+- **NPC Reaction System**: Track NPC feelings (threat, attraction, arousal, aggression) toward players
+- **Action System**: Perform game actions like moving, picking up items, using items, etc.
 - **State Management**: Get comprehensive player state information
+- **Real-time Multiplayer**: WebSocket support for live game updates
+- **Interactive CLI**: Natural language command interface
+- **Chat System**: Global, room, and private messaging
 
 ## Models
 
-- **Player**: Character with health, level, experience, and location
+- **Player**: Character with health, level, experience, location, and D&D ability scores
 - **Room**: Game locations with descriptions and accessibility
-- **Item**: Objects that can be picked up, equipped, or found in rooms
-- **Npc**: Non-player characters with different types and behaviors
+- **Item**: Objects with movable/usable flags that can be picked up, used, or found in rooms
+- **Npc**: Non-player characters with ability scores, combat flags, and behaviors
+- **NpcReaction**: Tracks NPC emotional responses toward specific players
 
 ## API Endpoints
 
@@ -34,9 +40,24 @@ A FastAPI-based game API with SQLite database and SQLAlchemy models for managing
 - `GET /npcs/` - List all NPCs
 - `GET /npcs/{npc_id}` - Get NPC details
 
+### New Character Sheet Endpoints
+- `GET /players/{player_id}/sheet` - Get detailed character sheet with ability scores and modifiers
+- `GET /npcs/{npc_id}/sheet` - Get NPC character sheet with ability scores and modifiers
+
+### NPC Reaction System
+- `GET /npcs/{npc_id}/reaction/{player_id}` - Get NPC's current reactions toward a player
+- `PATCH /npcs/{npc_id}/reaction/{player_id}` - Update NPC reactions toward a player
+
 ### Game Actions
-- `POST /action` - Perform game actions (move, pickup, drop, etc.)
+- `POST /action` - Perform game actions (move, pickup, drop, use, etc.)
 - `GET /state/{player_id}` - Get comprehensive player state
+
+### Chat System
+- `POST /chat/send` - Send chat messages (global, room, private)
+- `GET /chat/history/{chat_type}` - Get chat history
+
+### WebSocket
+- `WS /ws/{player_id}` - Real-time WebSocket connection for live updates
 
 ## Installation
 
@@ -79,6 +100,16 @@ curl -X POST "http://localhost:8000/players/" \
      -d '{"name": "Hero", "room_id": 1}'
 ```
 
+### Get Character Sheet
+```bash
+curl "http://localhost:8000/players/1/sheet"
+```
+
+### Get NPC Reactions
+```bash
+curl "http://localhost:8000/npcs/1/reaction/1"
+```
+
 ### Move Player
 ```bash
 curl -X POST "http://localhost:8000/action" \
@@ -95,27 +126,37 @@ curl "http://localhost:8000/state/1"
 
 ```
 app/
-├── main.py          # FastAPI application and endpoints
-├── models.py        # SQLAlchemy database models
-├── schemas.py       # Pydantic schemas for request/response
-├── database.py      # Database configuration and session management
-├── requirements.txt # Python dependencies
-└── README.md        # This file
+├── main.py              # FastAPI application and endpoints
+├── models.py            # SQLAlchemy database models with ability scores
+├── schemas.py           # Pydantic schemas for request/response
+├── database.py          # Database configuration and session management
+├── seed.py              # Database seeding with sample data
+├── cli.py               # Interactive command-line interface
+├── websocket_cli.py     # WebSocket-enabled CLI for multiplayer
+├── websocket_manager.py # WebSocket connection management
+├── chat_system.py       # Chat functionality
+├── llm_npcs.py          # AI-powered NPC system
+├── ollama_integration.py # Ollama LLM integration
+├── requirements.txt     # Python dependencies
+└── README.md            # This file
 ```
 
 ## Development
 
-The application includes basic game logic for:
-- Moving between rooms
-- Picking up and dropping items
-- Basic validation and error handling
+The application includes advanced game logic for:
+- D&D-style character progression with ability scores
+- Dynamic NPC reactions and relationships
+- Enhanced item system with usage flags
+- Real-time multiplayer via WebSockets
+- AI-powered NPC interactions
+- Chat system with multiple channels
 
-You can extend the action system in the `/action` endpoint to add more game mechanics like:
-- Combat system
-- Item usage
-- NPC interactions
-- Quest system
-- More complex movement rules
+You can extend the system to add more game mechanics like:
+- Combat system using ability scores
+- Skill checks and saving throws
+- Quest system with NPC reactions
+- Item crafting and enchantments
+- More complex social interactions
 
 ## Database Seeding
 
@@ -130,10 +171,15 @@ python seed.py --clear
 ```
 
 The seed script creates:
-- **Room**: "The Rusty Tavern" - A cozy tavern with fireplace and tables
-- **Player**: "Hero" - A level 1 player starting in the tavern
-- **Item**: "Iron Sword" - A weapon found in the tavern
-- **NPC**: "Old Tom" - A friendly innkeeper merchant
+- **Rooms**: "Foyer" and "Great Hall" - Grand entrance areas
+- **Player**: "Bryan" - A level 1 player with default ability scores
+- **NPCs**: 
+  - "Caretaker" - Combat-enabled NPC with WIS 12, CHA 8
+  - "Innkeeper" - Non-combat NPC with WIS 12, CHA 14
+- **Items**: 
+  - "Rusty Key" - Movable and usable key item
+  - "Sturdy Stool" - Non-movable but usable furniture
+- **NPC Reactions**: Initial reaction values for Caretaker toward Bryan
 
 ## Quick Start
 
@@ -162,19 +208,21 @@ uvicorn main:app --reload
 
 5. Test the API:
 ```bash
+# Get character sheet
+curl "http://localhost:8000/players/1/sheet"
+
 # Get player state
 curl "http://localhost:8000/state/1"
 
-# Pick up an item
-curl -X POST "http://localhost:8000/action" \
-     -H "Content-Type: application/json" \
-     -d '{"player_id": 1, "action_type": "pickup", "target_type": "item", "target_id": 1}'
+# Get NPC reactions
+curl "http://localhost:8000/npcs/1/reaction/1"
 ```
 
 ## Interactive CLI
 
-The project includes an interactive command-line interface (`cli.py`) that provides a natural language interface to the game:
+The project includes two interactive command-line interfaces:
 
+### Standard CLI (`cli.py`)
 ```bash
 # Start the CLI
 python cli.py
@@ -186,6 +234,12 @@ python cli.py --player 2
 python cli.py --url http://localhost:8001
 ```
 
+### WebSocket CLI (`websocket_cli.py`)
+```bash
+# Start the WebSocket CLI for real-time multiplayer
+python websocket_cli.py --player 1
+```
+
 ### Available Commands
 
 **Game Commands:**
@@ -193,8 +247,11 @@ python cli.py --url http://localhost:8001
 - `/go <room_name>` - Move to a different room
 - `/take <item_name>` - Pick up an item
 - `/drop <item_name>` - Drop an item from inventory
+- `/use <item_name>` - Use an item (from inventory or room)
 - `/inventory` - Show your inventory
 - `/status` - Show player status
+- `/sheet` - Show character sheet with D&D-style ability scores
+- `/inspect <npc_name>` - Inspect an NPC and see their reactions toward you
 
 **Utility Commands:**
 - `/rooms` - List all available rooms
@@ -211,32 +268,103 @@ python cli.py --url http://localhost:8001
  Welcome to the Game CLI! 
 ==================================================
 
+[1]> /sheet
+==================================================
+ Character Sheet 
+==================================================
+Bryan (Lvl 1)  HP 10/10
+STR 10 (+0)  DEX 10 (+0)  CON 10 (+0)
+INT 10 (+0)  WIS 10 (+0)  CHA 10 (+0)
+
 [1]> /look
 ==================================================
- Looking around The Rusty Tavern 
+ Looking around Foyer 
 ==================================================
-A cozy tavern with a crackling fireplace, wooden tables, and the smell of ale in the air...
+A grand entrance hall.
 
-[1]> /take sword
-✅ Picked up Iron Sword
+Items you can see:
+  • Rusty Key - Pitted iron, still turns.
+  • Sturdy Stool - It wobbles but holds.
 
-[1]> /inventory
-==================================================
- Inventory 
-==================================================
-  • Iron Sword - A well-crafted iron sword with a leather-wrapped hilt...
-    Type: weapon, Value: 50
+People you can see:
+  • Caretaker - A curt, watchful presence.
+  • Innkeeper - Polite, harried, not interested in brawls.
 
-[1]> /status
+[1]> /inspect Caretaker
 ==================================================
- Player Status 
+ Caretaker (caretaker) 
 ==================================================
-Name: Hero
-Health: 100/100
-Level: 1
-Experience: 0
-Location: The Rusty Tavern
-Inventory: 1 items
+A curt, watchful presence.
+Combat: Yes
+STR 10 (+0)  DEX 10 (+0)  CON 10 (+0)
+INT 10 (+0)  WIS 12 (+1)  CHA 8 (-1)
+Reactions → threat:10 attraction:5 arousal:0 aggression:5
+
+[1]> /use key
+✅ You use the Rusty Key.
 ```
 
-The CLI provides a user-friendly way to interact with the game without needing to remember API endpoints or JSON structures.
+## D&D-Style Ability Scores
+
+The game features a complete D&D-style ability score system:
+
+- **STR (Strength)**: Physical power and athletic training
+- **DEX (Dexterity)**: Agility, reflexes, balance, and precision
+- **CON (Constitution)**: Health, stamina, and vital force
+- **INT (Intelligence)**: Mental acuity, accuracy of recall, and ability to reason
+- **WIS (Wisdom)**: Awareness of surroundings and intuition
+- **CHA (Charisma)**: Ability to interact effectively with others
+
+**Ability Modifiers**: Each ability score has a modifier calculated as `(score - 10) // 2`
+- Score 10-11: +0 modifier
+- Score 12-13: +1 modifier
+- Score 14-15: +2 modifier
+- Score 8-9: -1 modifier
+- Score 6-7: -2 modifier
+
+## NPC Reaction System
+
+NPCs have dynamic emotional responses toward players tracked across four dimensions:
+
+- **Threat** (0-100): How dangerous the NPC perceives the player
+- **Attraction** (0-100): How appealing or interesting the NPC finds the player
+- **Arousal** (0-100): How excited or stimulated the NPC is by the player
+- **Aggression** (0-100): How likely the NPC is to attack or confront the player
+
+Reactions automatically update based on player actions and can be manually adjusted via the API.
+
+## Enhanced Item System
+
+Items now have additional properties:
+
+- **is_movable**: Whether the item can be picked up and carried
+- **is_usable**: Whether the item can be used/activated
+- **item_type**: Classification (weapon, armor, key, furniture, etc.)
+- **value**: Monetary or gameplay value
+
+This allows for more realistic item interactions - furniture stays in place but can be used, keys are portable and functional, etc.
+
+## WebSocket Multiplayer
+
+The WebSocket system provides real-time updates for:
+
+- Player movement between rooms
+- Item pickups and drops
+- NPC interactions
+- Chat messages
+- Game state changes
+
+Players automatically receive notifications when others join/leave their room or perform actions.
+
+## Chat System
+
+The game includes a comprehensive chat system:
+
+- **Global Chat**: Messages visible to all players
+- **Room Chat**: Messages visible only to players in the same room
+- **Private Chat**: Direct messages between specific players
+- **NPC Chat**: AI-powered conversations with NPCs
+
+Chat history is preserved and can be retrieved via API endpoints.
+
+The CLI provides a user-friendly way to interact with the game without needing to remember API endpoints or JSON structures, while the WebSocket CLI adds real-time multiplayer capabilities.

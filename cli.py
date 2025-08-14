@@ -22,8 +22,11 @@ class GameCLI:
             r'^/go\s+(.+)$': self.cmd_go,
             r'^/take\s+(.+)$': self.cmd_take,
             r'^/drop\s+(.+)$': self.cmd_drop,
+            r'^/use\s+(.+)$': self.cmd_use,
             r'^/inventory$': self.cmd_inventory,
             r'^/status$': self.cmd_status,
+            r'^/sheet$': self.cmd_sheet,
+            r'^/inspect\s+(.+)$': self.cmd_inspect,
             r'^/help$': self.cmd_help,
             r'^/quit$': self.cmd_quit,
             r'^/player\s+(\d+)$': self.cmd_player,
@@ -238,6 +241,28 @@ class GameCLI:
             self.print_success(f"Dropped {target_item['name']}")
         else:
             self.print_error("Failed to drop the item")
+
+    def cmd_use(self, item_name: str):
+        """Use an item (from inventory or room)"""
+        state = self.make_request("GET", f"/state/{self.current_player_id}")
+        if not state:
+            return
+        inv_item = next((i for i in state["inventory"] if i["name"].lower()==item_name.lower()), None)
+        room_item = next((i for i in state["items_in_room"] if i["name"].lower()==item_name.lower()), None)
+        target = inv_item or room_item
+        if not target:
+            self.print_error(f"No item '{item_name}' in inventory or room.")
+            return
+        result = self.make_request("POST", "/action", {
+            "player_id": self.current_player_id,
+            "action_type": "use",
+            "target_type": "item",
+            "target_id": target["id"]
+        })
+        if result and result.get("success"):
+            self.print_success(f"You use the {target['name']}.")
+        else:
+            self.print_error(result.get("error","Failed to use item.") if result else "Failed to use item.")
     
     def cmd_inventory(self, *args):
         """Show player inventory"""
@@ -278,6 +303,38 @@ class GameCLI:
         # Show inventory count
         inventory_count = len(state["inventory"])
         print(f"Inventory: {inventory_count} items")
+
+    def cmd_sheet(self, *args):
+        """Show classic D&D-style ability scores"""
+        data = self.make_request("GET", f"/players/{self.current_player_id}/sheet")
+        if not data:
+            return
+        self.print_header("Character Sheet")
+        print(f"{data['name']} (Lvl {data['level']})  HP {data['health']}/{data['max_health']}")
+        ab = data['abilities']; mods = data['modifiers']
+        print("STR {0} ({1:+})  DEX {2} ({3:+})  CON {4} ({5:+})".format(ab['str'],mods['str'],ab['dex'],mods['dex'],ab['con'],mods['con']))
+        print("INT {0} ({1:+})  WIS {2} ({3:+})  CHA {4} ({5:+})".format(ab['intel'],mods['intel'],ab['wis'],mods['wis'],ab['cha'],mods['cha']))
+
+    def cmd_inspect(self, name: str):
+        """Inspect an NPC in the room; show sheet + reactions toward you"""
+        state = self.make_request("GET", f"/state/{self.current_player_id}")
+        if not state: return
+        target = next((n for n in state.get("npcs_in_room", []) if n["name"].lower()==name.lower()), None)
+        if not target:
+            self.print_error(f"No NPC named '{name}' here.")
+            return
+        npc_id = target["id"]
+        sheet = self.make_request("GET", f"/npcs/{npc_id}/sheet")
+        react = self.make_request("GET", f"/npcs/{npc_id}/reaction/{self.current_player_id}")
+        if sheet:
+            self.print_header(f"{sheet['name']} ({sheet['npc_type']})")
+            print(sheet["description"])
+            print(f"Combat: {'Yes' if sheet['combat_enabled'] else 'No'}")
+            ab = sheet['abilities']; mods = sheet['modifiers']
+            print("STR {0} ({1:+})  DEX {2} ({3:+})  CON {4} ({5:+})".format(ab['str'],mods['str'],ab['dex'],mods['dex'],ab['con'],mods['con']))
+            print("INT {0} ({1:+})  WIS {2} ({3:+})  CHA {4} ({5:+})".format(ab['intel'],mods['intel'],ab['wis'],mods['wis'],ab['cha']))
+        if react:
+            print("Reactions → threat:{threat} attraction:{attraction} arousal:{arousal} aggression:{aggression}".format(**react))
     
     def cmd_help(self, *args):
         """Show help information"""
@@ -287,8 +344,11 @@ class GameCLI:
         print("  /go <room_name>          - Move to a different room")
         print("  /take <item_name>        - Pick up an item")
         print("  /drop <item_name>        - Drop an item from inventory")
+        print("  /use <item_name>         - Use an item")
         print("  /inventory               - Show your inventory")
         print("  /status                  - Show player status")
+        print("  /sheet                   - Show character sheet with ability scores")
+        print("  /inspect <npc_name>      - Inspect an NPC and see their reactions")
         print()
         print("Utility Commands:")
         print("  /rooms                   - List all available rooms")

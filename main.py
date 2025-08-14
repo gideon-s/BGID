@@ -11,6 +11,13 @@ from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats
 from ollama_integration import initialize_ollama_npcs, cleanup_ollama_npcs
 
+# Helper functions for ability scores
+def _abilities_of(obj) -> schemas.AbilityScores:
+    return schemas.AbilityScores(str=obj.str, dex=obj.dex, con=obj.con, intel=obj.intel, wis=obj.wis, cha=obj.cha)
+
+def _mods_of(obj) -> dict[str, int]:
+    return {k: obj.ability_mod(k) for k in ["str","dex","con","intel","wis","cha"]}
+
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
 
@@ -91,7 +98,7 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int):
         manager.disconnect(player_id)
         db.close()
 
-@app.post("/players/", response_model=schemas.Player)
+@app.post("/players/", response_model=schemas.PlayerOut)
 def create_player(player: schemas.PlayerCreate, db: Session = Depends(get_db)):
     db_player = models.Player(**player.dict())
     db.add(db_player)
@@ -169,7 +176,56 @@ def get_npc(npc_id: int, db: Session = Depends(get_db)):
     npc = db.query(models.Npc).filter(models.Npc.id == npc_id).first()
     if npc is None:
         raise HTTPException(status_code=404, detail="NPC not found")
-    return item
+    return npc
+
+@app.get("/players/{player_id}/sheet", response_model=schemas.PlayerSheet)
+def get_player_sheet(player_id: int, db: Session = Depends(get_db)):
+    p = db.query(models.Player).get(player_id)
+    if not p:
+        raise HTTPException(404, "Player not found")
+    return schemas.PlayerSheet(
+        id=p.id, name=p.name, health=p.health, max_health=p.max_health,
+        level=p.level, experience=p.experience,
+        abilities=_abilities_of(p), modifiers=_mods_of(p),
+        location_name=p.room.name if p.room else "Unknown"
+    )
+
+@app.get("/npcs/{npc_id}/sheet", response_model=schemas.NpcSheet)
+def get_npc_sheet(npc_id: int, db: Session = Depends(get_db)):
+    n = db.query(models.Npc).get(npc_id)
+    if not n:
+        raise HTTPException(404, "NPC not found")
+    return schemas.NpcSheet(
+        id=n.id, name=n.name, description=n.description, npc_type=n.npc_type,
+        combat_enabled=n.combat_enabled, health=n.health, max_health=n.max_health,
+        abilities=_abilities_of(n), modifiers=_mods_of(n),
+        location_name=n.room.name if n.room else "Unknown"
+    )
+
+@app.get("/npcs/{npc_id}/reaction/{player_id}", response_model=schemas.NpcReactionOut)
+def get_reaction(npc_id: int, player_id: int, db: Session = Depends(get_db)):
+    r = db.query(models.NpcReaction).filter_by(npc_id=npc_id, player_id=player_id).first()
+    if not r:
+        r = models.NpcReaction(npc_id=npc_id, player_id=player_id)
+        db.add(r); db.commit(); db.refresh(r)
+    return schemas.NpcReactionOut(
+        npc_id=r.npc_id, player_id=r.player_id,
+        threat=r.threat, attraction=r.attraction, arousal=r.arousal, aggression=r.aggression
+    )
+
+@app.patch("/npcs/{npc_id}/reaction/{player_id}", response_model=schemas.NpcReactionOut)
+def update_reaction(npc_id: int, player_id: int, payload: schemas.NpcReactionUpdate, db: Session = Depends(get_db)):
+    r = db.query(models.NpcReaction).filter_by(npc_id=npc_id, player_id=player_id).first()
+    if not r:
+        r = models.NpcReaction(npc_id=npc_id, player_id=player_id)
+        db.add(r)
+    for k, v in payload.dict(exclude_unset=True).items():
+        setattr(r, k, v)
+    db.commit(); db.refresh(r)
+    return schemas.NpcReactionOut(
+        npc_id=r.npc_id, player_id=r.player_id,
+        threat=r.threat, attraction=r.attraction, arousal=r.arousal, aggression=r.aggression
+    )
 
 @app.post("/action", response_model=schemas.ActionResponse)
 def perform_action(action: schemas.ActionRequest, db: Session = Depends(get_db)):
@@ -187,7 +243,8 @@ def perform_action(action: schemas.ActionRequest, db: Session = Depends(get_db))
             room = db.query(models.Room).filter(models.Room.id == action.target_id).first()
             if not room:
                 raise HTTPException(status_code=404, detail="Room not found")
-            if not room.is_accessible:
+            # Check if room is accessible (handle case where is_accessible column might not exist yet)
+            if hasattr(room, 'is_accessible') and not room.is_accessible:
                 raise HTTPException(status_code=400, detail="Room is not accessible")
             
             player.room_id = action.target_id
@@ -249,7 +306,15 @@ def perform_action(action: schemas.ActionRequest, db: Session = Depends(get_db))
             return schemas.ActionResponse(
                 success=True,
                 message=f"Player {player.name} moved to {room.name}",
-                player_state=player
+                player_state={
+                    "id": player.id,
+                    "name": player.name,
+                    "room_id": player.room_id,
+                    "health": player.health,
+                    "max_health": player.max_health,
+                    "level": player.level,
+                    "experience": player.experience
+                }
             )
     
     elif action.action_type == "pickup":
@@ -270,7 +335,15 @@ def perform_action(action: schemas.ActionRequest, db: Session = Depends(get_db))
             return schemas.ActionResponse(
                 success=True,
                 message=f"Player {player.name} picked up {item.name}",
-                player_state=player
+                player_state={
+                    "id": player.id,
+                    "name": player.name,
+                    "room_id": player.room_id,
+                    "health": player.health,
+                    "max_health": player.max_health,
+                    "level": player.level,
+                    "experience": player.experience
+                }
             )
     
     elif action.action_type == "drop":
@@ -289,7 +362,15 @@ def perform_action(action: schemas.ActionRequest, db: Session = Depends(get_db))
             return schemas.ActionResponse(
                 success=True,
                 message=f"Player {player.name} dropped {item.name}",
-                player_state=player
+                player_state={
+                    "id": player.id,
+                    "name": player.name,
+                    "room_id": player.room_id,
+                    "health": player.health,
+                    "max_health": player.max_health,
+                    "level": player.level,
+                    "experience": player.experience
+                }
             )
     
     # Default response for unhandled actions
@@ -328,13 +409,26 @@ def get_player_state(player_id: int, db: Session = Depends(get_db)):
         models.Player.id != player_id
     ).all()
     
+    # Convert SQLAlchemy objects to dictionaries for Pydantic validation
+    def model_to_dict(model_obj):
+        if model_obj is None:
+            return None
+        if hasattr(model_obj, '__dict__'):
+            # Remove SQLAlchemy internal attributes
+            return {k: v for k, v in model_obj.__dict__.items() 
+                   if not k.startswith('_')}
+        return model_obj
+
+    def models_to_dict_list(model_list):
+        return [model_to_dict(obj) for obj in model_list]
+
     return schemas.PlayerState(
-        player=player,
-        current_room=current_room,
-        inventory=inventory,
-        npcs_in_room=npcs_in_room,
-        items_in_room=items_in_room,
-        other_players_in_room=other_players_in_room
+        player=model_to_dict(player),
+        current_room=model_to_dict(current_room),
+        inventory=models_to_dict_list(inventory),
+        npcs_in_room=models_to_dict_list(npcs_in_room),
+        items_in_room=models_to_dict_list(items_in_room),
+        other_players_in_room=models_to_dict_list(other_players_in_room)
     )
 
 # Chat System Endpoints
@@ -392,7 +486,17 @@ async def send_chat_message(chat_request: ChatMessageRequest, db: Session = Depe
                 "timestamp": message.timestamp.isoformat()
             }))
     
-    return message
+    # Convert the ChatMessage to ChatMessageResponse format
+    return schemas.ChatMessageResponse(
+        id=message.id,
+        sender_id=message.sender_id,
+        sender_name=message.sender_name,
+        message_type=message.message_type.value,  # Convert enum to string
+        content=message.content,
+        timestamp=message.timestamp.isoformat(),  # Convert datetime to string
+        target_id=message.target_id,
+        metadata=message.metadata
+    )
 
 @app.get("/chat/history/{chat_type}")
 async def get_chat_history(chat_type: ChatType, target_id: Optional[int] = None, 
@@ -411,8 +515,22 @@ async def get_chat_history(chat_type: ChatType, target_id: Optional[int] = None,
     else:
         raise HTTPException(status_code=400, detail="Invalid chat type")
     
+    # Convert ChatMessage objects to ChatMessageResponse format
+    response_messages = []
+    for msg in messages:
+        response_messages.append(schemas.ChatMessageResponse(
+            id=msg.id,
+            sender_id=msg.sender_id,
+            sender_name=msg.sender_name,
+            message_type=msg.message_type.value,  # Convert enum to string
+            content=msg.content,
+            timestamp=msg.timestamp.isoformat(),  # Convert datetime to string
+            target_id=msg.target_id,
+            metadata=msg.metadata
+        ))
+    
     return {
-        "messages": messages,
+        "messages": response_messages,
         "total_count": len(messages),
         "chat_type": chat_type,
         "target_id": target_id

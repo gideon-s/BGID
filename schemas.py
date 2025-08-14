@@ -1,113 +1,173 @@
-from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime
+from pydantic import BaseModel, conint
+from typing import List, Optional, Dict
 
-# Player schemas
-class PlayerBase(BaseModel):
-    name: str
-    health: int = 100
-    max_health: int = 100
-    level: int = 1
-    experience: int = 0
-    room_id: Optional[int] = None
-
-class PlayerCreate(PlayerBase):
-    pass
-
-class Player(PlayerBase):
+class RoomOut(BaseModel):
     id: int
-    created_at: datetime
-    updated_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-# Room schemas
-class RoomBase(BaseModel):
     name: str
     description: str
-    is_accessible: bool = True
 
-class RoomCreate(RoomBase):
+class PlayerOut(BaseModel):
+    id: int
+    name: str
+    room_id: int
+    health: int
+    max_health: int
+    level: int
+    experience: int
+    str: int = 10
+    dex: int = 10
+    con: int = 10
+    intel: int = 10
+    wis: int = 10
+    cha: int = 10
+
+class AbilityScores(BaseModel):
+    str: int = 10
+    dex: int = 10
+    con: int = 10
+    intel: int = 10
+    wis: int = 10
+    cha: int = 10
+
+class PlayerSheet(BaseModel):
+    id: int
+    name: str
+    health: int
+    max_health: int
+    level: int
+    experience: int
+    abilities: AbilityScores
+    modifiers: Dict[str, int]
+    location_name: str
+
+class ItemOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    item_type: str
+    value: int
+    room_id: Optional[int] = None
+    player_id: Optional[int] = None
+    is_movable: bool
+    is_usable: bool
+
+class NpcOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    npc_type: str
+    room_id: int
+    is_friendly: bool
+    combat_enabled: bool
+    health: int
+    max_health: int
+    str: int = 10
+    dex: int = 10
+    con: int = 10
+    intel: int = 10
+    wis: int = 10
+    cha: int = 10
+
+class NpcSheet(BaseModel):
+    id: int
+    name: str
+    description: str
+    npc_type: str
+    combat_enabled: bool
+    health: int
+    max_health: int
+    abilities: AbilityScores
+    modifiers: Dict[str, int]
+    location_name: str
+
+ZeroTo100 = conint(ge=0, le=100)
+
+class NpcReactionOut(BaseModel):
+    npc_id: int
+    player_id: int
+    threat: ZeroTo100
+    attraction: ZeroTo100
+    arousal: ZeroTo100
+    aggression: ZeroTo100
+
+class NpcReactionUpdate(BaseModel):
+    threat: Optional[ZeroTo100] = None
+    attraction: Optional[ZeroTo100] = None
+    arousal: Optional[ZeroTo100] = None
+    aggression: Optional[ZeroTo100] = None
+
+# Additional schemas needed for compatibility
+class PlayerCreate(BaseModel):
+    name: str
+    health: int = 10
+    max_health: int = 10
+    level: int = 1
+    experience: int = 0
+    room_id: int
+
+class Player(PlayerOut):
     pass
 
-class Room(RoomBase):
-    id: int
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
+class RoomCreate(BaseModel):
+    name: str
+    description: str
 
-# Item schemas
-class ItemBase(BaseModel):
+class Room(RoomOut):
+    pass
+
+class ItemCreate(BaseModel):
     name: str
     description: str
     item_type: str
     value: int = 0
     room_id: Optional[int] = None
     player_id: Optional[int] = None
-    is_equipped: bool = False
+    is_movable: bool = True
+    is_usable: bool = False
 
-class ItemCreate(ItemBase):
+class Item(ItemOut):
     pass
 
-class Item(ItemBase):
-    id: int
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-# Npc schemas
-class NpcBase(BaseModel):
+class NpcCreate(BaseModel):
     name: str
     description: str
     npc_type: str
-    health: int = 100
-    max_health: int = 100
     room_id: int
-    is_friendly: bool = True
+    is_friendly: bool = False
+    combat_enabled: bool = True
+    health: int = 8
+    max_health: int = 8
 
-class NpcCreate(NpcBase):
+class Npc(NpcOut):
     pass
 
-class Npc(NpcBase):
-    id: int
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-# Action schemas
 class ActionRequest(BaseModel):
     player_id: int
-    action_type: str  # move, attack, pickup, drop, use, etc.
+    action_type: str
     target_id: Optional[int] = None
-    target_type: Optional[str] = None  # item, npc, room, etc.
+    target_type: Optional[str] = None
     parameters: Optional[dict] = None
 
 class ActionResponse(BaseModel):
     success: bool
     message: str
-    player_state: Optional[Player] = None
-    room_state: Optional[Room] = None
+    player_state: Optional[dict] = None
+    room_state: Optional[dict] = None
 
-# State schemas
 class PlayerState(BaseModel):
-    player: Player
-    current_room: Room
-    inventory: List[Item]
-    npcs_in_room: List[Npc]
-    items_in_room: List[Item]
-    other_players_in_room: List[Player]  # New field for other players
+    player: PlayerOut
+    current_room: RoomOut
+    inventory: List[ItemOut]
+    npcs_in_room: List[NpcOut]
+    items_in_room: List[ItemOut]
+    other_players_in_room: List[PlayerOut]
 
-# Chat schemas
 class ChatMessageResponse(BaseModel):
     id: str
     sender_id: int
     sender_name: str
     message_type: str
     content: str
-    timestamp: datetime
+    timestamp: str
     target_id: Optional[int] = None
     metadata: Optional[dict] = None
