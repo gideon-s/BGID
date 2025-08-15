@@ -1,71 +1,132 @@
+"""
+SQLAlchemy ORM models for the RPG Game API
+"""
 from sqlalchemy import (
-    Column, Integer, String, Boolean, ForeignKey, CheckConstraint, UniqueConstraint
+    Column, Integer, String, Boolean, ForeignKey, CheckConstraint, 
+    UniqueConstraint, Text, DateTime
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.sql import func
 from database import Base
+from config import (
+    DEFAULT_PLAYER_HEALTH, DEFAULT_PLAYER_LEVEL, DEFAULT_PLAYER_EXP,
+    DEFAULT_ABILITY_SCORE, DEFAULT_NPC_HEALTH
+)
 
-# ---------- Ability mixin ----------
+# ---------- Ability Scores Mixin ----------
 class AbilityScoresMixin:
-    str = Column(Integer, default=10, nullable=False)
-    dex = Column(Integer, default=10, nullable=False)
-    con = Column(Integer, default=10, nullable=False)
-    intel = Column(Integer, default=10, nullable=False)
-    wis = Column(Integer, default=10, nullable=False)
-    cha = Column(Integer, default=10, nullable=False)
+    """Mixin providing ability scores and modifiers for characters"""
+    
+    str = Column(Integer, default=DEFAULT_ABILITY_SCORE, nullable=False)
+    dex = Column(Integer, default=DEFAULT_ABILITY_SCORE, nullable=False)
+    con = Column(Integer, default=DEFAULT_ABILITY_SCORE, nullable=False)
+    intel = Column(Integer, default=DEFAULT_ABILITY_SCORE, nullable=False)
+    wis = Column(Integer, default=DEFAULT_ABILITY_SCORE, nullable=False)
+    cha = Column(Integer, default=DEFAULT_ABILITY_SCORE, nullable=False)
 
     def ability_mod(self, name: str) -> int:
+        """Calculate ability modifier for a given ability"""
         if name == "int":
             name = "intel"
         return (getattr(self, name) - 10) // 2
 
+    def get_all_modifiers(self) -> dict[str, int]:
+        """Get all ability modifiers as a dictionary"""
+        return {ability: self.ability_mod(ability) for ability in ["str", "dex", "con", "intel", "wis", "cha"]}
+
+# ---------- Base Models ----------
 class Room(Base):
+    """Room model representing locations in the game world"""
     __tablename__ = "rooms"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    description = Column(String, default="", nullable=False)
     
-    players = relationship("Player", back_populates="room")
-    npcs = relationship("Npc", back_populates="room")
-    items = relationship("Item", back_populates="room")
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    description = Column(Text, default="", nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    players = relationship("Player", back_populates="room", cascade="all, delete-orphan")
+    npcs = relationship("Npc", back_populates="room", cascade="all, delete-orphan")
+    items = relationship("Item", back_populates="room", cascade="all, delete-orphan")
 
 class Player(Base, AbilityScoresMixin):
+    """Player model representing game characters"""
     __tablename__ = "players"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False)
-    health = Column(Integer, default=10, nullable=False)
-    max_health = Column(Integer, default=10, nullable=False)
-    level = Column(Integer, default=1, nullable=False)
-    experience = Column(Integer, default=0, nullable=False)
     
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False, index=True)
+    health = Column(Integer, default=DEFAULT_PLAYER_HEALTH, nullable=False)
+    max_health = Column(Integer, default=DEFAULT_PLAYER_HEALTH, nullable=False)
+    level = Column(Integer, default=DEFAULT_PLAYER_LEVEL, nullable=False)
+    experience = Column(Integer, default=DEFAULT_PLAYER_EXP, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_active = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
     room = relationship("Room", back_populates="players")
-    items = relationship("Item", back_populates="player")
+    items = relationship("Item", back_populates="player", cascade="all, delete-orphan")
+    npc_reactions = relationship("NpcReaction", back_populates="player", cascade="all, delete-orphan")
+
+    def is_alive(self) -> bool:
+        """Check if player is alive"""
+        return self.health > 0
+    
+    def heal(self, amount: int) -> int:
+        """Heal player by specified amount, return actual healing done"""
+        old_health = self.health
+        self.health = min(self.max_health, self.health + amount)
+        return self.health - old_health
+    
+    def take_damage(self, amount: int) -> int:
+        """Apply damage to player, return actual damage taken"""
+        old_health = self.health
+        self.health = max(0, self.health - amount)
+        return old_health - self.health
 
 class Npc(Base, AbilityScoresMixin):
+    """NPC model representing non-player characters"""
     __tablename__ = "npcs"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    description = Column(String, default="", nullable=False)
-    npc_type = Column(String, default="generic", nullable=False)
-    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False)
-    room = relationship("Room", back_populates="npcs")
     
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    description = Column(Text, default="", nullable=False)
+    npc_type = Column(String(50), default="generic", nullable=False, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Combat and behavior flags
     combat_enabled = Column(Boolean, default=True, nullable=False)
     is_friendly = Column(Boolean, default=False, nullable=False)
-    health = Column(Integer, default=8, nullable=False)
-    max_health = Column(Integer, default=8, nullable=False)
+    health = Column(Integer, default=DEFAULT_NPC_HEALTH, nullable=False)
+    max_health = Column(Integer, default=DEFAULT_NPC_HEALTH, nullable=False)
+    
+    # Relationships
+    room = relationship("Room", back_populates="npcs")
+    reactions = relationship("NpcReaction", back_populates="npc", cascade="all, delete-orphan")
+
+    def is_alive(self) -> bool:
+        """Check if NPC is alive"""
+        return self.health > 0
 
 class NpcReaction(Base):
+    """NPC reactions to specific players"""
     __tablename__ = "npc_reactions"
-    id = Column(Integer, primary_key=True)
-    npc_id = Column(Integer, ForeignKey("npcs.id"), nullable=False)
-    player_id = Column(Integer, ForeignKey("players.id"), nullable=False)
     
+    id = Column(Integer, primary_key=True, index=True)
+    npc_id = Column(Integer, ForeignKey("npcs.id"), nullable=False, index=True)
+    player_id = Column(Integer, ForeignKey("players.id"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Reaction values (0-100)
     threat = Column(Integer, default=0, nullable=False)
     attraction = Column(Integer, default=0, nullable=False)
     arousal = Column(Integer, default=0, nullable=False)
     aggression = Column(Integer, default=0, nullable=False)
     
+    # Constraints
     __table_args__ = (
         UniqueConstraint("npc_id", "player_id", name="uq_npc_player_reaction"),
         CheckConstraint("threat BETWEEN 0 AND 100"),
@@ -73,20 +134,43 @@ class NpcReaction(Base):
         CheckConstraint("arousal BETWEEN 0 AND 100"),
         CheckConstraint("aggression BETWEEN 0 AND 100"),
     )
+    
+    # Relationships
+    npc = relationship("Npc", back_populates="reactions")
+    player = relationship("Player", back_populates="npc_reactions")
 
 class Item(Base):
+    """Item model representing objects in the game world"""
     __tablename__ = "items"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    description = Column(String, default="", nullable=False)
-    item_type = Column(String, default="generic", nullable=False)
-    value = Column(Integer, default=0, nullable=False)
-    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=True)
-    player_id = Column(Integer, ForeignKey("players.id"), nullable=True)
     
-    # NEW flags
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    description = Column(Text, default="", nullable=False)
+    item_type = Column(String(50), default="generic", nullable=False, index=True)
+    value = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Location tracking
+    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=True, index=True)
+    player_id = Column(Integer, ForeignKey("players.id"), nullable=True, index=True)
+    
+    # Item properties
     is_movable = Column(Boolean, default=True, nullable=False)
     is_usable = Column(Boolean, default=False, nullable=False)
+    is_equippable = Column(Boolean, default=False, nullable=False)
     
+    # Relationships
     room = relationship("Room", back_populates="items")
     player = relationship("Player", back_populates="items")
+
+    def is_owned(self) -> bool:
+        """Check if item is owned by a player"""
+        return self.player_id is not None
+    
+    def is_in_room(self) -> bool:
+        """Check if item is in a room"""
+        return self.room_id is not None
+    
+    def can_pickup(self) -> bool:
+        """Check if item can be picked up"""
+        return self.is_movable and self.is_in_room()

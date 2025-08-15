@@ -1,35 +1,122 @@
-from pydantic import BaseModel, conint
-from typing import List, Optional, Dict
+"""
+Pydantic schemas for API request/response validation
+"""
+from pydantic import BaseModel, Field, validator
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+from config import (
+    MIN_ABILITY_SCORE, MAX_ABILITY_SCORE, MIN_REACTION_VALUE, MAX_REACTION_VALUE,
+    DEFAULT_ABILITY_SCORE, DEFAULT_PLAYER_HEALTH, DEFAULT_PLAYER_LEVEL
+)
 
-class RoomOut(BaseModel):
-    id: int
-    name: str
-    description: str
+# ---------- Base Schemas ----------
+class BaseResponse(BaseModel):
+    """Base response model with common fields"""
+    success: bool = True
+    message: str = "Operation completed successfully"
+    timestamp: datetime = Field(default_factory=datetime.now)
 
-class PlayerOut(BaseModel):
+# ---------- Ability Score Schemas ----------
+class AbilityScores(BaseModel):
+    """Ability scores for characters"""
+    str: int = Field(default=DEFAULT_ABILITY_SCORE, ge=MIN_ABILITY_SCORE, le=MAX_ABILITY_SCORE)
+    dex: int = Field(default=DEFAULT_ABILITY_SCORE, ge=MIN_ABILITY_SCORE, le=MAX_ABILITY_SCORE)
+    con: int = Field(default=DEFAULT_ABILITY_SCORE, ge=MIN_ABILITY_SCORE, le=MAX_ABILITY_SCORE)
+    intel: int = Field(default=DEFAULT_ABILITY_SCORE, ge=MIN_ABILITY_SCORE, le=MAX_ABILITY_SCORE)
+    wis: int = Field(default=DEFAULT_ABILITY_SCORE, ge=MIN_ABILITY_SCORE, le=MAX_ABILITY_SCORE)
+    cha: int = Field(default=DEFAULT_ABILITY_SCORE, ge=MIN_ABILITY_SCORE, le=MAX_ABILITY_SCORE)
+
+    @validator('*')
+    def validate_ability_score(cls, v):
+        if not (MIN_ABILITY_SCORE <= v <= MAX_ABILITY_SCORE):
+            raise ValueError(f'Ability score must be between {MIN_ABILITY_SCORE} and {MAX_ABILITY_SCORE}')
+        return v
+
+class AbilityModifiers(BaseModel):
+    """Calculated ability modifiers"""
+    str: int
+    dex: int
+    con: int
+    intel: int
+    wis: int
+    cha: int
+
+# ---------- Room Schemas ----------
+class RoomBase(BaseModel):
+    """Base room schema"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=1000)
+
+class RoomCreate(RoomBase):
+    """Schema for creating a new room"""
+    pass
+
+class RoomUpdate(RoomBase):
+    """Schema for updating a room"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=1000)
+
+class RoomOut(RoomBase):
+    """Schema for room output"""
     id: int
-    name: str
-    room_id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# ---------- Player Schemas ----------
+class PlayerBase(BaseModel):
+    """Base player schema"""
+    name: str = Field(..., min_length=1, max_length=100)
+    room_id: int = Field(..., gt=0)
+
+class PlayerCreate(PlayerBase):
+    """Schema for creating a new player"""
+    health: Optional[int] = Field(DEFAULT_PLAYER_HEALTH, ge=1)
+    max_health: Optional[int] = Field(DEFAULT_PLAYER_HEALTH, ge=1)
+    level: Optional[int] = Field(DEFAULT_PLAYER_LEVEL, ge=1)
+    experience: Optional[int] = Field(0, ge=0)
+    abilities: Optional[AbilityScores] = None
+
+    @validator('max_health')
+    def max_health_must_be_positive(cls, v):
+        if v <= 0:
+            raise ValueError('max_health must be positive')
+        return v
+
+    @validator('health')
+    def health_cannot_exceed_max(cls, v, values):
+        if 'max_health' in values and v > values['max_health']:
+            raise ValueError('health cannot exceed max_health')
+        return v
+
+class PlayerUpdate(BaseModel):
+    """Schema for updating a player"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    room_id: Optional[int] = Field(None, gt=0)
+    health: Optional[int] = Field(None, ge=0)
+    max_health: Optional[int] = Field(None, ge=1)
+    level: Optional[int] = Field(None, ge=1)
+    experience: Optional[int] = Field(None, ge=0)
+    abilities: Optional[AbilityScores] = None
+
+class PlayerOut(PlayerBase):
+    """Schema for player output"""
+    id: int
     health: int
     max_health: int
     level: int
     experience: int
-    str: int = 10
-    dex: int = 10
-    con: int = 10
-    intel: int = 10
-    wis: int = 10
-    cha: int = 10
+    abilities: AbilityScores
+    created_at: Optional[datetime] = None
+    last_active: Optional[datetime] = None
 
-class AbilityScores(BaseModel):
-    str: int = 10
-    dex: int = 10
-    con: int = 10
-    intel: int = 10
-    wis: int = 10
-    cha: int = 10
+    class Config:
+        from_attributes = True
 
 class PlayerSheet(BaseModel):
+    """Comprehensive player character sheet"""
     id: int
     name: str
     health: int
@@ -37,38 +124,97 @@ class PlayerSheet(BaseModel):
     level: int
     experience: int
     abilities: AbilityScores
-    modifiers: Dict[str, int]
+    modifiers: AbilityModifiers
     location_name: str
+    inventory_count: int
 
-class ItemOut(BaseModel):
+    class Config:
+        from_attributes = True
+
+# ---------- Item Schemas ----------
+class ItemBase(BaseModel):
+    """Base item schema"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=1000)
+    item_type: str = Field(default="generic", max_length=50)
+    value: int = Field(default=0, ge=0)
+
+class ItemCreate(ItemBase):
+    """Schema for creating a new item"""
+    room_id: Optional[int] = Field(None, gt=0)
+    player_id: Optional[int] = Field(None, gt=0)
+    is_movable: bool = True
+    is_usable: bool = False
+    is_equippable: bool = False
+
+class ItemUpdate(BaseModel):
+    """Schema for updating an item"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=1000)
+    item_type: Optional[str] = Field(None, max_length=50)
+    value: Optional[int] = Field(None, ge=0)
+    room_id: Optional[int] = Field(None, gt=0)
+    player_id: Optional[int] = Field(None, gt=0)
+    is_movable: Optional[bool] = None
+    is_usable: Optional[bool] = None
+    is_equippable: Optional[bool] = None
+
+class ItemOut(ItemBase):
+    """Schema for item output"""
     id: int
-    name: str
-    description: str
-    item_type: str
-    value: int
     room_id: Optional[int] = None
     player_id: Optional[int] = None
     is_movable: bool
     is_usable: bool
+    is_equippable: bool
+    created_at: Optional[datetime] = None
 
-class NpcOut(BaseModel):
+    class Config:
+        from_attributes = True
+
+# ---------- NPC Schemas ----------
+class NpcBase(BaseModel):
+    """Base NPC schema"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=1000)
+    npc_type: str = Field(default="generic", max_length=50)
+    room_id: int = Field(..., gt=0)
+
+class NpcCreate(NpcBase):
+    """Schema for creating a new NPC"""
+    combat_enabled: bool = True
+    is_friendly: bool = False
+    health: Optional[int] = Field(8, ge=1)
+    max_health: Optional[int] = Field(8, ge=1)
+    abilities: Optional[AbilityScores] = None
+
+class NpcUpdate(BaseModel):
+    """Schema for updating an NPC"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=1000)
+    npc_type: Optional[str] = Field(None, max_length=50)
+    room_id: Optional[int] = Field(None, gt=0)
+    combat_enabled: Optional[bool] = None
+    is_friendly: Optional[bool] = None
+    health: Optional[int] = Field(None, ge=0)
+    max_health: Optional[int] = Field(None, ge=1)
+    abilities: Optional[AbilityScores] = None
+
+class NpcOut(NpcBase):
+    """Schema for NPC output"""
     id: int
-    name: str
-    description: str
-    npc_type: str
-    room_id: int
-    is_friendly: bool
     combat_enabled: bool
+    is_friendly: bool
     health: int
     max_health: int
-    str: int = 10
-    dex: int = 10
-    con: int = 10
-    intel: int = 10
-    wis: int = 10
-    cha: int = 10
+    abilities: AbilityScores
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 class NpcSheet(BaseModel):
+    """Comprehensive NPC character sheet"""
     id: int
     name: str
     description: str
@@ -77,97 +223,80 @@ class NpcSheet(BaseModel):
     health: int
     max_health: int
     abilities: AbilityScores
-    modifiers: Dict[str, int]
+    modifiers: AbilityModifiers
     location_name: str
 
-ZeroTo100 = conint(ge=0, le=100)
+    class Config:
+        from_attributes = True
 
-class NpcReactionOut(BaseModel):
-    npc_id: int
-    player_id: int
-    threat: ZeroTo100
-    attraction: ZeroTo100
-    arousal: ZeroTo100
-    aggression: ZeroTo100
+# ---------- NPC Reaction Schemas ----------
+class NpcReactionBase(BaseModel):
+    """Base NPC reaction schema"""
+    npc_id: int = Field(..., gt=0)
+    player_id: int = Field(..., gt=0)
+
+class NpcReactionOut(NpcReactionBase):
+    """Schema for NPC reaction output"""
+    id: int
+    threat: int = Field(..., ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
+    attraction: int = Field(..., ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
+    arousal: int = Field(..., ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
+    aggression: int = Field(..., ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 class NpcReactionUpdate(BaseModel):
-    threat: Optional[ZeroTo100] = None
-    attraction: Optional[ZeroTo100] = None
-    arousal: Optional[ZeroTo100] = None
-    aggression: Optional[ZeroTo100] = None
+    """Schema for updating NPC reactions"""
+    threat: Optional[int] = Field(None, ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
+    attraction: Optional[int] = Field(None, ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
+    arousal: Optional[int] = Field(None, ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
+    aggression: Optional[int] = Field(None, ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
 
-# Additional schemas needed for compatibility
-class PlayerCreate(BaseModel):
-    name: str
-    health: int = 10
-    max_health: int = 10
-    level: int = 1
-    experience: int = 0
-    room_id: int
-
-class Player(PlayerOut):
-    pass
-
-class RoomCreate(BaseModel):
-    name: str
-    description: str
-
-class Room(RoomOut):
-    pass
-
-class ItemCreate(BaseModel):
-    name: str
-    description: str
-    item_type: str
-    value: int = 0
-    room_id: Optional[int] = None
-    player_id: Optional[int] = None
-    is_movable: bool = True
-    is_usable: bool = False
-
-class Item(ItemOut):
-    pass
-
-class NpcCreate(BaseModel):
-    name: str
-    description: str
-    npc_type: str
-    room_id: int
-    is_friendly: bool = False
-    combat_enabled: bool = True
-    health: int = 8
-    max_health: int = 8
-
-class Npc(NpcOut):
-    pass
-
+# ---------- Action Schemas ----------
 class ActionRequest(BaseModel):
-    player_id: int
-    action_type: str
-    target_id: Optional[int] = None
-    target_type: Optional[str] = None
-    parameters: Optional[dict] = None
+    """Schema for game actions"""
+    player_id: int = Field(..., gt=0)
+    action_type: str = Field(..., min_length=1, max_length=50)
+    target_id: Optional[int] = Field(None, gt=0)
+    parameters: Optional[Dict[str, Any]] = None
 
-class ActionResponse(BaseModel):
-    success: bool
-    message: str
-    player_state: Optional[dict] = None
-    room_state: Optional[dict] = None
+class ActionResponse(BaseResponse):
+    """Schema for action responses"""
+    player_state: Optional[Dict[str, Any]] = None
+    room_state: Optional[Dict[str, Any]] = None
+    target_state: Optional[Dict[str, Any]] = None
 
-class PlayerState(BaseModel):
-    player: PlayerOut
-    current_room: RoomOut
-    inventory: List[ItemOut]
-    npcs_in_room: List[NpcOut]
-    items_in_room: List[ItemOut]
-    other_players_in_room: List[PlayerOut]
+# ---------- List Response Schemas ----------
+class ListResponse(BaseModel):
+    """Generic list response wrapper"""
+    items: List[Any]
+    total_count: int
+    page: int = 1
+    page_size: int = 100
 
-class ChatMessageResponse(BaseModel):
-    id: str
-    sender_id: int
-    sender_name: str
-    message_type: str
-    content: str
-    timestamp: str
-    target_id: Optional[int] = None
-    metadata: Optional[dict] = None
+class PlayersListResponse(ListResponse):
+    """Players list response"""
+    items: List[PlayerOut]
+
+class RoomsListResponse(ListResponse):
+    """Rooms list response"""
+    items: List[RoomOut]
+
+class ItemsListResponse(ListResponse):
+    """Items list response"""
+    items: List[ItemOut]
+
+class NpcsListResponse(ListResponse):
+    """NPCs list response"""
+    items: List[NpcOut]
+
+# ---------- Error Schemas ----------
+class ErrorResponse(BaseModel):
+    """Standard error response"""
+    success: bool = False
+    error: str
+    details: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.now)

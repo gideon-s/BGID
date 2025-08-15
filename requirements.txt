@@ -1,8 +1,25 @@
+# Core FastAPI and ASGI dependencies
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-sqlalchemy>=2.0.0
 pydantic>=2.5.0
-python-multipart>=0.0.6
+
+# Database dependencies
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+
+# HTTP client for admin CLI
 requests>=2.31.0
-websockets>=10.0
-aiohttp>=3.8.0
+
+# WebSocket support
+websockets>=12.0
+
+# Environment and configuration
+python-dotenv>=1.0.0
+
+# Development and testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0
+
+# Optional: LLM integration
+# ollama>=0.1.0  # Uncomment if using Ollama integration

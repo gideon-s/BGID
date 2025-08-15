@@ -1,31 +1,31 @@
-#!/usr/bin/env python3
 """
-Admin CLI for managing the Game API database
-Allows viewing, creating, and deleting objects by type
+Admin CLI for managing the RPG Game database
 """
 import requests
 import json
 import sys
-import argparse
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, Optional, List
+from config import HOST, PORT
 
 class GameAdmin:
-    def __init__(self, base_url: str = "http://localhost:8000"):
-        self.base_url = base_url
+    """Administrative interface for managing the RPG Game database"""
+    
+    def __init__(self):
+        """Initialize the admin interface"""
+        self.base_url = f"http://{HOST}:{PORT}"
         self.session = requests.Session()
-        self.running = True
         
-        # Object types and their endpoints
+        # Define object types and their API endpoints
         self.object_types = {
             'players': {
                 'endpoint': '/players/',
                 'create_schema': {
-                    'name': 'string',
+                    'name': 'string (required)',
+                    'room_id': 'integer (required)',
                     'health': 'integer (default: 10)',
                     'max_health': 'integer (default: 10)',
                     'level': 'integer (default: 1)',
                     'experience': 'integer (default: 0)',
-                    'room_id': 'integer (required)',
                     'str': 'integer (default: 10)',
                     'dex': 'integer (default: 10)',
                     'con': 'integer (default: 10)',
@@ -46,12 +46,13 @@ class GameAdmin:
                 'create_schema': {
                     'name': 'string (required)',
                     'description': 'string (required)',
-                    'item_type': 'string (required)',
+                    'item_type': 'string (default: generic)',
                     'value': 'integer (default: 0)',
                     'room_id': 'integer (optional)',
                     'player_id': 'integer (optional)',
                     'is_movable': 'boolean (default: true)',
-                    'is_usable': 'boolean (default: false)'
+                    'is_usable': 'boolean (default: false)',
+                    'is_equippable': 'boolean (default: false)'
                 }
             },
             'npcs': {
@@ -59,13 +60,12 @@ class GameAdmin:
                 'create_schema': {
                     'name': 'string (required)',
                     'description': 'string (required)',
-                    'npc_type': 'string (required)',
+                    'npc_type': 'string (default: generic)',
                     'room_id': 'integer (required)',
-                    'is_friendly': 'boolean (default: false)',
                     'combat_enabled': 'boolean (default: true)',
+                    'is_friendly': 'boolean (default: false)',
                     'health': 'integer (default: 8)',
                     'max_health': 'integer (default: 8)',
-                    'level': 'integer (default: 1)',
                     'str': 'integer (default: 10)',
                     'dex': 'integer (default: 10)',
                     'con': 'integer (default: 10)',
@@ -76,389 +76,300 @@ class GameAdmin:
             }
         }
         
-        # Command patterns
+        # Command mapping
         self.commands = {
-            r'^list\s+(\w+)$': self.cmd_list,
-            r'^show\s+(\w+)\s+(\d+)$': self.cmd_show,
-            r'^create\s+(\w+)$': self.cmd_create,
-            r'^delete\s+(\w+)\s+(\d+)$': self.cmd_delete,
-            r'^count\s+(\w+)$': self.cmd_count,
-            r'^stats$': self.cmd_stats,
-            r'^help$': self.cmd_help,
-            r'^quit$': self.cmd_quit,
-            r'^exit$': self.cmd_quit
+            'list': self.cmd_list,
+            'show': self.cmd_show,
+            'create': self.cmd_create,
+            'delete': self.cmd_delete,
+            'count': self.cmd_count,
+            'stats': self.cmd_stats,
+            'help': self.cmd_help,
+            'quit': self.cmd_quit,
+            'exit': self.cmd_quit
         }
-    
-    def print_colored(self, text: str, color: str = "white"):
-        """Print colored text (basic ANSI colors)"""
-        colors = {
-            "red": "\033[91m",
-            "green": "\033[92m",
-            "yellow": "\033[93m",
-            "blue": "\033[94m",
-            "magenta": "\033[95m",
-            "cyan": "\033[96m",
-            "white": "\033[97m",
-            "bold": "\033[1m",
-            "reset": "\033[0m"
-        }
-        
-        if color in colors:
-            print(f"{colors[color]}{text}{colors['reset']}")
-        else:
-            print(text)
-    
-    def print_header(self, text: str):
-        """Print a formatted header"""
-        print()
-        self.print_colored("=" * 60, "cyan")
-        self.print_colored(f" {text} ", "cyan")
-        self.print_colored("=" * 60, "cyan")
-        print()
-    
-    def print_error(self, message: str):
-        """Print an error message"""
-        self.print_colored(f"❌ Error: {message}", "red")
-    
-    def print_success(self, message: str):
-        """Print a success message"""
-        self.print_colored(f"✅ {message}", "green")
-    
-    def print_info(self, message: str):
-        """Print an info message"""
-        self.print_colored(f"ℹ️  {message}", "blue")
-    
-    def print_warning(self, message: str):
-        """Print a warning message"""
-        self.print_colored(f"⚠️  {message}", "yellow")
-    
-    def make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Optional[Dict]:
-        """Make an HTTP request to the API"""
-        try:
-            url = f"{self.base_url}{endpoint}"
-            if method.upper() == "GET":
-                response = self.session.get(url)
-            elif method.upper() == "POST":
-                response = self.session.post(url, json=data)
-            elif method.upper() == "DELETE":
-                response = self.session.delete(url)
-            else:
-                self.print_error(f"Unsupported HTTP method: {method}")
-                return None
-            
-            if response.status_code in [200, 201]:
-                return response.json()
-            elif response.status_code == 404:
-                self.print_error(f"Not found: {endpoint}")
-                return None
-            else:
-                self.print_error(f"API Error: {response.status_code} - {response.text}")
-                return None
-                
-        except requests.exceptions.ConnectionError:
-            self.print_error("Cannot connect to the game server. Make sure it's running on localhost:8000")
-            return None
-        except Exception as e:
-            self.print_error(f"Request failed: {e}")
-            return None
-    
-    def validate_object_type(self, obj_type: str) -> bool:
-        """Validate if the object type is supported"""
-        if obj_type not in self.object_types:
-            self.print_error(f"Unsupported object type: {obj_type}")
-            self.print_info(f"Supported types: {', '.join(self.object_types.keys())}")
-            return False
-        return True
-    
-    def cmd_list(self, obj_type: str):
-        """List all objects of a specific type"""
-        if not self.validate_object_type(obj_type):
-            return
-        
-        objects = self.make_request("GET", self.object_types[obj_type]['endpoint'])
-        if objects is None:
-            return
-        
-        if not objects:
-            self.print_info(f"No {obj_type} found in the database")
-            return
-        
-        self.print_header(f"All {obj_type.title()} ({len(objects)} total)")
-        
-        for obj in objects:
-            if obj_type == 'players':
-                print(f"  • ID {obj['id']}: {obj['name']} (Lvl {obj['level']}, HP {obj['health']}/{obj['max_health']})")
-                print(f"    Room: {obj.get('room_id', 'None')}, XP: {obj['experience']}")
-            elif obj_type == 'rooms':
-                print(f"  • ID {obj['id']}: {obj['name']}")
-                print(f"    {obj['description']}")
-            elif obj_type == 'items':
-                location = "Inventory" if obj.get('player_id') else f"Room {obj.get('room_id', 'None')}"
-                print(f"  • ID {obj['id']}: {obj['name']} ({obj['item_type']})")
-                print(f"    {obj['description']}")
-                print(f"    Value: {obj['value']}, Location: {location}")
-                print(f"    Movable: {'Yes' if obj.get('is_movable', True) else 'No'}, Usable: {'Yes' if obj.get('is_usable', False) else 'No'}")
-            elif obj_type == 'npcs':
-                print(f"  • ID {obj['id']}: {obj['name']} ({obj['npc_type']})")
-                print(f"    {obj['description']}")
-                print(f"    Room: {obj['room_id']}, Health: {obj['health']}/{obj['max_health']}")
-                print(f"    Friendly: {'Yes' if obj.get('is_friendly', False) else 'No'}, Combat: {'Yes' if obj.get('combat_enabled', True) else 'No'}")
-            print()
-    
-    def cmd_show(self, obj_type: str, obj_id: str):
-        """Show detailed information about a specific object"""
-        if not self.validate_object_type(obj_type):
-            return
-        
-        try:
-            obj_id_int = int(obj_id)
-        except ValueError:
-            self.print_error("Object ID must be a number")
-            return
-        
-        endpoint = f"{self.object_types[obj_type]['endpoint'].rstrip('/')}/{obj_id_int}"
-        obj = self.make_request("GET", endpoint)
-        if obj is None:
-            return
-        
-        self.print_header(f"{obj_type.title()} ID {obj_id_int}")
-        print(json.dumps(obj, indent=2))
-    
-    def cmd_create(self, obj_type: str):
-        """Create a new object of the specified type"""
-        if not self.validate_object_type(obj_type):
-            return
-        
-        schema = self.object_types[obj_type]['create_schema']
-        self.print_header(f"Create New {obj_type.title()}")
-        print("Enter the following information (press Enter to use defaults):")
-        print()
-        
-        # Show schema
-        for field, description in schema.items():
-            print(f"  {field}: {description}")
-        print()
-        
-        # Collect data
-        data = {}
-        for field, description in schema.items():
-            if 'default:' in description:
-                default_value = description.split('default:')[1].strip().split(')')[0]
-                if default_value == 'true':
-                    default_value = True
-                elif default_value == 'false':
-                    default_value = False
-                elif default_value.isdigit():
-                    default_value = int(default_value)
-                else:
-                    default_value = default_value.strip("'")
-                
-                user_input = input(f"{field} [{default_value}]: ").strip()
-                if user_input:
-                    # Try to convert to appropriate type
-                    if isinstance(default_value, bool):
-                        data[field] = user_input.lower() in ['true', 'yes', '1', 'on']
-                    elif isinstance(default_value, int):
-                        try:
-                            data[field] = int(user_input)
-                        except ValueError:
-                            self.print_error(f"Invalid integer for {field}")
-                            return
-                    else:
-                        data[field] = user_input
-                else:
-                    data[field] = default_value
-            else:
-                user_input = input(f"{field}: ").strip()
-                if not user_input:
-                    self.print_error(f"{field} is required")
-                    return
-                
-                # Handle required fields
-                if 'integer' in description:
-                    try:
-                        data[field] = int(user_input)
-                    except ValueError:
-                        self.print_error(f"Invalid integer for {field}")
-                        return
-                else:
-                    data[field] = user_input
-        
-        # Confirm creation
-        print()
-        self.print_info("Creating object with the following data:")
-        print(json.dumps(data, indent=2))
-        print()
-        
-        confirm = input("Proceed with creation? (y/N): ").strip().lower()
-        if confirm not in ['y', 'yes']:
-            self.print_info("Creation cancelled")
-            return
-        
-        # Create the object
-        result = self.make_request("POST", self.object_types[obj_type]['endpoint'], data)
-        if result:
-            self.print_success(f"Successfully created {obj_type} with ID {result.get('id', 'unknown')}")
-        else:
-            self.print_error(f"Failed to create {obj_type}")
-    
-    def cmd_delete(self, obj_type: str, obj_id: str):
-        """Delete an object of the specified type"""
-        if not self.validate_object_type(obj_type):
-            return
-        
-        try:
-            obj_id_int = int(obj_id)
-        except ValueError:
-            self.print_error("Object ID must be a number")
-            return
-        
-        # First, show the object to confirm deletion
-        endpoint = f"{self.object_types[obj_type]['endpoint'].rstrip('/')}/{obj_id_int}"
-        obj = self.make_request("GET", endpoint)
-        if obj is None:
-            return
-        
-        self.print_header(f"Delete {obj_type.title()} ID {obj_id_int}")
-        print("Object to delete:")
-        print(json.dumps(obj, indent=2))
-        print()
-        
-        confirm = input("Are you sure you want to delete this object? (y/N): ").strip().lower()
-        if confirm not in ['y', 'yes']:
-            self.print_info("Deletion cancelled")
-            return
-        
-        # Note: The current API doesn't have DELETE endpoints, so we'll show a message
-        self.print_warning("DELETE functionality not yet implemented in the API")
-        self.print_info("You would need to add DELETE endpoints to the API first")
-    
-    def cmd_count(self, obj_type: str):
-        """Count objects of a specific type"""
-        if not self.validate_object_type(obj_type):
-            return
-        
-        objects = self.make_request("GET", self.object_types[obj_type]['endpoint'])
-        if objects is None:
-            return
-        
-        count = len(objects)
-        self.print_info(f"Total {obj_type}: {count}")
-    
-    def cmd_stats(self, *args):
-        """Show database statistics"""
-        self.print_header("Database Statistics")
-        
-        total_stats = {}
-        for obj_type in self.object_types:
-            objects = self.make_request("GET", self.object_types[obj_type]['endpoint'])
-            if objects is not None:
-                count = len(objects)
-                total_stats[obj_type] = count
-                self.print_info(f"{obj_type.title()}: {count}")
-            else:
-                total_stats[obj_type] = 0
-                self.print_error(f"Could not retrieve {obj_type} count")
-        
-        print()
-        total_objects = sum(total_stats.values())
-        self.print_success(f"Total objects in database: {total_objects}")
-    
-    def cmd_help(self, *args):
-        """Show help information"""
-        self.print_header("Admin CLI Help")
-        print("Available Commands:")
-        print()
-        print("📊 Database Management:")
-        print("  list <type>                    - List all objects of a specific type")
-        print("  show <type> <id>              - Show detailed information about an object")
-        print("  create <type>                  - Create a new object of a specific type")
-        print("  delete <type> <id>            - Delete an object (when implemented)")
-        print("  count <type>                   - Count objects of a specific type")
-        print("  stats                          - Show database statistics")
-        print()
-        print("🔧 Object Types:")
-        for obj_type in self.object_types:
-            print(f"  {obj_type:<15} - {obj_type.title()}")
-        print()
-        print("📝 Examples:")
-        print("  list players                   - List all players")
-        print("  show rooms 1                   - Show details of room ID 1")
-        print("  create rooms                   - Create a new room")
-        print("  count items                    - Count total items")
-        print("  stats                          - Show all statistics")
-        print()
-        print("💡 Tips:")
-        print("  - Use 'list <type>' to see what exists before creating")
-        print("  - Use 'show <type> <id>' to examine specific objects")
-        print("  - The create command will prompt for required fields")
-        print("  - Use 'stats' to get an overview of the database")
-        print()
-        print("Other Commands:")
-        print("  help                           - Show this help")
-        print("  quit / exit                    - Exit the admin CLI")
-    
-    def cmd_quit(self, *args):
-        """Quit the admin CLI"""
-        self.print_info("Goodbye!")
-        self.running = False
-    
-    def process_command(self, command: str):
-        """Process a command and execute the appropriate action"""
-        command = command.strip()
-        if not command:
-            return
-        
-        # Try to match the command with patterns
-        import re
-        for pattern, handler in self.commands.items():
-            match = re.match(pattern, command)
-            if match:
-                try:
-                    handler(*match.groups())
-                    return
-                except Exception as e:
-                    self.print_error(f"Error executing command: {e}")
-                    return
-        
-        # If no pattern matches
-        self.print_error(f"Unknown command: {command}. Type 'help' for available commands.")
     
     def run(self):
-        """Main CLI loop"""
-        self.print_header("Game Database Admin CLI")
-        self.print_info("Type 'help' to see available commands")
-        self.print_info("Type 'quit' to exit")
-        print()
+        """Main admin interface loop"""
+        self.print_banner()
         
-        # Show initial stats
-        self.cmd_stats()
-        
-        while self.running:
+        while True:
             try:
-                command = input("\nadmin> ").strip()
-                if command:
-                    self.process_command(command)
+                command = input("\nadmin> ").strip().lower()
+                if not command:
+                    continue
+                
+                # Parse command and arguments
+                parts = command.split()
+                cmd = parts[0]
+                args = parts[1:] if len(parts) > 1 else []
+                
+                # Execute command
+                if cmd in self.commands:
+                    self.commands[cmd](args)
+                else:
+                    print(f"❌ Unknown command: {cmd}")
+                    print("   Type 'help' to see available commands")
+                    
             except KeyboardInterrupt:
-                print()
-                self.cmd_quit()
+                print("\n\nℹ️  Use 'quit' or 'exit' to exit the admin interface")
             except EOFError:
-                self.cmd_quit()
+                print("\n\nℹ️  Goodbye!")
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+    
+    def print_banner(self):
+        """Display the admin interface banner"""
+        print("=" * 60)
+        print(" Game Database Admin CLI ")
+        print("=" * 60)
+        print("\nℹ️  Type 'help' to see available commands")
+        print("ℹ️  Type 'quit' to exit")
+    
+    def api_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict[str, Any]:
+        """Make an API request and return the response"""
+        try:
+            url = f"{self.base_url}{endpoint}"
+            
+            if method.upper() == 'GET':
+                response = self.session.get(url)
+            elif method.upper() == 'POST':
+                response = self.session.post(url, json=data)
+            elif method.upper() == 'PUT':
+                response = self.session.put(url, json=data)
+            elif method.upper() == 'DELETE':
+                response = self.session.delete(url)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            
+            response.raise_for_status()
+            
+            if response.content:
+                return response.json()
+            return {}
+            
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                    raise Exception(f"API Error: {e.response.status_code} - {error_detail}")
+                except:
+                    raise Exception(f"API Error: {e.response.status_code} - {e.response.text}")
+            else:
+                raise Exception(f"Connection Error: {e}")
+    
+    def cmd_list(self, args: List[str]):
+        """List objects of a specific type"""
+        if not args:
+            print("❌ Usage: list <type>")
+            print("   Available types: players, rooms, items, npcs")
+            return
+        
+        obj_type = args[0].lower()
+        if obj_type not in self.object_types:
+            print(f"❌ Unknown object type: {obj_type}")
+            print("   Available types: players, rooms, items, npcs")
+            return
+        
+        try:
+            endpoint = self.object_types[obj_type]['endpoint']
+            response = self.api_request('GET', endpoint)
+            
+            if 'items' in response and response['items']:
+                print(f"\n============================================================")
+                print(f" All {obj_type.title()} ({len(response['items'])} total) ")
+                print(f"============================================================")
+                
+                for obj in response['items']:
+                    if obj_type == 'players':
+                        print(f"  • ID {obj['id']}: {obj['name']} (Lvl {obj['level']}, HP {obj['health']}/{obj['max_health']})")
+                        print(f"    Room: {obj['room_id']}, XP: {obj['experience']}")
+                    elif obj_type == 'rooms':
+                        print(f"  • ID {obj['id']}: {obj['name']}")
+                        print(f"    Description: {obj['description'][:50]}{'...' if len(obj['description']) > 50 else ''}")
+                    elif obj_type == 'items':
+                        print(f"  • ID {obj['id']}: {obj['name']} ({obj['item_type']})")
+                        print(f"    Value: {obj['value']}, Movable: {'Yes' if obj['is_movable'] else 'No'}")
+                        if obj.get('room_id'):
+                            print(f"    Location: Room {obj['room_id']}")
+                        elif obj.get('player_id'):
+                            print(f"    Location: Player {obj['player_id']}")
+                    elif obj_type == 'npcs':
+                        print(f"  • ID {obj['id']}: {obj['name']} ({obj['npc_type']})")
+                        print(f"    Room: {obj['room_id']}, Friendly: {'Yes' if obj['is_friendly'] else 'No'}")
+                        print(f"    Combat: {'Enabled' if obj['combat_enabled'] else 'Disabled'}")
+                    print()
+            else:
+                print(f"ℹ️  No {obj_type} found in the database")
+                
+        except Exception as e:
+            print(f"❌ Error listing {obj_type}: {e}")
+    
+    def cmd_show(self, args: List[str]):
+        """Show details of a specific object"""
+        if len(args) < 2:
+            print("❌ Usage: show <type> <id>")
+            return
+        
+        obj_type = args[0].lower()
+        obj_id = args[1]
+        
+        if obj_type not in self.object_types:
+            print(f"❌ Unknown object type: {obj_type}")
+            return
+        
+        try:
+            endpoint = f"{self.object_types[obj_type]['endpoint']}{obj_id}"
+            obj = self.api_request('GET', endpoint)
+            
+            print(f"\n============================================================")
+            print(f" {obj_type.title()} Details (ID: {obj_id}) ")
+            print(f"============================================================")
+            
+            for key, value in obj.items():
+                if key != 'id':
+                    print(f"  {key.title()}: {value}")
+                    
+        except Exception as e:
+            print(f"❌ Error showing {obj_type} {obj_id}: {e}")
+    
+    def cmd_create(self, args: List[str]):
+        """Create a new object"""
+        if not args:
+            print("❌ Usage: create <type>")
+            print("   Available types: players, rooms, items, npcs")
+            return
+        
+        obj_type = args[0].lower()
+        if obj_type not in self.object_types:
+            print(f"❌ Unknown object type: {obj_type}")
+            return
+        
+        try:
+            print(f"\n============================================================")
+            print(f" Create New {obj_type.title()} ")
+            print(f"============================================================")
+            print("\nEnter the following information (press Enter to use defaults):\n")
+            
+            schema = self.object_types[obj_type]['create_schema']
+            data = {}
+            
+            for field, description in schema.items():
+                if 'required' in description:
+                    value = input(f"  {field}: ")
+                    if not value:
+                        print(f"❌ {field} is required!")
+                        return
+                    data[field] = value
+                else:
+                    default_value = input(f"  {field}: ")
+                    if default_value:
+                        data[field] = default_value
+            
+            # Convert data types
+            for field, value in data.items():
+                if field in ['health', 'max_health', 'level', 'experience', 'value', 'room_id', 'player_id']:
+                    try:
+                        data[field] = int(value)
+                    except ValueError:
+                        print(f"❌ {field} must be a number!")
+                        return
+                elif field in ['is_movable', 'is_usable', 'is_equippable', 'combat_enabled', 'is_friendly']:
+                    if value.lower() in ['true', 'yes', '1']:
+                        data[field] = True
+                    elif value.lower() in ['false', 'no', '0']:
+                        data[field] = False
+                    else:
+                        print(f"❌ {field} must be true/false!")
+                        return
+            
+            # Create the object
+            endpoint = self.object_types[obj_type]['endpoint']
+            response = self.api_request('POST', endpoint, data)
+            
+            print(f"\n✅ {obj_type.title()} created successfully!")
+            print(f"   ID: {response['id']}")
+            print(f"   Name: {response['name']}")
+            
+        except Exception as e:
+            print(f"❌ Error creating {obj_type}: {e}")
+    
+    def cmd_delete(self, args: List[str]):
+        """Delete an object (not yet implemented in the API)"""
+        print("❌ Delete functionality not yet implemented in the API")
+        print("   This will be available when DELETE endpoints are added")
+    
+    def cmd_count(self, args: List[str]):
+        """Count objects of each type"""
+        try:
+            print(f"\n============================================================")
+            print(f" Database Object Counts ")
+            print(f"============================================================")
+            
+            total_count = 0
+            
+            for obj_type in self.object_types:
+                try:
+                    endpoint = self.object_types[obj_type]['endpoint']
+                    response = self.api_request('GET', endpoint)
+                    count = len(response.get('items', []))
+                    total_count += count
+                    print(f"ℹ️  {obj_type.title()}: {count}")
+                except Exception as e:
+                    print(f"❌ Error counting {obj_type}: {e}")
+            
+            print(f"\n✅ Total objects in database: {total_count}")
+            
+        except Exception as e:
+            print(f"❌ Error getting counts: {e}")
+    
+    def cmd_stats(self, args: List[str]):
+        """Show database statistics"""
+        self.cmd_count([])
+    
+    def cmd_help(self, args: List[str]):
+        """Show help information"""
+        print("\n============================================================")
+        print(" Admin CLI Help ")
+        print("============================================================")
+        print("\nAvailable Commands:")
+        print("  list <type>     - List all objects of a specific type")
+        print("  show <type> <id> - Show details of a specific object")
+        print("  create <type>   - Create a new object")
+        print("  delete <type> <id> - Delete an object (not implemented)")
+        print("  count           - Count objects of each type")
+        print("  stats           - Show database statistics")
+        print("  help            - Show this help message")
+        print("  quit/exit       - Exit the admin interface")
+        
+        print("\nObject Types:")
+        print("  players         - Player characters")
+        print("  rooms           - Game world locations")
+        print("  items           - Game objects and equipment")
+        print("  npcs            - Non-player characters")
+        
+        print("\nExamples:")
+        print("  list players    - Show all players")
+        print("  show rooms 1    - Show details of room 1")
+        print("  create players  - Create a new player")
+        print("  count           - Show object counts")
+    
+    def cmd_quit(self, args: List[str]):
+        """Exit the admin interface"""
+        print("ℹ️  Goodbye!")
+        sys.exit(0)
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description="Admin CLI for managing the Game API database")
-    parser.add_argument("--url", default="http://localhost:8000", 
-                       help="Base URL for the Game API (default: http://localhost:8000)")
-    
-    args = parser.parse_args()
-    
-    admin = GameAdmin(args.url)
-    
     try:
+        admin = GameAdmin()
         admin.run()
     except KeyboardInterrupt:
-        print("\nGoodbye!")
+        print("\n\nℹ️  Goodbye!")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
