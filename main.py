@@ -14,6 +14,8 @@ from websocket_manager import manager
 from chat_system import chat_manager, ChatType
 from world import world
 from npc_turns import run_npc_turn, build_llm_npc, build_context
+from combat import run_combat_round
+import game_loop
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
@@ -52,9 +54,14 @@ async def startup_event():
         print(f"⚠️  Warning: Could not initialize DeepSeek NPC system: {e}")
         print("   NPCs will use rule-based responses instead.")
 
+    # Start the background tick loop
+    game_loop.start()
+    print(f"⏱️  Game loop started (tick every {game_loop.TICK_SECONDS}s)")
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up services on shutdown"""
+    game_loop.stop()
     try:
         await cleanup_deepseek_npcs()
         print("🧹 DeepSeek NPC system cleaned up successfully!")
@@ -229,8 +236,22 @@ async def _handle_ws_command(player_id: int, player_name: str, raw: str):
         )
         asyncio.create_task(run_npc_turn(player_id, room_id, int(npc_id), text))
 
+    elif cmd == "attack":
+        npc_id = msg.get("npc_id")
+        if npc_id is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "attack requires 'npc_id'"}
+            )
+            return
+        node = world.rooms.get(room_id)
+        if node is None or int(npc_id) not in node.npc_ids:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": f"No NPC {npc_id} in this room"}
+            )
+            return
+        await run_combat_round(player_id, room_id, int(npc_id))
+
     else:
-        # attack arrives in step 4
         await manager.send_personal_message(
             player_id, {"event": "error", "detail": f"Unknown or unsupported command: {cmd!r}"}
         )
