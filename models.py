@@ -34,6 +34,15 @@ class AbilityScoresMixin:
         """Get all ability modifiers as a dictionary"""
         return {ability: self.ability_mod(ability) for ability in ["str", "dex", "con", "intel", "wis", "cha"]}
 
+    @property
+    def abilities(self) -> dict[str, int]:
+        """Ability scores as a dict, so response schemas (PlayerOut/NpcOut)
+        can serialize the flat columns into a nested ``abilities`` object."""
+        return {
+            "str": self.str, "dex": self.dex, "con": self.con,
+            "intel": self.intel, "wis": self.wis, "cha": self.cha,
+        }
+
 # ---------- Base Models ----------
 class Room(Base):
     """Room model representing locations in the game world"""

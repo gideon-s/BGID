@@ -2,6 +2,7 @@
 Main FastAPI application for the RPG Game API
 """
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import asyncio
@@ -291,28 +292,30 @@ def perform_action(action_request: schemas.ActionRequest):
 def send_chat_message(message: ChatMessageRequest):
     """Send a chat message"""
     db = next(get_db())
-    
-    # Create the chat message
+
+    # Resolve the sender's display name from the DB (request only carries sender_id)
+    sender = PlayerService.get_player(db, message.sender_id)
+    sender_name = sender.name if sender else f"Player {message.sender_id}"
+
+    # Create the chat message via the in-memory ChatManager
     message_obj = chat_manager.create_message(
-        db=db,
         sender_id=message.sender_id,
-        sender_name=message.sender_name,
+        sender_name=sender_name,
         message_type=message.message_type,
         content=message.content,
         target_id=message.target_id,
-        metadata=message.metadata
     )
-    
+
     # Convert to response format
     return ChatMessageResponse(
         id=message_obj.id,
         sender_id=message_obj.sender_id,
         sender_name=message_obj.sender_name,
-        message_type=message_obj.message_type.value,
+        message_type=message_obj.message_type,
         content=message_obj.content,
-        timestamp=message_obj.timestamp.isoformat(),
+        timestamp=message_obj.timestamp,
         target_id=message_obj.target_id,
-        metadata=message_obj.metadata
+        metadata=message_obj.metadata,
     )
 
 @app.get("/chat/history/{chat_type}", tags=["Chat"])
@@ -322,34 +325,40 @@ def get_chat_history(
     limit: int = Query(50, ge=1, le=1000)
 ):
     """Get chat history for a specific chat type"""
-    db = next(get_db())
-    
-    messages = chat_manager.get_messages(
-        db=db,
-        chat_type=chat_type,
-        target_id=target_id,
-        limit=limit
-    )
-    
+    # Dispatch to the appropriate in-memory store by chat type
+    if chat_type == ChatType.GLOBAL:
+        messages = chat_manager.get_global_messages(limit)
+    elif chat_type == ChatType.ROOM:
+        if target_id is None:
+            raise HTTPException(status_code=400, detail="target_id (room_id) is required for room history")
+        messages = chat_manager.get_room_messages(target_id, limit)
+    elif chat_type == ChatType.PRIVATE:
+        if target_id is None:
+            raise HTTPException(status_code=400, detail="target_id (player_id) is required for private history")
+        messages = chat_manager.get_private_messages(target_id, limit)
+    else:
+        messages = []
+
     # Convert messages to response format
-    response_messages = []
-    for msg in messages:
-        response_messages.append(ChatMessageResponse(
+    response_messages = [
+        ChatMessageResponse(
             id=msg.id,
             sender_id=msg.sender_id,
             sender_name=msg.sender_name,
-            message_type=msg.message_type.value,
+            message_type=msg.message_type,
             content=msg.content,
-            timestamp=msg.timestamp.isoformat(),
+            timestamp=msg.timestamp,
             target_id=msg.target_id,
-            metadata=msg.metadata
-        ))
-    
+            metadata=msg.metadata,
+        )
+        for msg in messages
+    ]
+
     return {
         "messages": response_messages,
-        "total_count": len(messages),
+        "total_count": len(response_messages),
         "chat_type": chat_type,
-        "target_id": target_id
+        "target_id": target_id,
     }
 
 # Map stored npc_type strings to NPC roles for the LLM prompt
@@ -434,26 +443,38 @@ async def health_check():
     }
 
 # ---------- Error Handlers ----------
+def _error_response(status_code: int, error: str, details: str) -> JSONResponse:
+    """Build a JSONResponse from the standard ErrorResponse schema.
+
+    Exception handlers must return a Response, not a bare Pydantic model
+    (returning the model raised 'ErrorResponse object is not callable' and
+    masked every underlying error).
+    """
+    return JSONResponse(
+        status_code=status_code,
+        content=schemas.ErrorResponse(error=error, details=details).model_dump(mode="json"),
+    )
+
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
     """Handle 404 errors"""
-    return schemas.ErrorResponse(
-        error="Not Found",
-        details=f"The requested resource was not found: {request.url.path}"
+    return _error_response(
+        404, "Not Found",
+        f"The requested resource was not found: {request.url.path}",
     )
 
 @app.exception_handler(422)
 async def validation_error_handler(request, exc):
     """Handle validation errors"""
-    return schemas.ErrorResponse(
-        error="Validation Error",
-        details="The request data is invalid. Please check your input."
+    return _error_response(
+        422, "Validation Error",
+        "The request data is invalid. Please check your input.",
     )
 
 @app.exception_handler(500)
 async def internal_error_handler(request, exc):
     """Handle internal server errors"""
-    return schemas.ErrorResponse(
-        error="Internal Server Error",
-        details="An unexpected error occurred. Please try again later."
+    return _error_response(
+        500, "Internal Server Error",
+        "An unexpected error occurred. Please try again later.",
     )
