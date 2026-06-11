@@ -11,8 +11,8 @@ from database import engine, get_db
 from websocket_manager import manager
 from chat_system import chat_manager, ChatType
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
-from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats
-from ollama_integration import initialize_ollama_npcs, cleanup_ollama_npcs
+from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
+from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
 from services import PlayerService, RoomService, ItemService, NpcService, GameActionService
 from config import HOST, PORT, DEBUG
 from utils import log_action
@@ -35,20 +35,20 @@ app = FastAPI(
 async def startup_event():
     """Initialize services on startup"""
     try:
-        await initialize_ollama_npcs()
-        print("🚀 Ollama NPC system initialized successfully!")
+        await initialize_deepseek_npcs()
+        print("🚀 DeepSeek NPC system initialized successfully!")
     except Exception as e:
-        print(f"⚠️  Warning: Could not initialize Ollama NPC system: {e}")
+        print(f"⚠️  Warning: Could not initialize DeepSeek NPC system: {e}")
         print("   NPCs will use rule-based responses instead.")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up services on shutdown"""
     try:
-        await cleanup_ollama_npcs()
-        print("🧹 Ollama NPC system cleaned up successfully!")
+        await cleanup_deepseek_npcs()
+        print("🧹 DeepSeek NPC system cleaned up successfully!")
     except Exception as e:
-        print(f"⚠️  Warning: Error cleaning up Ollama NPC system: {e}")
+        print(f"⚠️  Warning: Error cleaning up DeepSeek NPC system: {e}")
 
 # ---------- Root Endpoint ----------
 @app.get("/", tags=["Root"])
@@ -287,7 +287,7 @@ def perform_action(action_request: schemas.ActionRequest):
     return GameActionService.perform_action(db, action_request)
 
 # ---------- Chat Endpoints ----------
-@app.post("/chat/send", response_model=schemas.ChatMessageResponse, tags=["Chat"])
+@app.post("/chat/send", response_model=ChatMessageResponse, tags=["Chat"])
 def send_chat_message(message: ChatMessageRequest):
     """Send a chat message"""
     db = next(get_db())
@@ -304,7 +304,7 @@ def send_chat_message(message: ChatMessageRequest):
     )
     
     # Convert to response format
-    return schemas.ChatMessageResponse(
+    return ChatMessageResponse(
         id=message_obj.id,
         sender_id=message_obj.sender_id,
         sender_name=message_obj.sender_name,
@@ -334,7 +334,7 @@ def get_chat_history(
     # Convert messages to response format
     response_messages = []
     for msg in messages:
-        response_messages.append(schemas.ChatMessageResponse(
+        response_messages.append(ChatMessageResponse(
             id=msg.id,
             sender_id=msg.sender_id,
             sender_name=msg.sender_name,
@@ -352,36 +352,70 @@ def get_chat_history(
         "target_id": target_id
     }
 
+# Map stored npc_type strings to NPC roles for the LLM prompt
+_NPC_TYPE_TO_ROLE = {
+    "merchant": NPCRole.MERCHANT,
+    "quest_giver": NPCRole.QUEST_GIVER,
+    "combat_mob": NPCRole.COMBAT_MOB,
+    "informant": NPCRole.INFORMANT,
+    "companion": NPCRole.COMPANION,
+    "boss": NPCRole.BOSS,
+}
+
 @app.post("/chat/npc", tags=["Chat"])
-def chat_with_npc(request: NPCChatRequest):
-    """Chat with an NPC using LLM integration"""
+async def chat_with_npc(request: NPCChatRequest):
+    """Chat with an NPC using LLM (DeepSeek) integration.
+
+    Falls back to rule-based responses automatically if DeepSeek is not
+    configured/available (handled inside BaseLLMNPC.generate_response).
+    """
     db = next(get_db())
-    
+
     # Get NPC and player
     npc = NpcService.get_npc(db, request.npc_id)
     if not npc:
         raise HTTPException(status_code=404, detail="NPC not found")
-    
+
     player = PlayerService.get_player(db, request.player_id)
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
-    
+
     # Generate NPC response
     try:
-        response = chat_manager.generate_npc_response(
-            npc=npc,
-            player=player,
-            message=request.message,
-            context=request.context
+        # Build an LLM-capable NPC from the stored record
+        role = _NPC_TYPE_TO_ROLE.get(npc.npc_type, NPCRole.INFORMANT)
+        disposition = NPCDisposition.FRIENDLY if npc.is_friendly else NPCDisposition.NEUTRAL
+        stats = NPCStats(health=npc.health, max_health=npc.max_health)
+        llm_npc = BaseLLMNPC(
+            npc_id=npc.id,
+            name=npc.name,
+            description=npc.description,
+            disposition=disposition,
+            role=role,
+            stats=stats,
         )
-        
+
+        # Build interaction context from current player/NPC state.
+        # (Reputation/gold are not modeled yet, so they default to 0.)
+        context = NPCContext(
+            player_level=player.level,
+            player_reputation=0,
+            player_health=player.health,
+            player_gold=0,
+            room_id=player.room_id,
+        )
+
+        response = await llm_npc.generate_response(request.message, context)
+
         return {
             "npc_id": npc.id,
             "npc_name": npc.name,
             "response": response,
-            "timestamp": datetime.now().isoformat()
+            "disposition": llm_npc.get_disposition_towards_player(context).value,
+            "should_attack": llm_npc.should_attack_player(context),
+            "timestamp": datetime.now().isoformat(),
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating NPC response: {str(e)}")
 

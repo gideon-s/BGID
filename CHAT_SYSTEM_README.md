@@ -149,10 +149,10 @@ The current system uses rule-based responses as a placeholder. To integrate with
        return response.choices[0].message.content
    ```
 
-2. **Local LLM Support**:
-   - Ollama integration for local models
-   - LlamaCpp for lightweight inference
-   - Custom fine-tuned models
+2. **LLM Support**:
+   - DeepSeek API integration (OpenAI-compatible) for NPC responses
+   - Swappable to any OpenAI-compatible endpoint via `DEEPSEEK_BASE_URL`
+   - Automatic rule-based fallback when no API key is configured
 
 ### Advanced NPC Features
 

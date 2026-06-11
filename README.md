@@ -136,7 +136,7 @@ app/
 ├── websocket_manager.py # WebSocket connection management
 ├── chat_system.py       # Chat functionality
 ├── llm_npcs.py          # AI-powered NPC system
-├── ollama_integration.py # Ollama LLM integration
+├── deepseek_integration.py # DeepSeek LLM integration
 ├── requirements.txt     # Python dependencies
 └── README.md            # This file
 ```

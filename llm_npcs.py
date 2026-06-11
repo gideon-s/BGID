@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 import random
-from ollama_integration import initialize_ollama_npcs, npc_manager
+import deepseek_integration
 
 class NPCDisposition(Enum):
     """How the NPC feels about the player"""
@@ -78,11 +78,12 @@ class BaseLLMNPC:
         - Current context
         - Conversation history
         """
-        # Try to use Ollama first, fallback to rule-based if not available
+        # Try to use the LLM (DeepSeek) first, fallback to rule-based if not available
         try:
-            if npc_manager and npc_manager.client:
-                # Use Ollama for intelligent responses
-                response = await npc_manager.generate_npc_response(
+            manager = deepseek_integration.npc_manager
+            if manager and manager.client:
+                # Use DeepSeek for intelligent responses
+                response = await manager.generate_npc_response(
                     npc_id=self.npc_id,
                     npc_name=self.name,
                     npc_role=self.role.value,
@@ -102,7 +103,7 @@ class BaseLLMNPC:
                 self._update_conversation_history(player_message, response, context)
                 return response
         except Exception as e:
-            print(f"Ollama not available, using rule-based responses: {e}")
+            print(f"DeepSeek not available, using rule-based responses: {e}")
         
         # Fallback to rule-based responses
         response = await self._rule_based_response(player_message, context)

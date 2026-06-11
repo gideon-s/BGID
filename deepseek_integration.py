@@ -1,98 +1,121 @@
 #!/usr/bin/env python3
 """
-Ollama Integration for LLM-Powered NPCs
-Uses local Mistral model for intelligent NPC responses
+DeepSeek Integration for LLM-Powered NPCs
+
+Uses the DeepSeek API (OpenAI-compatible) for intelligent NPC responses.
+Requires a DEEPSEEK_API_KEY (see config.py / .env).
+
+This module is a drop-in replacement for the previous Ollama integration and
+preserves the same public surface:
+    - initialize_deepseek_npcs() / cleanup_deepseek_npcs()
+    - global `npc_manager`
+    - DeepSeekNPCManager.generate_npc_response(...)
 """
 
 import asyncio
-import json
-import aiohttp
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
+from openai import AsyncOpenAI
+
+import config
+
+
 @dataclass
-class OllamaConfig:
-    """Configuration for Ollama integration"""
-    base_url: str = "http://localhost:11434"
-    model: str = "mistral"
+class DeepSeekConfig:
+    """Configuration for DeepSeek integration"""
+    api_key: str = ""
+    base_url: str = "https://api.deepseek.com"
+    model: str = "deepseek-chat"
     temperature: float = 0.7
     max_tokens: int = 500
     timeout: int = 30
 
-class OllamaClient:
-    """Client for interacting with Ollama API"""
-    
-    def __init__(self, config: OllamaConfig = None):
-        self.config = config or OllamaConfig()
-        self.session: Optional[aiohttp.ClientSession] = None
-    
+    @classmethod
+    def from_settings(cls) -> "DeepSeekConfig":
+        """Build a config from the project's config.py / environment."""
+        return cls(
+            api_key=config.DEEPSEEK_API_KEY,
+            base_url=config.DEEPSEEK_BASE_URL,
+            model=config.DEEPSEEK_MODEL,
+            temperature=config.DEEPSEEK_TEMPERATURE,
+            max_tokens=config.DEEPSEEK_MAX_TOKENS,
+            timeout=config.DEEPSEEK_TIMEOUT,
+        )
+
+
+class DeepSeekClient:
+    """Client for interacting with the DeepSeek API (OpenAI-compatible)"""
+
+    def __init__(self, cfg: DeepSeekConfig = None):
+        self.config = cfg or DeepSeekConfig.from_settings()
+        self.client: Optional[AsyncOpenAI] = None
+
     async def __aenter__(self):
         """Async context manager entry"""
-        self.session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=self.config.timeout)
+        if not self.config.api_key:
+            raise RuntimeError(
+                "DEEPSEEK_API_KEY is not set. Add it to your environment or .env file."
+            )
+        self.client = AsyncOpenAI(
+            api_key=self.config.api_key,
+            base_url=self.config.base_url,
+            timeout=self.config.timeout,
         )
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit"""
-        if self.session:
-            await self.session.close()
-    
+        if self.client:
+            await self.client.close()
+
     async def generate_response(self, prompt: str, system_prompt: str = None) -> str:
-        """Generate a response using Ollama"""
-        if not self.session:
+        """Generate a response using DeepSeek's chat completions API"""
+        if not self.client:
             raise RuntimeError("Client not initialized. Use async context manager.")
-        
-        # Prepare the request payload
-        payload = {
-            "model": self.config.model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": self.config.temperature,
-                "num_predict": self.config.max_tokens
-            }
-        }
-        
+
+        messages: List[Dict[str, str]] = []
         if system_prompt:
-            payload["system"] = system_prompt
-        
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
         try:
-            async with self.session.post(
-                f"{self.config.base_url}/api/generate",
-                json=payload
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    return result.get("response", "").strip()
-                else:
-                    error_text = await response.text()
-                    raise Exception(f"Ollama API error {response.status}: {error_text}")
-        
+            response = await self.client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+                stream=False,
+            )
+            return (response.choices[0].message.content or "").strip()
+
         except asyncio.TimeoutError:
-            raise Exception("Request to Ollama timed out")
+            raise Exception("Request to DeepSeek timed out")
         except Exception as e:
-            raise Exception(f"Error calling Ollama: {e}")
-    
+            raise Exception(f"Error calling DeepSeek: {e}")
+
     async def test_connection(self) -> bool:
-        """Test if Ollama is running and accessible"""
-        try:
-            async with self.session.get(f"{self.config.base_url}/api/tags") as response:
-                return response.status == 200
-        except:
+        """Test if the DeepSeek API is reachable and the key is valid"""
+        if not self.client:
             return False
+        try:
+            await self.client.models.list()
+            return True
+        except Exception:
+            return False
+
 
 class NPCPromptBuilder:
     """Builds context-aware prompts for NPCs"""
-    
+
     @staticmethod
-    def build_system_prompt(npc_name: str, npc_role: str, personality_traits: List[str], 
-                           knowledge_domains: List[str]) -> str:
+    def build_system_prompt(npc_name: str, npc_role: str, personality_traits: List[str],
+                            knowledge_domains: List[str]) -> str:
         """Build the system prompt for an NPC"""
         traits_str = ", ".join(personality_traits)
         domains_str = ", ".join(knowledge_domains)
-        
-        return f"""You are {npc_name}, a {npc_role} in a fantasy RPG game. 
+
+        return f"""You are {npc_name}, a {npc_role} in a fantasy RPG game.
 
 Your personality traits are: {traits_str}
 Your areas of expertise include: {domains_str}
@@ -124,86 +147,95 @@ Player Context:
 Player Message: {player_message}
 
 Respond naturally as your character would to this player in this context."""
-        
+
         return context_str
 
-class OllamaNPCManager:
-    """Manages LLM-powered NPC interactions using Ollama"""
-    
-    def __init__(self, config: OllamaConfig = None):
-        self.config = config or OllamaConfig()
-        self.client: Optional[OllamaClient] = None
+
+class DeepSeekNPCManager:
+    """Manages LLM-powered NPC interactions using DeepSeek"""
+
+    def __init__(self, cfg: DeepSeekConfig = None):
+        self.config = cfg or DeepSeekConfig.from_settings()
+        self.client: Optional[DeepSeekClient] = None
         self.prompt_builder = NPCPromptBuilder()
         self.conversation_cache: Dict[int, List[Dict]] = {}  # npc_id -> conversation history
-    
+
     async def initialize(self):
-        """Initialize the Ollama client"""
-        self.client = OllamaClient(self.config)
-        await self.client.__aenter__()
-        
-        # Test connection
-        if not await self.client.test_connection():
-            raise Exception("Cannot connect to Ollama. Make sure it's running on localhost:11434")
-        
-        print("✅ Connected to Ollama successfully!")
-    
+        """Initialize the DeepSeek client.
+
+        On failure, leaves ``self.client`` as ``None`` so the manager never
+        looks "ready" when it isn't (callers fall back to rule-based replies).
+        """
+        client = DeepSeekClient(self.config)
+        await client.__aenter__()
+
+        # Test connection; tear down on failure so we don't leak a half-open client
+        if not await client.test_connection():
+            await client.__aexit__(None, None, None)
+            raise Exception(
+                "Cannot connect to DeepSeek. Check DEEPSEEK_API_KEY and network access."
+            )
+
+        self.client = client
+        print("✅ Connected to DeepSeek successfully!")
+
     async def cleanup(self):
         """Clean up resources"""
         if self.client:
             await self.client.__aexit__(None, None, None)
-    
+
     async def generate_npc_response(self, npc_id: int, npc_name: str, npc_role: str,
                                   personality_traits: List[str], knowledge_domains: List[str],
                                   player_message: str, context: Dict[str, Any]) -> str:
-        """Generate an intelligent NPC response using Ollama"""
-        
+        """Generate an intelligent NPC response using DeepSeek"""
+
         if not self.client:
-            raise Exception("Ollama client not initialized. Call initialize() first.")
-        
+            raise Exception("DeepSeek client not initialized. Call initialize() first.")
+
         try:
             # Build the system prompt for this NPC
             system_prompt = self.prompt_builder.build_system_prompt(
                 npc_name, npc_role, personality_traits, knowledge_domains
             )
-            
+
             # Build the user prompt with context
             user_prompt = self.prompt_builder.build_user_prompt(player_message, context)
-            
-            # Generate response using Ollama
+
+            # Generate response using DeepSeek
             response = await self.client.generate_response(user_prompt, system_prompt)
-            
+
             # Cache the conversation
             self._cache_conversation(npc_id, player_message, response, context)
-            
+
             return response
-            
+
         except Exception as e:
             print(f"Error generating NPC response: {e}")
             # Fallback to a simple response
             return f"{npc_name} seems distracted and gives you a brief response: 'I'm not sure about that.'"
-    
+
     def _cache_conversation(self, npc_id: int, player_message: str, npc_response: str, context: Dict[str, Any]):
         """Cache conversation history for context"""
         if npc_id not in self.conversation_cache:
             self.conversation_cache[npc_id] = []
-        
+
         conversation_entry = {
             'timestamp': asyncio.get_event_loop().time(),
             'player_message': player_message,
             'npc_response': npc_response,
             'context': context
         }
-        
+
         self.conversation_cache[npc_id].append(conversation_entry)
-        
+
         # Keep only last 10 conversations per NPC
         if len(self.conversation_cache[npc_id]) > 10:
             self.conversation_cache[npc_id].pop(0)
-    
+
     def get_conversation_history(self, npc_id: int) -> List[Dict]:
         """Get conversation history for an NPC"""
         return self.conversation_cache.get(npc_id, [])
-    
+
     def clear_conversation_history(self, npc_id: int = None):
         """Clear conversation history"""
         if npc_id is None:
@@ -211,23 +243,29 @@ class OllamaNPCManager:
         else:
             self.conversation_cache.pop(npc_id, None)
 
-# Global instance
-npc_manager: Optional[OllamaNPCManager] = None
 
-async def initialize_ollama_npcs(config: OllamaConfig = None) -> OllamaNPCManager:
-    """Initialize the global Ollama NPC manager"""
+# Global instance
+npc_manager: Optional[DeepSeekNPCManager] = None
+
+
+async def initialize_deepseek_npcs(cfg: DeepSeekConfig = None) -> DeepSeekNPCManager:
+    """Initialize the global DeepSeek NPC manager"""
     global npc_manager
-    
+
     if npc_manager is None:
-        npc_manager = OllamaNPCManager(config)
-        await npc_manager.initialize()
-    
+        manager = DeepSeekNPCManager(cfg)
+        # Only publish the global once initialization fully succeeds, so a
+        # failed init doesn't leave a half-built manager that looks ready.
+        await manager.initialize()
+        npc_manager = manager
+
     return npc_manager
 
-async def cleanup_ollama_npcs():
-    """Clean up the global Ollama NPC manager"""
+
+async def cleanup_deepseek_npcs():
+    """Clean up the global DeepSeek NPC manager"""
     global npc_manager
-    
+
     if npc_manager:
         await npc_manager.cleanup()
         npc_manager = None

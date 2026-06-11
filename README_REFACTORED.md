@@ -17,7 +17,7 @@ app/
 ├── chat_system.py         # Chat message handling
 ├── chat_schemas.py        # Chat-specific schemas
 ├── llm_npcs.py           # LLM-powered NPC system
-├── ollama_integration.py  # Ollama LLM integration
+├── deepseek_integration.py # DeepSeek LLM integration
 ├── admin.py               # Admin CLI for database management
 ├── cli.py                 # Game CLI interface
 ├── websocket_cli.py       # WebSocket-enabled CLI
@@ -182,10 +182,11 @@ DEFAULT_PLAYER_LEVEL=1
 DEFAULT_ABILITY_SCORE=10
 DEFAULT_NPC_HEALTH=8
 
-# Ollama (LLM)
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.2:3b
-OLLAMA_TIMEOUT=30
+# DeepSeek (LLM)
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_TIMEOUT=30
 ```
 
 ## 🎯 Game Features

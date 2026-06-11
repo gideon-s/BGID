@@ -4,6 +4,11 @@ Configuration settings for the RPG Game API
 import os
 from typing import Optional
 
+from dotenv import load_dotenv
+
+# Load environment variables from a local .env file if present
+load_dotenv()
+
 # Database Configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./game.db")
 DATABASE_ECHO = os.getenv("DATABASE_ECHO", "false").lower() == "true"
@@ -24,10 +29,15 @@ DEFAULT_NPC_HEALTH = 8
 WEBSOCKET_PING_INTERVAL = 20
 WEBSOCKET_PING_TIMEOUT = 20
 
-# Ollama Configuration
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "30"))
+# DeepSeek (LLM) Configuration
+# DeepSeek exposes an OpenAI-compatible API. Set DEEPSEEK_API_KEY in your
+# environment or .env file. Get a key at https://platform.deepseek.com/
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_TEMPERATURE = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.7"))
+DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "500"))
+DEEPSEEK_TIMEOUT = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
 # Chat Configuration
 MAX_CHAT_MESSAGE_LENGTH = 1000
