@@ -138,13 +138,20 @@ that day comes. Do not build it now.
 
 Each step keeps the app runnable.
 
-1. **WorldState** — load rooms/NPCs/items/player-locations from DB at startup;
-   room snapshots; player presence; `move_player` write-through.  ← *in progress*
-2. **Real `/ws` handler** — replace the echo stub: on connect, join the world
-   and send `room_state`; handle `look` / `move` / `say` with room broadcast.
-3. **NPCTurnManager** — wire `talk` to the async DeepSeek push (reusing the
-   working LLM path).
-4. **Combat & tick** — `attack`, combat resolution, optional periodic tick.
+1. ✅ **WorldState** (`world.py`) — load rooms/NPCs/items/player-locations from
+   DB at startup; room snapshots; player presence; `move_player` write-through.
+2. ✅ **Real `/ws` handler** — on connect, join the world and send `room_state`;
+   `look` / `move` / `say` with room broadcast; presence enter/leave.
+3. ✅ **NPC turns** (`npc_turns.py`) — `talk` runs the DeepSeek call as a
+   fire-and-forget task and broadcasts `npc_thinking` / `npc_said` room-wide.
+4. ✅ **Combat & tick** (`combat.py`, `game_loop.py`) — `attack` (turn-based,
+   death/respawn, room-wide) and a periodic NPC-regen tick.
+
+### Future
+- Directional room exits (a room-graph model) so `move` takes `dir`, not `room_id`.
+- Per-NPC conversation memory across `talk` turns.
+- Richer combat (initiative, abilities, NpcReaction-driven aggro) and a real
+  NPC AI tick (wandering, hostiles engaging on sight).
 
 ### Out of scope here (tracked separately)
 - Reactions endpoint (`/npcs/{id}/reaction/...`) the CLIs expect (P1).
