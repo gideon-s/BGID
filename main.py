@@ -11,6 +11,7 @@ import schemas
 from database import engine, get_db
 from websocket_manager import manager
 from chat_system import chat_manager, ChatType
+from world import world
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
@@ -35,6 +36,13 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
+    # Load the authoritative in-memory world from the DB
+    try:
+        world.load()
+        print(f"🌍 World loaded: {len(world.rooms)} rooms")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not load world state: {e}")
+
     try:
         await initialize_deepseek_npcs()
         print("🚀 DeepSeek NPC system initialized successfully!")
