@@ -13,6 +13,7 @@ from database import engine, get_db
 from websocket_manager import manager
 from chat_system import chat_manager, ChatType
 from world import world
+from npc_turns import run_npc_turn, build_llm_npc, build_context
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
@@ -206,8 +207,30 @@ async def _handle_ws_command(player_id: int, player_name: str, raw: str):
             player_id, {"event": "room_state", **world.room_snapshot(new_room)}
         )
 
+    elif cmd == "talk":
+        npc_id = msg.get("npc_id")
+        text = (msg.get("text") or "").strip()
+        if npc_id is None or not text:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "talk requires 'npc_id' and non-empty 'text'"}
+            )
+            return
+        node = world.rooms.get(room_id)
+        if node is None or int(npc_id) not in node.npc_ids:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": f"No NPC {npc_id} in this room"}
+            )
+            return
+        # Show the room what was asked, then run the NPC's turn without blocking
+        await manager.broadcast_to_room(
+            room_id,
+            {"event": "chat", "from": player_name, "player_id": player_id,
+             "text": text, "to_npc": int(npc_id)},
+        )
+        asyncio.create_task(run_npc_turn(player_id, room_id, int(npc_id), text))
+
     else:
-        # talk/attack arrive in steps 3 and 4
+        # attack arrives in step 4
         await manager.send_personal_message(
             player_id, {"event": "error", "detail": f"Unknown or unsupported command: {cmd!r}"}
         )
@@ -452,16 +475,6 @@ def get_chat_history(
         "target_id": target_id,
     }
 
-# Map stored npc_type strings to NPC roles for the LLM prompt
-_NPC_TYPE_TO_ROLE = {
-    "merchant": NPCRole.MERCHANT,
-    "quest_giver": NPCRole.QUEST_GIVER,
-    "combat_mob": NPCRole.COMBAT_MOB,
-    "informant": NPCRole.INFORMANT,
-    "companion": NPCRole.COMPANION,
-    "boss": NPCRole.BOSS,
-}
-
 @app.post("/chat/npc", tags=["Chat"])
 async def chat_with_npc(request: NPCChatRequest):
     """Chat with an NPC using LLM (DeepSeek) integration.
@@ -482,28 +495,10 @@ async def chat_with_npc(request: NPCChatRequest):
 
     # Generate NPC response
     try:
-        # Build an LLM-capable NPC from the stored record
-        role = _NPC_TYPE_TO_ROLE.get(npc.npc_type, NPCRole.INFORMANT)
-        disposition = NPCDisposition.FRIENDLY if npc.is_friendly else NPCDisposition.NEUTRAL
-        stats = NPCStats(health=npc.health, max_health=npc.max_health)
-        llm_npc = BaseLLMNPC(
-            npc_id=npc.id,
-            name=npc.name,
-            description=npc.description,
-            disposition=disposition,
-            role=role,
-            stats=stats,
-        )
-
-        # Build interaction context from current player/NPC state.
-        # (Reputation/gold are not modeled yet, so they default to 0.)
-        context = NPCContext(
-            player_level=player.level,
-            player_reputation=0,
-            player_health=player.health,
-            player_gold=0,
-            room_id=player.room_id,
-        )
+        # Build an LLM-capable NPC + context from the stored records
+        # (shared with the realtime talk path — see npc_turns.py)
+        llm_npc = build_llm_npc(npc)
+        context = build_context(player)
 
         response = await llm_npc.generate_response(request.message, context)
 
