@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import asyncio
+import json
 import models
 import schemas
 from database import engine, get_db
@@ -81,53 +82,135 @@ async def root():
 # ---------- WebSocket Endpoint ----------
 @app.websocket("/ws/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, player_id: int):
-    """WebSocket endpoint for real-time multiplayer communication"""
-    # Verify player exists
+    """Realtime gameplay channel.
+
+    On connect: place the player in the world, subscribe to their room, send a
+    room_state snapshot, and announce them to the room. Then dispatch inbound
+    commands (look/move/say). See ARCHITECTURE.md for the message protocol.
+    """
+    # Verify the player exists (capture the name before closing the session)
     db = next(get_db())
     player = PlayerService.get_player(db, player_id)
-    if not player:
+    player_name = player.name if player else None
+    db.close()
+    if not player_name:
         await websocket.close(code=4004, reason="Player not found")
         return
-    
-    # Connect the player
+
     await manager.connect(websocket, player_id)
-    
-    # Subscribe to their current room
-    if player.room_id:
-        manager.subscribe_to_room(player_id, player.room_id)
-        
-        # Notify others that player joined
-        player_info = {
-            "id": player.id,
-            "name": player.name,
-            "level": player.level
-        }
-        await manager.broadcast_player_joined(player_id, player.room_id, player_info)
-    
-    try:
-        # Keep connection alive and handle incoming messages
-        while True:
-            data = await websocket.receive_text()
-            
-            # For now, just echo back (we can expand this later)
-            await manager.send_personal_message(player_id, {
-                "type": "echo",
-                "message": f"Received: {data}"
-            })
-            
-    except WebSocketDisconnect:
-        # Player disconnected
-        if player.room_id:
-            # Notify others that player left
-            player_info = {
-                "id": player.id,
-                "name": player.name,
-                "level": player.level
-            }
-            await manager.broadcast_player_left(player_id, player.room_id, player_info)
-        
+
+    # Place the player into the authoritative world
+    room_id = world.enter_world(player_id)
+    if room_id is None:
+        await manager.send_personal_message(
+            player_id, {"event": "error", "detail": "Could not place you in the world"}
+        )
         manager.disconnect(player_id)
-        db.close()
+        await websocket.close(code=4000, reason="No room")
+        return
+
+    manager.subscribe_to_room(player_id, room_id)
+    # Initial snapshot to the joining player
+    await manager.send_personal_message(
+        player_id, {"event": "room_state", **world.room_snapshot(room_id)}
+    )
+    # Announce to everyone else in the room
+    await manager.broadcast_to_room(
+        room_id,
+        {"event": "player_entered", "player_id": player_id, "name": player_name},
+        exclude_player=player_id,
+    )
+
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            await _handle_ws_command(player_id, player_name, raw)
+    except WebSocketDisconnect:
+        left_room = world.leave_world(player_id)
+        if left_room is not None:
+            await manager.broadcast_to_room(
+                left_room,
+                {"event": "player_left", "player_id": player_id, "name": player_name},
+            )
+        manager.disconnect(player_id)
+
+
+async def _handle_ws_command(player_id: int, player_name: str, raw: str):
+    """Parse and dispatch a single inbound WebSocket command."""
+    try:
+        msg = json.loads(raw)
+        if not isinstance(msg, dict):
+            raise ValueError
+    except (json.JSONDecodeError, ValueError, TypeError):
+        await manager.send_personal_message(
+            player_id, {"event": "error", "detail": "Expected a JSON object"}
+        )
+        return
+
+    cmd = msg.get("cmd")
+    room_id = world.room_of(player_id)
+    if room_id is None:
+        await manager.send_personal_message(
+            player_id, {"event": "error", "detail": "You are not in the world"}
+        )
+        return
+
+    if cmd == "look":
+        await manager.send_personal_message(
+            player_id, {"event": "room_state", **world.room_snapshot(room_id)}
+        )
+
+    elif cmd == "say":
+        text = (msg.get("text") or "").strip()
+        if not text:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "say requires non-empty 'text'"}
+            )
+            return
+        await manager.broadcast_to_room(
+            room_id,
+            {"event": "chat", "from": player_name, "player_id": player_id, "text": text},
+        )
+
+    elif cmd == "move":
+        # Rooms aren't graph-linked yet, so movement is by explicit room_id.
+        # (Directional exits are a future model addition — see ARCHITECTURE.md.)
+        target = msg.get("room_id")
+        if target is None:
+            await manager.send_personal_message(
+                player_id,
+                {"event": "error", "detail": "move requires 'room_id' (directional exits not modeled yet)"},
+            )
+            return
+        old_room = room_id
+        if not world.move_player(player_id, int(target)):
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": f"No such room: {target}"}
+            )
+            return
+        new_room = world.room_of(player_id)
+        # Move the player's room subscription
+        manager.unsubscribe_from_room(player_id, old_room)
+        manager.subscribe_to_room(player_id, new_room)
+        # Notify both rooms
+        await manager.broadcast_to_room(
+            old_room, {"event": "player_left", "player_id": player_id, "name": player_name}
+        )
+        await manager.broadcast_to_room(
+            new_room,
+            {"event": "player_entered", "player_id": player_id, "name": player_name},
+            exclude_player=player_id,
+        )
+        # Snapshot of the new room to the mover
+        await manager.send_personal_message(
+            player_id, {"event": "room_state", **world.room_snapshot(new_room)}
+        )
+
+    else:
+        # talk/attack arrive in steps 3 and 4
+        await manager.send_personal_message(
+            player_id, {"event": "error", "detail": f"Unknown or unsupported command: {cmd!r}"}
+        )
 
 # ---------- Player Endpoints ----------
 @app.get("/players/", response_model=schemas.PlayersListResponse, tags=["Players"])
