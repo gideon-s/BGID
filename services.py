@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 import models
 import schemas
+import directions
 from utils import dict_from_model, log_action, validate_ability_scores
 
 # ---------- Player Services ----------
@@ -381,6 +382,75 @@ class NpcReactionService:
         db.commit()
         db.refresh(reaction)
         return reaction
+
+
+# ---------- Room Exit Services ----------
+class RoomExitService:
+    """Service for room connections (exits)."""
+
+    @staticmethod
+    def get_exits(db: Session, room_id: int) -> List[models.RoomExit]:
+        return db.query(models.RoomExit).filter_by(from_room_id=room_id).all()
+
+    @staticmethod
+    def get_exit(db: Session, room_id: int, direction: str) -> Optional[models.RoomExit]:
+        return (
+            db.query(models.RoomExit)
+            .filter_by(from_room_id=room_id, direction=directions.normalize(direction))
+            .first()
+        )
+
+    @staticmethod
+    def create_exit(db: Session, from_room_id: int, data: schemas.RoomExitCreate) -> models.RoomExit:
+        direction = directions.normalize(data.direction)
+        if not directions.is_valid(direction):
+            raise HTTPException(status_code=400, detail=f"Invalid direction: {data.direction}")
+        if from_room_id == data.to_room_id:
+            raise HTTPException(status_code=400, detail="An exit cannot lead back to the same room")
+        if not RoomService.get_room(db, from_room_id):
+            raise HTTPException(status_code=404, detail="Source room not found")
+        if not RoomService.get_room(db, data.to_room_id):
+            raise HTTPException(status_code=404, detail="Destination room not found")
+        if data.key_item_id is not None and not ItemService.get_item(db, data.key_item_id):
+            raise HTTPException(status_code=404, detail="Key item not found")
+        if RoomExitService.get_exit(db, from_room_id, direction):
+            raise HTTPException(status_code=409, detail=f"Room {from_room_id} already has a '{direction}' exit")
+
+        exit_row = models.RoomExit(
+            from_room_id=from_room_id, to_room_id=data.to_room_id, direction=direction,
+            description=data.description or "", is_locked=data.is_locked, key_item_id=data.key_item_id,
+        )
+        db.add(exit_row)
+
+        # Auto-create the paired return exit for two-way connections
+        if data.bidirectional:
+            rev = directions.reverse(direction)
+            if rev and not RoomExitService.get_exit(db, data.to_room_id, rev):
+                db.add(models.RoomExit(
+                    from_room_id=data.to_room_id, to_room_id=from_room_id, direction=rev,
+                    description=data.description or "", is_locked=data.is_locked, key_item_id=data.key_item_id,
+                ))
+
+        db.commit()
+        db.refresh(exit_row)
+        log_action("create_exit", from_room_id, f"{direction} -> room {data.to_room_id}")
+        return exit_row
+
+    @staticmethod
+    def delete_exit(db: Session, from_room_id: int, direction: str, bidirectional: bool = False) -> bool:
+        direction = directions.normalize(direction)
+        exit_row = RoomExitService.get_exit(db, from_room_id, direction)
+        if not exit_row:
+            raise HTTPException(status_code=404, detail="Exit not found")
+        to_room_id = exit_row.to_room_id
+        db.delete(exit_row)
+        if bidirectional:
+            rev = directions.reverse(direction)
+            rev_row = RoomExitService.get_exit(db, to_room_id, rev)
+            if rev_row:
+                db.delete(rev_row)
+        db.commit()
+        return True
 
 
 # ---------- Game Action Services ----------

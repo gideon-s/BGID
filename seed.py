@@ -7,7 +7,7 @@ Idempotent: safe to run repeatedly (won't duplicate rows). Run directly:
     python seed.py
 """
 from database import SessionLocal, engine, Base
-from models import Room, Player, Item, Npc, NpcReaction
+from models import Room, Player, Item, Npc, NpcReaction, RoomExit
 
 
 def _get_or_create(db, model, defaults=None, **filters):
@@ -22,14 +22,25 @@ def _get_or_create(db, model, defaults=None, **filters):
     return obj
 
 
+def _ensure_exit(db, from_id, direction, to_id, description="", is_locked=False, key_item_id=None):
+    """Idempotently create a one-way exit (from_id --direction--> to_id)."""
+    if db.query(RoomExit).filter_by(from_room_id=from_id, direction=direction).first():
+        return
+    db.add(RoomExit(from_room_id=from_id, to_room_id=to_id, direction=direction,
+                    description=description, is_locked=is_locked, key_item_id=key_item_id))
+    db.commit()
+
+
 def seed():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         foyer = _get_or_create(db, Room, name="Foyer",
                                defaults={"description": "A grand entrance hall."})
-        _get_or_create(db, Room, name="Great Hall",
-                       defaults={"description": "A vast chamber with high ceilings."})
+        hall = _get_or_create(db, Room, name="Great Hall",
+                              defaults={"description": "A vast chamber with high ceilings."})
+        cellar = _get_or_create(db, Room, name="Cellar",
+                                defaults={"description": "A cramped, musty cellar below the foyer."})
 
         _get_or_create(db, Player, name="Bryan", defaults={"id": 1, "room_id": foyer.id})
 
@@ -53,6 +64,17 @@ def seed():
             "description": "It wobbles but holds.", "item_type": "furniture",
             "room_id": foyer.id, "is_movable": False, "is_usable": True,
         })
+
+        # Room connections:
+        #   Foyer <-> Great Hall (open, north/south)
+        #   Foyer  -> Cellar via a locked door (down), needs the Rusty Key
+        #   Cellar -> Foyer (up, open)
+        key = db.query(Item).filter_by(name="Rusty Key").first()
+        _ensure_exit(db, foyer.id, "north", hall.id, description="an archway")
+        _ensure_exit(db, hall.id, "south", foyer.id, description="an archway")
+        _ensure_exit(db, foyer.id, "down", cellar.id, description="a heavy cellar door",
+                     is_locked=True, key_item_id=key.id if key else None)
+        _ensure_exit(db, cellar.id, "up", foyer.id, description="stairs up to the foyer")
 
         # Baseline reaction Caretaker -> Bryan
         bryan = db.query(Player).filter_by(name="Bryan").first()

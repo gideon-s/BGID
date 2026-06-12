@@ -58,6 +58,36 @@ class Room(Base):
     players = relationship("Player", back_populates="room", cascade="all, delete-orphan")
     npcs = relationship("Npc", back_populates="room", cascade="all, delete-orphan")
     items = relationship("Item", back_populates="room", cascade="all, delete-orphan")
+    # Exits leading out of this room
+    exits = relationship(
+        "RoomExit",
+        foreign_keys="RoomExit.from_room_id",
+        back_populates="from_room",
+        cascade="all, delete-orphan",
+    )
+
+class RoomExit(Base):
+    """A directed exit from one room to another in a given direction.
+
+    Two-way connections are two RoomExit rows (north + its reverse south);
+    one-way exits are a single row. An exit may be locked behind a key item.
+    """
+    __tablename__ = "room_exits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    from_room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False, index=True)
+    to_room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False, index=True)
+    direction = Column(String(20), nullable=False)
+    description = Column(Text, default="", nullable=False)
+    is_locked = Column(Boolean, default=False, nullable=False)
+    key_item_id = Column(Integer, ForeignKey("items.id"), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("from_room_id", "direction", name="uq_room_exit_direction"),
+    )
+
+    from_room = relationship("Room", foreign_keys=[from_room_id], back_populates="exits")
+    to_room = relationship("Room", foreign_keys=[to_room_id])
 
 class Player(Base, AbilityScoresMixin):
     """Player model representing game characters"""

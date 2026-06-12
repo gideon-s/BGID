@@ -255,6 +255,29 @@ class NpcReactionUpdate(BaseModel):
     arousal: Optional[int] = Field(None, ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
     aggression: Optional[int] = Field(None, ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
 
+# ---------- Room Exit Schemas ----------
+class RoomExitCreate(BaseModel):
+    """Schema for creating an exit out of a room."""
+    direction: str = Field(..., min_length=1, max_length=20)
+    to_room_id: int = Field(..., gt=0)
+    description: str = Field(default="", max_length=1000)
+    is_locked: bool = False
+    key_item_id: Optional[int] = Field(None, gt=0)
+    bidirectional: bool = Field(True, description="Also create the reverse exit")
+
+class RoomExitOut(BaseModel):
+    """Schema for an exit."""
+    id: int
+    from_room_id: int
+    to_room_id: int
+    direction: str
+    description: str
+    is_locked: bool
+    key_item_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
 # ---------- Action Schemas ----------
 class ActionRequest(BaseModel):
     """Schema for game actions"""

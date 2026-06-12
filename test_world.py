@@ -5,12 +5,38 @@ import models
 def test_load_populates_rooms_npcs_items(db_session):
     from world import world
     world.load()
-    assert set(world.rooms) == {1, 2}
+    assert set(world.rooms) == {1, 2, 3}
     foyer = world.rooms[1]
     # Caretaker + Innkeeper resident in the Foyer; Rusty Key on the ground
     assert len(foyer.npc_ids) == 2
     assert len(foyer.item_ids) == 1
     assert world.rooms[2].npc_ids == set()
+
+
+def test_load_populates_exits(db_session):
+    from world import world
+    world.load()
+    foyer = world.rooms[1]
+    assert set(foyer.exits) == {"north", "down"}
+    assert foyer.exits["north"]["to_room_id"] == 2
+    assert foyer.exits["down"]["is_locked"] is True
+
+
+def test_exit_in_direction_accepts_shorthand(db_session):
+    from world import world
+    world.load()
+    assert world.exit_in_direction(1, "n")["to_room_id"] == 2     # shorthand
+    assert world.exit_in_direction(1, "NORTH")["to_room_id"] == 2  # case-insensitive
+    assert world.exit_in_direction(1, "west") is None
+
+
+def test_snapshot_includes_exits(db_session):
+    from world import world
+    world.load()
+    snap = world.room_snapshot(1)
+    exits = {e["direction"]: e for e in snap["exits"]}
+    assert exits["north"]["to_room"] == "Great Hall"
+    assert exits["down"]["is_locked"] is True
 
 
 def test_snapshot_shape(db_session):

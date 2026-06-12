@@ -23,7 +23,23 @@ def _seed(db):
     import models
     foyer = models.Room(name="Foyer", description="A grand entrance hall.")
     hall = models.Room(name="Great Hall", description="A vast chamber.")
-    db.add_all([foyer, hall])
+    cellar = models.Room(name="Cellar", description="A musty cellar.")
+    db.add_all([foyer, hall, cellar])
+    db.commit()
+
+    rusty = models.Item(name="Rusty Key", description="Pitted iron.",
+                        item_type="key", value=1, room_id=foyer.id)
+    db.add(rusty)
+    db.commit()
+
+    # Foyer <-> Great Hall (open); Foyer -> Cellar (locked, Rusty Key); Cellar -> Foyer (open)
+    db.add_all([
+        models.RoomExit(from_room_id=foyer.id, to_room_id=hall.id, direction="north"),
+        models.RoomExit(from_room_id=hall.id, to_room_id=foyer.id, direction="south"),
+        models.RoomExit(from_room_id=foyer.id, to_room_id=cellar.id, direction="down",
+                        is_locked=True, key_item_id=rusty.id),
+        models.RoomExit(from_room_id=cellar.id, to_room_id=foyer.id, direction="up"),
+    ])
     db.commit()
 
     db.add(models.Player(id=1, name="Bryan", room_id=foyer.id))
@@ -33,8 +49,6 @@ def _seed(db):
     db.add(models.Npc(name="Innkeeper", description="Polite, not a fighter.",
                       npc_type="innkeeper", room_id=foyer.id,
                       combat_enabled=False))
-    db.add(models.Item(name="Rusty Key", description="Pitted iron.",
-                       item_type="key", value=1, room_id=foyer.id))
     db.commit()
 
 

@@ -19,7 +19,7 @@ import game_loop
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
-from services import PlayerService, RoomService, ItemService, NpcService, GameActionService, NpcReactionService
+from services import PlayerService, RoomService, ItemService, NpcService, GameActionService, NpcReactionService, RoomExitService
 from config import HOST, PORT, DEBUG
 from utils import log_action
 from datetime import datetime
@@ -341,6 +341,27 @@ def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db)):
 def get_room_state(room_id: int, db: Session = Depends(get_db)):
     """Get complete room state including players, NPCs, and items"""
     return RoomService.get_room_state(db, room_id)
+
+@app.get("/rooms/{room_id}/exits", response_model=List[schemas.RoomExitOut], tags=["Rooms"])
+def get_room_exits(room_id: int, db: Session = Depends(get_db)):
+    """List the exits leading out of a room."""
+    return RoomExitService.get_exits(db, room_id)
+
+@app.post("/rooms/{room_id}/exits", response_model=schemas.RoomExitOut, tags=["Rooms"])
+def create_room_exit(room_id: int, data: schemas.RoomExitCreate, db: Session = Depends(get_db)):
+    """Create an exit out of a room (auto-creates the reverse exit unless
+    bidirectional=false). Refreshes the live world map."""
+    exit_row = RoomExitService.create_exit(db, room_id, data)
+    world.reload()
+    return exit_row
+
+@app.delete("/rooms/{room_id}/exits/{direction}", tags=["Rooms"])
+def delete_room_exit(room_id: int, direction: str, bidirectional: bool = False,
+                     db: Session = Depends(get_db)):
+    """Delete an exit (optionally its reverse too). Refreshes the live world map."""
+    RoomExitService.delete_exit(db, room_id, direction, bidirectional=bidirectional)
+    world.reload()
+    return {"message": f"Exit '{direction}' removed from room {room_id}"}
 
 # ---------- Item Endpoints ----------
 @app.get("/items/", response_model=schemas.ItemsListResponse, tags=["Items"])

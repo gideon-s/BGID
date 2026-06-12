@@ -16,6 +16,8 @@ from typing import Dict, Set, Optional, List, Any
 
 from database import SessionLocal
 import services
+import models
+import directions
 
 # A generous cap so load() pulls the whole table (service defaults are paged).
 _LOAD_LIMIT = 100_000
@@ -30,6 +32,8 @@ class RoomNode:
     npc_ids: Set[int] = field(default_factory=set)    # resident NPCs
     item_ids: Set[int] = field(default_factory=set)   # items on the ground
     players: Set[int] = field(default_factory=set)     # online players present
+    # direction -> {to_room_id, description, is_locked, key_item_id}
+    exits: Dict[str, dict] = field(default_factory=dict)
 
 
 class WorldState:
@@ -57,6 +61,15 @@ class WorldState:
             for item in services.ItemService.get_items(db, limit=_LOAD_LIMIT):
                 if item.room_id and item.room_id in rooms:
                     rooms[item.room_id].item_ids.add(item.id)
+            for ex in db.query(models.RoomExit).all():
+                node = rooms.get(ex.from_room_id)
+                if node:
+                    node.exits[ex.direction] = {
+                        "to_room_id": ex.to_room_id,
+                        "description": ex.description or "",
+                        "is_locked": ex.is_locked,
+                        "key_item_id": ex.key_item_id,
+                    }
             self.rooms = rooms
             self.player_locations = {}
             self.loaded = True
@@ -152,12 +165,32 @@ class WorldState:
                     players.append({"id": player.id, "name": player.name})
         finally:
             db.close()
+        exits = [
+            {
+                "direction": direction,
+                "to_room_id": ex["to_room_id"],
+                "to_room": self.rooms[ex["to_room_id"]].name if ex["to_room_id"] in self.rooms else None,
+                "description": ex["description"],
+                "is_locked": ex["is_locked"],
+            }
+            for direction, ex in sorted(node.exits.items())
+        ]
         return {
             "room": {"id": node.id, "name": node.name, "description": node.description},
             "players": players,
             "npcs": npcs,
             "items": items,
+            "exits": exits,
         }
+
+    def exit_in_direction(self, room_id: int, direction: str) -> Optional[dict]:
+        """Return the exit dict for a direction from a room, or None.
+
+        Accepts shorthands ('n' -> 'north')."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        return node.exits.get(directions.normalize(direction))
 
     def occupants(self, room_id: int) -> List[int]:
         """Online player ids currently in a room."""
