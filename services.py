@@ -295,6 +295,50 @@ class NpcService:
             location_name=location_name
         )
 
+# ---------- NPC Reaction Services ----------
+class NpcReactionService:
+    """Service for an NPC's reaction toward a specific player."""
+
+    @staticmethod
+    def get_reaction(db: Session, npc_id: int, player_id: int) -> Optional[models.NpcReaction]:
+        """Return the reaction row, or None if it doesn't exist yet."""
+        return (
+            db.query(models.NpcReaction)
+            .filter_by(npc_id=npc_id, player_id=player_id)
+            .first()
+        )
+
+    @staticmethod
+    def get_or_create_reaction(db: Session, npc_id: int, player_id: int) -> models.NpcReaction:
+        """Return the reaction, creating a neutral (all-zero) one if absent.
+
+        Validates that both the NPC and player exist (404 otherwise).
+        """
+        if not NpcService.get_npc(db, npc_id):
+            raise HTTPException(status_code=404, detail="NPC not found")
+        if not PlayerService.get_player(db, player_id):
+            raise HTTPException(status_code=404, detail="Player not found")
+
+        reaction = NpcReactionService.get_reaction(db, npc_id, player_id)
+        if reaction is None:
+            reaction = models.NpcReaction(npc_id=npc_id, player_id=player_id)
+            db.add(reaction)
+            db.commit()
+            db.refresh(reaction)
+        return reaction
+
+    @staticmethod
+    def update_reaction(db: Session, npc_id: int, player_id: int,
+                        data: schemas.NpcReactionUpdate) -> models.NpcReaction:
+        """Apply a partial update to the reaction (creating it if absent)."""
+        reaction = NpcReactionService.get_or_create_reaction(db, npc_id, player_id)
+        for field, value in data.dict(exclude_unset=True).items():
+            setattr(reaction, field, value)
+        db.commit()
+        db.refresh(reaction)
+        return reaction
+
+
 # ---------- Game Action Services ----------
 class GameActionService:
     """Service for game action processing"""

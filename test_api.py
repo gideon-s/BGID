@@ -99,6 +99,36 @@ def test_rooms_and_items_work(client):
     assert client.get(f"/npcs/{cid}/sheet").status_code == 200
 
 
+def test_get_reaction_defaults_to_neutral(client):
+    cid = npc_id_by_name(client, "Innkeeper")  # no seeded reaction
+    r = client.get(f"/npcs/{cid}/reaction/1")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["npc_id"] == cid and body["player_id"] == 1
+    assert body["threat"] == 0 and body["aggression"] == 0
+
+
+def test_update_and_persist_reaction(client):
+    cid = npc_id_by_name(client, "Innkeeper")
+    r = client.put(f"/npcs/{cid}/reaction/1", json={"threat": 80, "aggression": 50})
+    assert r.status_code == 200, r.text
+    assert r.json()["threat"] == 80 and r.json()["aggression"] == 50
+    # persisted + partial update left others at 0
+    again = client.get(f"/npcs/{cid}/reaction/1").json()
+    assert again["threat"] == 80 and again["attraction"] == 0
+
+
+def test_reaction_value_out_of_range_rejected(client):
+    cid = npc_id_by_name(client, "Caretaker")
+    r = client.put(f"/npcs/{cid}/reaction/1", json={"threat": 150})
+    assert r.status_code == 422
+
+
+def test_reaction_unknown_npc_404(client):
+    r = client.get("/npcs/9999/reaction/1")
+    assert r.status_code == 404
+
+
 def test_chat_npc_rest_fallback(client):
     """/chat/npc returns a rule-based reply when DeepSeek is unavailable."""
     cid = npc_id_by_name(client, "Caretaker")

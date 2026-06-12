@@ -19,7 +19,7 @@ import game_loop
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
-from services import PlayerService, RoomService, ItemService, NpcService, GameActionService
+from services import PlayerService, RoomService, ItemService, NpcService, GameActionService, NpcReactionService
 from config import HOST, PORT, DEBUG
 from utils import log_action
 from datetime import datetime
@@ -414,6 +414,18 @@ def get_npc_sheet(npc_id: int):
     """Get comprehensive NPC character sheet"""
     db = next(get_db())
     return NpcService.get_npc_sheet(db, npc_id)
+
+@app.get("/npcs/{npc_id}/reaction/{player_id}", response_model=schemas.NpcReactionOut, tags=["NPCs"])
+def get_npc_reaction(npc_id: int, player_id: int):
+    """Get an NPC's reaction toward a player (neutral/zero if none recorded yet)."""
+    db = next(get_db())
+    return NpcReactionService.get_or_create_reaction(db, npc_id, player_id)
+
+@app.put("/npcs/{npc_id}/reaction/{player_id}", response_model=schemas.NpcReactionOut, tags=["NPCs"])
+def update_npc_reaction(npc_id: int, player_id: int, data: schemas.NpcReactionUpdate):
+    """Update an NPC's reaction values toward a player (creates the row if absent)."""
+    db = next(get_db())
+    return NpcReactionService.update_reaction(db, npc_id, player_id, data)
 
 # ---------- Game Action Endpoints ----------
 @app.post("/action", response_model=schemas.ActionResponse, tags=["Game Actions"])
