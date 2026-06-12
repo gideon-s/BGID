@@ -147,8 +147,11 @@ Each step keeps the app runnable.
 4. ✅ **Combat & tick** (`combat.py`, `game_loop.py`) — `attack` (turn-based,
    death/respawn, room-wide) and a periodic NPC-regen tick.
 
+5. ✅ **Room graph** (`models.RoomExit`, `directions.py`) — directed exits with
+   locks/keys; direction-based, lock-aware movement (WS + `/action`); exits in
+   room_state/`/state`; exit-management API.
+
 ### Future
-- Directional room exits (a room-graph model) so `move` takes `dir`, not `room_id`.
 - Per-NPC conversation memory across `talk` turns.
 - Richer combat (initiative, abilities, NpcReaction-driven aggro) and a real
   NPC AI tick (wandering, hostiles engaging on sight).
