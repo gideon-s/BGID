@@ -11,6 +11,9 @@ venv/
 # SQlite DB
 *.db
 
+# Logs
+*.log
+
 # VSCode / Cursor
 .vscode/
 .cursordb/

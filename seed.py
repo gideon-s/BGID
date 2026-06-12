@@ -1,84 +1,70 @@
 #!/usr/bin/env python3
 """
-Seed script to populate the database with initial data
+Seed the database with initial data.
+
+Idempotent: safe to run repeatedly (won't duplicate rows). Run directly:
+
+    python seed.py
 """
 from database import SessionLocal, engine, Base
 from models import Room, Player, Item, Npc, NpcReaction
 
-Base.metadata.create_all(bind=engine)
-db = SessionLocal()
 
-# Create rooms
-foyer = Room(name="Foyer", description="A grand entrance hall.")
-hall = Room(name="Great Hall", description="A vast chamber with high ceilings.")
+def _get_or_create(db, model, defaults=None, **filters):
+    """Return an existing row matching `filters`, or create one with
+    `filters` + `defaults`."""
+    obj = db.query(model).filter_by(**filters).first()
+    if obj is not None:
+        return obj
+    obj = model(**{**filters, **(defaults or {})})
+    db.add(obj)
+    db.commit()
+    return obj
 
-db.add_all([foyer, hall])
-db.commit()
 
-# Example player/NPC/items if missing
-if not db.query(Player).filter_by(name="Bryan").first():
-    db.add(Player(id=1, name="Bryan", room_id=foyer.id))
+def seed():
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        foyer = _get_or_create(db, Room, name="Foyer",
+                               defaults={"description": "A grand entrance hall."})
+        _get_or_create(db, Room, name="Great Hall",
+                       defaults={"description": "A vast chamber with high ceilings."})
 
-caretaker = db.query(Npc).filter_by(name="Caretaker").first()
-if not caretaker:
-    caretaker = Npc(
-        name="Caretaker",
-        description="A curt, watchful presence.",
-        npc_type="caretaker",
-        room_id=foyer.id,
-        is_friendly=False,
-        combat_enabled=True,
-        cha=8, wis=12
-    )
-    db.add(caretaker)
+        _get_or_create(db, Player, name="Bryan", defaults={"id": 1, "room_id": foyer.id})
 
-key = db.query(Item).filter_by(name="Rusty Key").first()
-if not key:
-    key = Item(
-        name="Rusty Key",
-        description="Pitted iron, still turns.",
-        item_type="key",
-        value=1,
-        room_id=foyer.id,
-        is_movable=True,
-        is_usable=True
-    )
-    db.add(key)
+        caretaker = _get_or_create(db, Npc, name="Caretaker", defaults={
+            "description": "A curt, watchful presence.", "npc_type": "caretaker",
+            "room_id": foyer.id, "is_friendly": False, "combat_enabled": True,
+            "cha": 8, "wis": 12,
+        })
+        _get_or_create(db, Item, name="Rusty Key", defaults={
+            "description": "Pitted iron, still turns.", "item_type": "key",
+            "value": 1, "room_id": foyer.id, "is_movable": True, "is_usable": True,
+        })
 
-# Non-combatant & furniture
-inn = db.query(Npc).filter_by(name="Innkeeper").first()
-if not inn:
-    inn = Npc(
-        name="Innkeeper",
-        description="Polite, harried, not interested in brawls.",
-        npc_type="innkeeper",
-        room_id=foyer.id,
-        combat_enabled=False,
-        cha=14, wis=12
-    )
-    db.add(inn)
+        # Non-combatant & furniture
+        _get_or_create(db, Npc, name="Innkeeper", defaults={
+            "description": "Polite, harried, not interested in brawls.",
+            "npc_type": "innkeeper", "room_id": foyer.id,
+            "combat_enabled": False, "cha": 14, "wis": 12,
+        })
+        _get_or_create(db, Item, name="Sturdy Stool", defaults={
+            "description": "It wobbles but holds.", "item_type": "furniture",
+            "room_id": foyer.id, "is_movable": False, "is_usable": True,
+        })
 
-stool = db.query(Item).filter_by(name="Sturdy Stool").first()
-if not stool:
-    stool = Item(
-        name="Sturdy Stool",
-        description="It wobbles but holds.",
-        item_type="furniture",
-        room_id=foyer.id,
-        is_movable=False,
-        is_usable=True
-    )
-    db.add(stool)
+        # Baseline reaction Caretaker -> Bryan
+        bryan = db.query(Player).filter_by(name="Bryan").first()
+        if not db.query(NpcReaction).filter_by(npc_id=caretaker.id, player_id=bryan.id).first():
+            db.add(NpcReaction(npc_id=caretaker.id, player_id=bryan.id,
+                               threat=10, attraction=5, arousal=0, aggression=5))
+            db.commit()
 
-db.commit()
+        print("Seeded.")
+    finally:
+        db.close()
 
-# Baseline reaction Caretaker -> Player 1
-p1 = db.query(Player).get(1)
-if caretaker and p1:
-    existing = db.query(NpcReaction).filter_by(npc_id=caretaker.id, player_id=p1.id).first()
-    if not existing:
-        db.add(NpcReaction(npc_id=caretaker.id, player_id=p1.id, threat=10, attraction=5, arousal=0, aggression=5))
-        db.commit()
 
-db.close()
-print("Seeded.")
+if __name__ == "__main__":
+    seed()

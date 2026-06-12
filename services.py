@@ -17,11 +17,13 @@ class PlayerService:
     def create_player(db: Session, player_data: schemas.PlayerCreate) -> models.Player:
         """Create a new player"""
         try:
-            # Create player with default abilities if not provided
+            # Flatten the nested abilities object onto the model's columns
+            # (AbilityScores fields map 1:1 to str/dex/con/intel/wis/cha).
             player_dict = player_data.dict()
-            if not player_data.abilities:
-                player_dict.pop('abilities', None)
-            
+            abilities = player_dict.pop('abilities', None)
+            if abilities:
+                player_dict.update(abilities)
+
             db_player = models.Player(**player_dict)
             db.add(db_player)
             db.commit()
@@ -225,11 +227,13 @@ class NpcService:
     def create_npc(db: Session, npc_data: schemas.NpcCreate) -> models.Npc:
         """Create a new NPC"""
         try:
-            # Create NPC with default abilities if not provided
+            # Flatten the nested abilities object onto the model's columns
+            # (AbilityScores fields map 1:1 to str/dex/con/intel/wis/cha).
             npc_dict = npc_data.dict()
-            if not npc_data.abilities:
-                npc_dict.pop('abilities', None)
-            
+            abilities = npc_dict.pop('abilities', None)
+            if abilities:
+                npc_dict.update(abilities)
+
             db_npc = models.Npc(**npc_dict)
             db.add(db_npc)
             db.commit()
