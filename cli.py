@@ -138,7 +138,7 @@ class GameCLI:
         self.print_colored("Available exits:", "yellow")
         rooms = self.make_request("GET", "/rooms/")
         if rooms:
-            for room in rooms:
+            for room in rooms["items"]:
                 if room["id"] != state["current_room"]["id"]:
                     print(f"  • {room['name']}")
     
@@ -151,14 +151,14 @@ class GameCLI:
         
         # Find room by name (case-insensitive)
         target_room = None
-        for room in rooms:
+        for room in rooms["items"]:
             if room["name"].lower() == direction.lower():
                 target_room = room
                 break
-        
+
         if not target_room:
             self.print_error(f"Room '{direction}' not found. Available rooms:")
-            for room in rooms:
+            for room in rooms["items"]:
                 print(f"  • {room['name']}")
             return
         
@@ -332,7 +332,7 @@ class GameCLI:
             print(f"Combat: {'Yes' if sheet['combat_enabled'] else 'No'}")
             ab = sheet['abilities']; mods = sheet['modifiers']
             print("STR {0} ({1:+})  DEX {2} ({3:+})  CON {4} ({5:+})".format(ab['str'],mods['str'],ab['dex'],mods['dex'],ab['con'],mods['con']))
-            print("INT {0} ({1:+})  WIS {2} ({3:+})  CHA {4} ({5:+})".format(ab['intel'],mods['intel'],ab['wis'],mods['wis'],ab['cha']))
+            print("INT {0} ({1:+})  WIS {2} ({3:+})  CHA {4} ({5:+})".format(ab['intel'],mods['intel'],ab['wis'],mods['wis'],ab['cha'],mods['cha']))
         if react:
             print("Reactions → threat:{threat} attraction:{attraction} arousal:{arousal} aggression:{aggression}".format(**react))
     
@@ -389,7 +389,7 @@ class GameCLI:
             return
         
         self.print_header("Available Rooms")
-        for room in rooms:
+        for room in rooms["items"]:
             print(f"  • {room['name']}")
             print(f"    {room['description']}")
             print()
@@ -401,7 +401,7 @@ class GameCLI:
             return
         
         self.print_header("All Items")
-        for item in items:
+        for item in items["items"]:
             location = "Inventory" if item['player_id'] else f"Room {item['room_id']}"
             print(f"  • {item['name']} - {item['description']}")
             print(f"    Type: {item['item_type']}, Value: {item['value']}, Location: {location}")
@@ -414,7 +414,7 @@ class GameCLI:
             return
         
         self.print_header("All NPCs")
-        for npc in npcs:
+        for npc in npcs["items"]:
             print(f"  • {npc['name']} - {npc['description']}")
             print(f"    Type: {npc['npc_type']}, Health: {npc['health']}/{npc['max_health']}")
             print(f"    Friendly: {'Yes' if npc['is_friendly'] else 'No'}")

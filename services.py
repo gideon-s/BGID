@@ -86,6 +86,50 @@ class PlayerService:
         return True
     
     @staticmethod
+    def get_player_state(db: Session, player_id: int) -> Dict[str, Any]:
+        """Player-centric world state: the player, their current room, who/what
+        is there, and their inventory. Powers the interactive CLI clients."""
+        player = PlayerService.get_player(db, player_id)
+        if not player:
+            raise HTTPException(status_code=404, detail="Player not found")
+
+        room = player.room
+        others = [p for p in room.players if p.id != player.id] if room else []
+        npcs = room.npcs if room else []
+        room_items = room.items if room else []
+
+        return {
+            "player": {
+                "id": player.id, "name": player.name,
+                "health": player.health, "max_health": player.max_health,
+                "level": player.level, "experience": player.experience,
+            },
+            "current_room": (
+                {"id": room.id, "name": room.name, "description": room.description}
+                if room else None
+            ),
+            "other_players_in_room": [
+                {"id": p.id, "name": p.name, "level": p.level} for p in others
+            ],
+            "npcs_in_room": [
+                {"id": n.id, "name": n.name, "description": n.description,
+                 "npc_type": n.npc_type, "health": n.health,
+                 "max_health": n.max_health, "is_friendly": n.is_friendly}
+                for n in npcs
+            ],
+            "items_in_room": [
+                {"id": i.id, "name": i.name, "description": i.description,
+                 "item_type": i.item_type, "value": i.value}
+                for i in room_items
+            ],
+            "inventory": [
+                {"id": i.id, "name": i.name, "description": i.description,
+                 "item_type": i.item_type, "value": i.value, "is_equipped": False}
+                for i in player.items
+            ],
+        }
+
+    @staticmethod
     def get_player_sheet(db: Session, player_id: int) -> schemas.PlayerSheet:
         """Get comprehensive player character sheet"""
         player = PlayerService.get_player(db, player_id)

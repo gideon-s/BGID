@@ -91,6 +91,23 @@ def test_chat_send_and_history(client):
     assert "hello world" in contents
 
 
+def test_player_state_shape(client):
+    """The /state endpoint powers the CLIs — verify the contract they consume."""
+    r = client.get("/state/1")
+    assert r.status_code == 200
+    s = r.json()
+    assert s["player"]["name"] == "Bryan"
+    assert s["current_room"]["name"] == "Foyer"
+    assert {n["name"] for n in s["npcs_in_room"]} == {"Caretaker", "Innkeeper"}
+    assert {i["name"] for i in s["items_in_room"]} == {"Rusty Key"}
+    assert s["other_players_in_room"] == []
+    assert s["inventory"] == []
+
+
+def test_player_state_unknown_player_404(client):
+    assert client.get("/state/9999").status_code == 404
+
+
 def test_rooms_and_items_work(client):
     assert client.get("/rooms/").status_code == 200
     assert client.get("/items/").status_code == 200

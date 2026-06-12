@@ -260,10 +260,10 @@ async def _handle_ws_command(player_id: int, player_name: str, raw: str):
 @app.get("/players/", response_model=schemas.PlayersListResponse, tags=["Players"])
 def get_players(
     skip: int = Query(0, ge=0, description="Number of players to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of players to return")
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of players to return"),
+    db: Session = Depends(get_db),
 ):
     """Get list of all players with pagination"""
-    db = next(get_db())
     players = PlayerService.get_players(db, skip=skip, limit=limit)
     
     return schemas.PlayersListResponse(
@@ -274,47 +274,47 @@ def get_players(
     )
 
 @app.get("/players/{player_id}", response_model=schemas.PlayerOut, tags=["Players"])
-def get_player(player_id: int):
+def get_player(player_id: int, db: Session = Depends(get_db)):
     """Get a specific player by ID"""
-    db = next(get_db())
     player = PlayerService.get_player(db, player_id)
     if not player:
         raise HTTPException(status_code=404, detail="Player not found")
     return player
 
 @app.post("/players/", response_model=schemas.PlayerOut, tags=["Players"])
-def create_player(player: schemas.PlayerCreate):
+def create_player(player: schemas.PlayerCreate, db: Session = Depends(get_db)):
     """Create a new player"""
-    db = next(get_db())
     return PlayerService.create_player(db, player)
 
 @app.put("/players/{player_id}", response_model=schemas.PlayerOut, tags=["Players"])
-def update_player(player_id: int, player_update: schemas.PlayerUpdate):
+def update_player(player_id: int, player_update: schemas.PlayerUpdate, db: Session = Depends(get_db)):
     """Update an existing player"""
-    db = next(get_db())
     return PlayerService.update_player(db, player_id, player_update)
 
 @app.delete("/players/{player_id}", tags=["Players"])
-def delete_player(player_id: int):
+def delete_player(player_id: int, db: Session = Depends(get_db)):
     """Delete a player"""
-    db = next(get_db())
     PlayerService.delete_player(db, player_id)
     return {"message": "Player deleted successfully"}
 
 @app.get("/players/{player_id}/sheet", response_model=schemas.PlayerSheet, tags=["Players"])
-def get_player_sheet(player_id: int):
+def get_player_sheet(player_id: int, db: Session = Depends(get_db)):
     """Get comprehensive player character sheet"""
-    db = next(get_db())
     return PlayerService.get_player_sheet(db, player_id)
+
+@app.get("/state/{player_id}", tags=["Players"])
+def get_player_state(player_id: int, db: Session = Depends(get_db)):
+    """Player-centric world state (current room, who/what is here, inventory)."""
+    return PlayerService.get_player_state(db, player_id)
 
 # ---------- Room Endpoints ----------
 @app.get("/rooms/", response_model=schemas.RoomsListResponse, tags=["Rooms"])
 def get_rooms(
     skip: int = Query(0, ge=0, description="Number of rooms to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of rooms to return")
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of rooms to return"),
+    db: Session = Depends(get_db),
 ):
     """Get list of all rooms with pagination"""
-    db = next(get_db())
     rooms = RoomService.get_rooms(db, skip=skip, limit=limit)
     
     return schemas.RoomsListResponse(
@@ -325,34 +325,31 @@ def get_rooms(
     )
 
 @app.get("/rooms/{room_id}", response_model=schemas.RoomOut, tags=["Rooms"])
-def get_room(room_id: int):
+def get_room(room_id: int, db: Session = Depends(get_db)):
     """Get a specific room by ID"""
-    db = next(get_db())
     room = RoomService.get_room(db, room_id)
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
     return room
 
 @app.post("/rooms/", response_model=schemas.RoomOut, tags=["Rooms"])
-def create_room(room: schemas.RoomCreate):
+def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db)):
     """Create a new room"""
-    db = next(get_db())
     return RoomService.create_room(db, room)
 
 @app.get("/rooms/{room_id}/state", tags=["Rooms"])
-def get_room_state(room_id: int):
+def get_room_state(room_id: int, db: Session = Depends(get_db)):
     """Get complete room state including players, NPCs, and items"""
-    db = next(get_db())
     return RoomService.get_room_state(db, room_id)
 
 # ---------- Item Endpoints ----------
 @app.get("/items/", response_model=schemas.ItemsListResponse, tags=["Items"])
 def get_items(
     skip: int = Query(0, ge=0, description="Number of items to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of items to return")
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of items to return"),
+    db: Session = Depends(get_db),
 ):
     """Get list of all items with pagination"""
-    db = next(get_db())
     items = ItemService.get_items(db, skip=skip, limit=limit)
     
     return schemas.ItemsListResponse(
@@ -363,28 +360,26 @@ def get_items(
     )
 
 @app.get("/items/{item_id}", response_model=schemas.ItemOut, tags=["Items"])
-def get_item(item_id: int):
+def get_item(item_id: int, db: Session = Depends(get_db)):
     """Get a specific item by ID"""
-    db = next(get_db())
     item = ItemService.get_item(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 
 @app.post("/items/", response_model=schemas.ItemOut, tags=["Items"])
-def create_item(item: schemas.ItemCreate):
+def create_item(item: schemas.ItemCreate, db: Session = Depends(get_db)):
     """Create a new item"""
-    db = next(get_db())
     return ItemService.create_item(db, item)
 
 # ---------- NPC Endpoints ----------
 @app.get("/npcs/", response_model=schemas.NpcsListResponse, tags=["NPCs"])
 def get_npcs(
     skip: int = Query(0, ge=0, description="Number of NPCs to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of NPCs to return")
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of NPCs to return"),
+    db: Session = Depends(get_db),
 ):
     """Get list of all NPCs with pagination"""
-    db = next(get_db())
     npcs = NpcService.get_npcs(db, skip=skip, limit=limit)
     
     return schemas.NpcsListResponse(
@@ -395,50 +390,43 @@ def get_npcs(
     )
 
 @app.get("/npcs/{npc_id}", response_model=schemas.NpcOut, tags=["NPCs"])
-def get_npc(npc_id: int):
+def get_npc(npc_id: int, db: Session = Depends(get_db)):
     """Get a specific NPC by ID"""
-    db = next(get_db())
     npc = NpcService.get_npc(db, npc_id)
     if not npc:
         raise HTTPException(status_code=404, detail="NPC not found")
     return npc
 
 @app.post("/npcs/", response_model=schemas.NpcOut, tags=["NPCs"])
-def create_npc(npc: schemas.NpcCreate):
+def create_npc(npc: schemas.NpcCreate, db: Session = Depends(get_db)):
     """Create a new NPC"""
-    db = next(get_db())
     return NpcService.create_npc(db, npc)
 
 @app.get("/npcs/{npc_id}/sheet", response_model=schemas.NpcSheet, tags=["NPCs"])
-def get_npc_sheet(npc_id: int):
+def get_npc_sheet(npc_id: int, db: Session = Depends(get_db)):
     """Get comprehensive NPC character sheet"""
-    db = next(get_db())
     return NpcService.get_npc_sheet(db, npc_id)
 
 @app.get("/npcs/{npc_id}/reaction/{player_id}", response_model=schemas.NpcReactionOut, tags=["NPCs"])
-def get_npc_reaction(npc_id: int, player_id: int):
+def get_npc_reaction(npc_id: int, player_id: int, db: Session = Depends(get_db)):
     """Get an NPC's reaction toward a player (neutral/zero if none recorded yet)."""
-    db = next(get_db())
     return NpcReactionService.get_or_create_reaction(db, npc_id, player_id)
 
 @app.put("/npcs/{npc_id}/reaction/{player_id}", response_model=schemas.NpcReactionOut, tags=["NPCs"])
-def update_npc_reaction(npc_id: int, player_id: int, data: schemas.NpcReactionUpdate):
+def update_npc_reaction(npc_id: int, player_id: int, data: schemas.NpcReactionUpdate, db: Session = Depends(get_db)):
     """Update an NPC's reaction values toward a player (creates the row if absent)."""
-    db = next(get_db())
     return NpcReactionService.update_reaction(db, npc_id, player_id, data)
 
 # ---------- Game Action Endpoints ----------
 @app.post("/action", response_model=schemas.ActionResponse, tags=["Game Actions"])
-def perform_action(action_request: schemas.ActionRequest):
+def perform_action(action_request: schemas.ActionRequest, db: Session = Depends(get_db)):
     """Perform a game action"""
-    db = next(get_db())
     return GameActionService.perform_action(db, action_request)
 
 # ---------- Chat Endpoints ----------
 @app.post("/chat/send", response_model=ChatMessageResponse, tags=["Chat"])
-def send_chat_message(message: ChatMessageRequest):
+def send_chat_message(message: ChatMessageRequest, db: Session = Depends(get_db)):
     """Send a chat message"""
-    db = next(get_db())
 
     # Resolve the sender's display name from the DB (request only carries sender_id)
     sender = PlayerService.get_player(db, message.sender_id)
@@ -509,13 +497,12 @@ def get_chat_history(
     }
 
 @app.post("/chat/npc", tags=["Chat"])
-async def chat_with_npc(request: NPCChatRequest):
+async def chat_with_npc(request: NPCChatRequest, db: Session = Depends(get_db)):
     """Chat with an NPC using LLM (DeepSeek) integration.
 
     Falls back to rule-based responses automatically if DeepSeek is not
     configured/available (handled inside BaseLLMNPC.generate_response).
     """
-    db = next(get_db())
 
     # Get NPC and player
     npc = NpcService.get_npc(db, request.npc_id)
