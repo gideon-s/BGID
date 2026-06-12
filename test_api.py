@@ -108,6 +108,40 @@ def test_player_state_unknown_player_404(client):
     assert client.get("/state/9999").status_code == 404
 
 
+def test_player_state_includes_exits(client):
+    exits = {e["direction"]: e for e in client.get("/state/1").json()["exits"]}
+    assert exits["north"]["to_room"] == "Great Hall"
+    assert exits["down"]["is_locked"] is True
+
+
+def test_action_move_by_direction(client):
+    r = client.post("/action", json={"player_id": 1, "action_type": "move",
+                                     "parameters": {"direction": "north"}})
+    assert r.status_code == 200 and r.json()["success"] is True
+    assert client.get("/state/1").json()["current_room"]["name"] == "Great Hall"
+
+
+def test_action_move_locked_blocked(client):
+    r = client.post("/action", json={"player_id": 1, "action_type": "move",
+                                     "parameters": {"direction": "down"}})
+    assert r.status_code == 403
+
+
+def test_action_move_locked_with_key(client):
+    key_id = next(i["id"] for i in client.get("/items/").json()["items"] if i["name"] == "Rusty Key")
+    client.post("/action", json={"player_id": 1, "action_type": "pickup", "target_id": key_id})
+    r = client.post("/action", json={"player_id": 1, "action_type": "move",
+                                     "parameters": {"direction": "down"}})
+    assert r.status_code == 200, r.text
+    assert client.get("/state/1").json()["current_room"]["name"] == "Cellar"
+
+
+def test_action_move_unknown_direction(client):
+    r = client.post("/action", json={"player_id": 1, "action_type": "move",
+                                     "parameters": {"direction": "west"}})
+    assert r.status_code == 400
+
+
 def test_rooms_and_items_work(client):
     assert client.get("/rooms/").status_code == 200
     assert client.get("/items/").status_code == 200

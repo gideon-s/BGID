@@ -186,9 +186,14 @@ class WebSocketGameCLI:
             if response.status_code == 200:
                 return response.json()
             else:
-                self.print_error(f"API Error: {response.status_code} - {response.text}")
+                try:
+                    body = response.json()
+                    detail = body.get("detail") or body.get("error") or response.text
+                except Exception:
+                    detail = response.text
+                self.print_error(detail)
                 return None
-                
+
         except requests.exceptions.ConnectionError:
             self.print_error("Cannot connect to the game server. Make sure it's running on localhost:8000")
             return None
@@ -232,44 +237,36 @@ class WebSocketGameCLI:
             print()
         
         # Show exits
-        self.print_colored("Available exits:", "yellow")
-        rooms = self.make_request("GET", "/rooms/")
-        if rooms:
-            for room in rooms["items"]:
-                if room["id"] != state["current_room"]["id"]:
-                    print(f"  • {room['name']}")
-    
-    def cmd_go(self, direction: str):
-        """Go to a room by name"""
-        rooms = self.make_request("GET", "/rooms/")
-        if not rooms:
+        exits = state.get("exits", [])
+        if exits:
+            self.print_colored("Exits:", "yellow")
+            for e in exits:
+                lock = " (locked)" if e.get("is_locked") else ""
+                dest = e.get("to_room") or "?"
+                print(f"  • {e['direction']} → {dest}{lock}")
+
+    def cmd_go(self, where: str):
+        """Move through an exit, by direction (e.g. 'north'/'n') or destination
+        room name."""
+        state = self.make_request("GET", f"/state/{self.player_id}")
+        if not state:
             return
-        
-        target_room = None
-        for room in rooms["items"]:
-            if room["name"].lower() == direction.lower():
-                target_room = room
+        w = where.strip().lower()
+        direction = w
+        for e in state.get("exits", []):
+            if (e.get("to_room") or "").lower() == w:
+                direction = e["direction"]
                 break
 
-        if not target_room:
-            self.print_error(f"Room '{direction}' not found. Available rooms:")
-            for room in rooms["items"]:
-                print(f"  • {room['name']}")
-            return
-        
-        action_data = {
+        result = self.make_request("POST", "/action", {
             "player_id": self.player_id,
             "action_type": "move",
-            "target_type": "room",
-            "target_id": target_room["id"]
-        }
-        
-        result = self.make_request("POST", "/action", action_data)
+            "parameters": {"direction": direction},
+        })
         if result and result.get("success"):
-            self.print_success(f"Moved to {target_room['name']}")
+            self.print_success(result.get("message", "You move."))
             self.cmd_look()
-        else:
-            self.print_error("Failed to move to that room")
+        # On failure, make_request already surfaced the server's reason.
     
     def cmd_take(self, item_name: str):
         """Take an item by name"""

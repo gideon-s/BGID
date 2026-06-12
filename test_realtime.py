@@ -51,6 +51,53 @@ def test_move_notifies_room_and_relocates(client):
             assert moved["event"] == "room_state" and moved["room"]["name"] == "Great Hall"
 
 
+def test_move_by_direction(client):
+    with client.websocket_connect("/ws/1") as ws:
+        ws.receive_json()  # room_state (Foyer)
+        ws.send_json({"cmd": "move", "dir": "north"})
+        # player_left(old room, no one) then room_state for the mover
+        snap = None
+        for _ in range(3):
+            m = ws.receive_json()
+            if m["event"] == "room_state":
+                snap = m
+                break
+        assert snap and snap["room"]["name"] == "Great Hall"
+
+
+def test_move_locked_exit_blocked_without_key(client):
+    with client.websocket_connect("/ws/1") as ws:
+        ws.receive_json()
+        ws.send_json({"cmd": "move", "dir": "down"})  # Cellar door, locked
+        m = ws.receive_json()
+        assert m["event"] == "error" and "locked" in m["detail"]
+
+
+def test_move_locked_exit_with_key(client, db_session):
+    # Give Bryan the Rusty Key
+    key = db_session.query(models.Item).filter_by(name="Rusty Key").first()
+    key.room_id, key.player_id = None, 1
+    db_session.commit()
+    with client.websocket_connect("/ws/1") as ws:
+        ws.receive_json()
+        ws.send_json({"cmd": "move", "dir": "down"})
+        snap = None
+        for _ in range(3):
+            m = ws.receive_json()
+            if m["event"] == "room_state":
+                snap = m
+                break
+        assert snap and snap["room"]["name"] == "Cellar"
+
+
+def test_unknown_direction_errors(client):
+    with client.websocket_connect("/ws/1") as ws:
+        ws.receive_json()
+        ws.send_json({"cmd": "move", "dir": "west"})
+        m = ws.receive_json()
+        assert m["event"] == "error" and "can't go" in m["detail"]
+
+
 def test_talk_triggers_async_npc_turn(client):
     cid = npc_id_by_name(client, "Caretaker")
     with client.websocket_connect("/ws/1") as ws:

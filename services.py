@@ -98,6 +98,7 @@ class PlayerService:
         others = [p for p in room.players if p.id != player.id] if room else []
         npcs = room.npcs if room else []
         room_items = room.items if room else []
+        room_exits = sorted(room.exits, key=lambda e: e.direction) if room else []
 
         return {
             "player": {
@@ -127,6 +128,12 @@ class PlayerService:
                 {"id": i.id, "name": i.name, "description": i.description,
                  "item_type": i.item_type, "value": i.value, "is_equipped": False}
                 for i in player.items
+            ],
+            "exits": [
+                {"direction": e.direction, "to_room_id": e.to_room_id,
+                 "to_room": e.to_room.name if e.to_room else None,
+                 "description": e.description, "is_locked": e.is_locked}
+                for e in room_exits
             ],
         }
 
@@ -240,7 +247,14 @@ class ItemService:
     def get_item(db: Session, item_id: int) -> Optional[models.Item]:
         """Get item by ID"""
         return db.query(models.Item).filter(models.Item.id == item_id).first()
-    
+
+    @staticmethod
+    def is_held_by(db: Session, item_id: Optional[int], player_id: int) -> bool:
+        """Whether a player currently carries a given item (used for exit keys)."""
+        if item_id is None:
+            return False
+        return db.query(models.Item).filter_by(id=item_id, player_id=player_id).first() is not None
+
     @staticmethod
     def get_items(db: Session, skip: int = 0, limit: int = 100) -> List[models.Item]:
         """Get list of items with pagination"""
@@ -479,14 +493,28 @@ class GameActionService:
     
     @staticmethod
     def _handle_move(db: Session, player: models.Player, action_request: schemas.ActionRequest) -> schemas.ActionResponse:
-        """Handle player movement"""
-        if not action_request.target_id:
-            raise HTTPException(status_code=400, detail="Target room ID required for move action")
-        
-        room = RoomService.get_room(db, action_request.target_id)
-        if not room:
-            raise HTTPException(status_code=404, detail="Room not found")
-        
+        """Handle player movement.
+
+        Preferred: parameters={"direction": "north"} follows an exit and
+        enforces locks. Fallback: target_id teleports to a room (admin).
+        """
+        params = action_request.parameters or {}
+        direction = params.get("direction")
+
+        if direction:
+            ex = RoomExitService.get_exit(db, player.room_id, direction)
+            if not ex:
+                raise HTTPException(status_code=400, detail=f"You can't go {direction} from here.")
+            if ex.is_locked and not ItemService.is_held_by(db, ex.key_item_id, player.id):
+                raise HTTPException(status_code=403, detail=f"The way {direction} is locked.")
+            room = RoomService.get_room(db, ex.to_room_id)
+        else:
+            if not action_request.target_id:
+                raise HTTPException(status_code=400, detail="A 'direction' parameter or target_id is required for move")
+            room = RoomService.get_room(db, action_request.target_id)
+            if not room:
+                raise HTTPException(status_code=404, detail="Room not found")
+
         # Update player location
         old_room_id = player.room_id
         player.room_id = room.id

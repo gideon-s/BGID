@@ -89,7 +89,12 @@ class GameCLI:
             if response.status_code == 200:
                 return response.json()
             else:
-                self.print_error(f"API Error: {response.status_code} - {response.text}")
+                try:
+                    body = response.json()
+                    detail = body.get("detail") or body.get("error") or response.text
+                except Exception:
+                    detail = response.text
+                self.print_error(detail)
                 return None
                 
         except requests.exceptions.ConnectionError:
@@ -134,49 +139,40 @@ class GameCLI:
                 print(f"  • {npc['name']} - {npc['description']}")
             print()
         
-        # Show exits (for now, just show available rooms)
-        self.print_colored("Available exits:", "yellow")
-        rooms = self.make_request("GET", "/rooms/")
-        if rooms:
-            for room in rooms["items"]:
-                if room["id"] != state["current_room"]["id"]:
-                    print(f"  • {room['name']}")
+        # Show exits
+        exits = state.get("exits", [])
+        if exits:
+            self.print_colored("Exits:", "yellow")
+            for e in exits:
+                lock = " (locked)" if e.get("is_locked") else ""
+                dest = e.get("to_room") or "?"
+                print(f"  • {e['direction']} → {dest}{lock}")
     
-    def cmd_go(self, direction: str):
-        """Go to a room by name"""
-        # Get available rooms
-        rooms = self.make_request("GET", "/rooms/")
-        if not rooms:
+    def cmd_go(self, where: str):
+        """Move through an exit, by direction (e.g. 'north'/'n') or by the
+        destination room's name."""
+        state = self.make_request("GET", f"/state/{self.current_player_id}")
+        if not state:
             return
-        
-        # Find room by name (case-insensitive)
-        target_room = None
-        for room in rooms["items"]:
-            if room["name"].lower() == direction.lower():
-                target_room = room
+        # Resolve a destination room name to its exit direction; otherwise pass
+        # the input through as a direction (the server normalizes shorthands).
+        w = where.strip().lower()
+        direction = w
+        for e in state.get("exits", []):
+            if (e.get("to_room") or "").lower() == w:
+                direction = e["direction"]
                 break
 
-        if not target_room:
-            self.print_error(f"Room '{direction}' not found. Available rooms:")
-            for room in rooms["items"]:
-                print(f"  • {room['name']}")
-            return
-        
-        # Perform the move action
-        action_data = {
+        result = self.make_request("POST", "/action", {
             "player_id": self.current_player_id,
             "action_type": "move",
-            "target_type": "room",
-            "target_id": target_room["id"]
-        }
-        
-        result = self.make_request("POST", "/action", action_data)
+            "parameters": {"direction": direction},
+        })
         if result and result.get("success"):
-            self.print_success(f"Moved to {target_room['name']}")
-            # Show the new room
+            self.print_success(result.get("message", "You move."))
             self.cmd_look()
-        else:
-            self.print_error("Failed to move to that room")
+        # On failure, make_request already surfaced the server's reason
+        # (e.g. "The way down is locked.").
     
     def cmd_take(self, item_name: str):
         """Take an item by name"""
@@ -341,7 +337,7 @@ class GameCLI:
         self.print_header("Available Commands")
         print("Game Commands:")
         print("  /look                    - Look around the current room")
-        print("  /go <room_name>          - Move to a different room")
+        print("  /go <direction|room>     - Move through an exit (e.g. /go north)")
         print("  /take <item_name>        - Pick up an item")
         print("  /drop <item_name>        - Drop an item from inventory")
         print("  /use <item_name>         - Use an item")

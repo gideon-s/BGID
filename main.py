@@ -9,7 +9,7 @@ import asyncio
 import json
 import models
 import schemas
-from database import engine, get_db
+from database import engine, get_db, SessionLocal
 from websocket_manager import manager
 from chat_system import chat_manager, ChatType
 from world import world
@@ -181,15 +181,35 @@ async def _handle_ws_command(player_id: int, player_name: str, raw: str):
         )
 
     elif cmd == "move":
-        # Rooms aren't graph-linked yet, so movement is by explicit room_id.
-        # (Directional exits are a future model addition — see ARCHITECTURE.md.)
-        target = msg.get("room_id")
-        if target is None:
-            await manager.send_personal_message(
-                player_id,
-                {"event": "error", "detail": "move requires 'room_id' (directional exits not modeled yet)"},
-            )
-            return
+        # Preferred: move by direction (follows an exit, enforces locks).
+        # Fallback: explicit room_id teleport.
+        direction = msg.get("dir")
+        if direction is not None:
+            ex = world.exit_in_direction(room_id, direction)
+            if ex is None:
+                await manager.send_personal_message(
+                    player_id, {"event": "error", "detail": f"You can't go {direction} from here."}
+                )
+                return
+            if ex["is_locked"]:
+                db = SessionLocal()
+                try:
+                    has_key = ItemService.is_held_by(db, ex["key_item_id"], player_id)
+                finally:
+                    db.close()
+                if not has_key:
+                    await manager.send_personal_message(
+                        player_id, {"event": "error", "detail": f"The way {direction} is locked."}
+                    )
+                    return
+            target = ex["to_room_id"]
+        else:
+            target = msg.get("room_id")
+            if target is None:
+                await manager.send_personal_message(
+                    player_id, {"event": "error", "detail": "move requires 'dir' (or 'room_id')"}
+                )
+                return
         old_room = room_id
         if not world.move_player(player_id, int(target)):
             await manager.send_personal_message(
