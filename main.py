@@ -76,8 +76,12 @@ if os.path.isdir(_STATIC_DIR):
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 @app.get("/", include_in_schema=False)
+@app.get("/play", include_in_schema=False)
 async def root():
-    """Serve the browser game client (falls back to API info if absent)."""
+    """Serve the browser game client (falls back to API info if absent).
+
+    In production nginx serves the Black Goat Society landing at `/` and proxies
+    everything else here, so players reach the game at `/play`."""
     index = os.path.join(_STATIC_DIR, "index.html")
     if os.path.isfile(index):
         return FileResponse(index)

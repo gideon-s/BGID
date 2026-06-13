@@ -10,6 +10,13 @@ def test_root_serves_web_client(client):
     assert "BGID" in r.text
 
 
+def test_play_serves_web_client(client):
+    r = client.get("/play")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "BGID" in r.text
+
+
 def test_join_get_or_creates_player(client):
     r = client.post("/join", json={"name": "Wanderer"})
     assert r.status_code == 200
