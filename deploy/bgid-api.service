@@ -1,0 +1,36 @@
+[Unit]
+Description=BGID FastAPI backend (REST + WebSocket MUD)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/bgid
+EnvironmentFile=/var/www/bgid/.env
+# IMPORTANT: ONE worker only. WorldState and the WebSocket connection manager
+# are in-memory and per-process; multiple workers would each have their own
+# world and players wouldn't see each other. Scaling out needs a shared
+# backend (Redis pub/sub + Postgres), not "--workers N".
+ExecStart=/var/www/bgid/.venv/bin/uvicorn main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info \
+    --access-log
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bgid-api
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/www/bgid
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
