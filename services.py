@@ -87,6 +87,22 @@ class PlayerService:
         return True
     
     @staticmethod
+    def get_or_create_by_name(db: Session, name: str, room_id: int = 1) -> models.Player:
+        """Return the player with this name, creating one in the starting room
+        if absent. Backs the web client's /join (lightweight identity, no auth)."""
+        player = db.query(models.Player).filter_by(name=name).first()
+        if player:
+            return player
+        room = db.query(models.Room).filter_by(id=room_id).first() or db.query(models.Room).first()
+        if not room:
+            raise HTTPException(status_code=400, detail="No rooms exist yet; seed the world first")
+        player = models.Player(name=name, room_id=room.id)
+        db.add(player)
+        db.commit()
+        db.refresh(player)
+        return player
+
+    @staticmethod
     def get_player_state(db: Session, player_id: int) -> Dict[str, Any]:
         """Player-centric world state: the player, their current room, who/what
         is there, and their inventory. Powers the interactive CLI clients."""

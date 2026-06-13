@@ -255,6 +255,11 @@ class NpcReactionUpdate(BaseModel):
     arousal: Optional[int] = Field(None, ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
     aggression: Optional[int] = Field(None, ge=MIN_REACTION_VALUE, le=MAX_REACTION_VALUE)
 
+# ---------- Join Schema ----------
+class JoinRequest(BaseModel):
+    """Request to join the game by name (web client entry)."""
+    name: str = Field(..., min_length=1, max_length=100)
+
 # ---------- Room Exit Schemas ----------
 class RoomExitCreate(BaseModel):
     """Schema for creating an exit out of a room."""

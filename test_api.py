@@ -3,6 +3,24 @@ chat endpoints) plus basic CRUD."""
 from conftest import npc_id_by_name
 
 
+def test_root_serves_web_client(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "BGID" in r.text
+
+
+def test_join_get_or_creates_player(client):
+    r = client.post("/join", json={"name": "Wanderer"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "Wanderer" and body["room_id"] == 1
+    pid = body["id"]
+    # Joining again with the same name returns the same player
+    again = client.post("/join", json={"name": "Wanderer"}).json()
+    assert again["id"] == pid
+
+
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200

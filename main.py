@@ -2,11 +2,13 @@
 Main FastAPI application for the RPG Game API
 """
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import asyncio
 import json
+import os
 import models
 import schemas
 from database import engine, get_db, SessionLocal
@@ -68,24 +70,44 @@ async def shutdown_event():
     except Exception as e:
         print(f"⚠️  Warning: Error cleaning up DeepSeek NPC system: {e}")
 
-# ---------- Root Endpoint ----------
-@app.get("/", tags=["Root"])
+# ---------- Web Client + Root ----------
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+@app.get("/", include_in_schema=False)
 async def root():
-    """Root endpoint with API information"""
+    """Serve the browser game client (falls back to API info if absent)."""
+    index = os.path.join(_STATIC_DIR, "index.html")
+    if os.path.isfile(index):
+        return FileResponse(index)
+    return JSONResponse({"message": "BGID API", "docs": "/docs"})
+
+@app.get("/api", tags=["Root"])
+async def api_info():
+    """API information."""
     return {
         "message": "Welcome to the RPG Game API!",
         "version": "1.0.0",
         "docs": "/docs",
         "endpoints": {
+            "join": "/join",
             "players": "/players/",
             "rooms": "/rooms/",
             "items": "/items/",
             "npcs": "/npcs/",
             "actions": "/action",
             "chat": "/chat/",
-            "websocket": "/ws/{player_id}"
-        }
+            "state": "/state/{player_id}",
+            "websocket": "/ws/{player_id}",
+        },
     }
+
+@app.post("/join", tags=["Players"])
+def join(req: schemas.JoinRequest, db: Session = Depends(get_db)):
+    """Join by name — returns the player (creates one in the starting room if new)."""
+    player = PlayerService.get_or_create_by_name(db, req.name)
+    return {"id": player.id, "name": player.name, "room_id": player.room_id}
 
 # ---------- WebSocket Endpoint ----------
 @app.websocket("/ws/{player_id}")

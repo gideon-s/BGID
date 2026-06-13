@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BGID</title>
+<style>
+  :root{--bg:#0d0f12;--panel:#15191e;--fg:#d7dbe0;--dim:#8a929c;--accent:#c0863b;
+        --green:#7fb069;--red:#c1554a;--blue:#5b8bb0;--magenta:#9a6fb0;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;height:100vh;display:flex;flex-direction:column}
+  header{padding:.5rem 1rem;background:var(--panel);border-bottom:1px solid #222;display:flex;justify-content:space-between;align-items:center}
+  header b{color:var(--accent);letter-spacing:.1em}
+  #who{color:var(--dim);font-size:.85rem}
+  main{flex:1;display:flex;min-height:0}
+  #log{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.15rem}
+  #side{width:300px;background:var(--panel);border-left:1px solid #222;padding:1rem;overflow-y:auto}
+  #side h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:1rem 0 .4rem}
+  #side h2:first-child{margin-top:0}
+  #roomname{color:var(--accent);font-size:1.1rem;margin:0 0 .25rem}
+  #roomdesc{color:var(--dim);font-size:.9rem;margin:0 0 .5rem}
+  .chip{display:inline-block;background:#1d242c;border:1px solid #2a333d;border-radius:4px;
+        padding:.15rem .5rem;margin:.15rem .25rem .15rem 0;cursor:pointer;font-size:.85rem}
+  .chip:hover{border-color:var(--accent)}
+  .chip.locked{opacity:.6;cursor:default}
+  .ent{display:flex;align-items:center;gap:.35rem;margin:.2rem 0;font-size:.9rem}
+  .ent .nm{flex:1}
+  .ent button{background:#1d242c;border:1px solid #2a333d;color:var(--fg);border-radius:4px;cursor:pointer;font-size:.75rem;padding:.1rem .4rem}
+  .ent button:hover{border-color:var(--accent)}
+  footer{padding:.5rem 1rem;background:var(--panel);border-top:1px solid #222}
+  #cmd{width:100%;background:#0a0c0f;border:1px solid #2a333d;color:var(--fg);
+       padding:.5rem .75rem;border-radius:5px;font:inherit;outline:none}
+  #cmd:focus{border-color:var(--accent)}
+  .l-sys{color:var(--dim)} .l-say{color:var(--fg)} .l-npc{color:var(--accent)}
+  .l-think{color:var(--magenta);font-style:italic} .l-enter{color:var(--green)}
+  .l-leave{color:var(--dim)} .l-combat{color:var(--blue)} .l-err{color:var(--red)}
+  .l-win{color:var(--green);font-weight:bold} .l-lose{color:var(--red);font-weight:bold}
+  #join{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;
+        align-items:center;justify-content:center;gap:1rem;z-index:10}
+  #join h1{color:var(--accent);letter-spacing:.15em;margin:0}
+  #join input{background:#0a0c0f;border:1px solid #2a333d;color:var(--fg);padding:.6rem 1rem;border-radius:5px;font:inherit;width:240px;text-align:center}
+  #join button{background:var(--accent);color:#0d0f12;border:0;padding:.6rem 1.5rem;border-radius:5px;font:inherit;font-weight:bold;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="join">
+  <h1>BGID</h1>
+  <div style="color:var(--dim)">Enter a name to enter the world</div>
+  <input id="name" placeholder="your name" maxlength="100" autofocus>
+  <button id="joinbtn">Enter</button>
+  <div id="joinerr" class="l-err"></div>
+</div>
+
+<header><b>BGID</b><span id="who"></span></header>
+<main>
+  <div id="log"></div>
+  <div id="side">
+    <h1 id="roomname">—</h1>
+    <p id="roomdesc"></p>
+    <h2>Exits</h2><div id="exits"></div>
+    <h2>Here</h2><div id="here"></div>
+    <h2>Items</h2><div id="items"></div>
+  </div>
+</main>
+<footer>
+  <input id="cmd" placeholder="look · go north · say hi · talk caretaker hello · attack goblin · help" autocomplete="off">
+</footer>
+
+<script>
+const S = {pid:null, name:null, ws:null, room:null, npcs:[], players:[], items:[], exits:[]};
+const $ = s => document.querySelector(s);
+const logEl = $('#log');
+
+function log(msg, cls='l-sys'){
+  const d = document.createElement('div'); d.className = cls; d.textContent = msg;
+  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+}
+
+function send(obj){ if(S.ws && S.ws.readyState===1) S.ws.send(JSON.stringify(obj)); }
+
+function renderRoom(){
+  $('#roomname').textContent = S.room ? S.room.name : '—';
+  $('#roomdesc').textContent = S.room ? S.room.description : '';
+  // exits
+  const ex = $('#exits'); ex.innerHTML = '';
+  (S.exits||[]).forEach(e=>{
+    const c = document.createElement('span');
+    c.className = 'chip' + (e.is_locked ? ' locked' : '');
+    c.textContent = e.direction + ' → ' + (e.to_room||'?') + (e.is_locked?' 🔒':'');
+    if(!e.is_locked) c.onclick = ()=> send({cmd:'move', dir:e.direction});
+    else c.onclick = ()=> send({cmd:'move', dir:e.direction}); // server enforces lock; shows reason
+    ex.appendChild(c);
+  });
+  if(!(S.exits||[]).length) ex.innerHTML = '<span style="color:var(--dim)">none</span>';
+  // npcs + players
+  const here = $('#here'); here.innerHTML = '';
+  (S.npcs||[]).forEach(n=>{
+    const row = document.createElement('div'); row.className='ent';
+    row.innerHTML = `<span class="nm" style="color:var(--accent)">${n.name}</span>`;
+    const t = document.createElement('button'); t.textContent='talk';
+    t.onclick=()=>{ $('#cmd').value = `talk ${n.name} `; $('#cmd').focus(); };
+    const a = document.createElement('button'); a.textContent='attack';
+    a.onclick=()=> send({cmd:'attack', npc_id:n.id});
+    row.appendChild(t); row.appendChild(a); here.appendChild(row);
+  });
+  (S.players||[]).forEach(p=>{
+    if(p.id===S.pid) return;
+    const row=document.createElement('div'); row.className='ent';
+    row.innerHTML=`<span class="nm" style="color:var(--green)">${p.name}</span>`;
+    here.appendChild(row);
+  });
+  if(!here.innerHTML) here.innerHTML='<span style="color:var(--dim)">no one else</span>';
+  // items
+  const it=$('#items'); it.innerHTML='';
+  (S.items||[]).forEach(i=>{ const s=document.createElement('div'); s.className='ent';
+    s.innerHTML=`<span class="nm">${i.name}</span>`; it.appendChild(s); });
+  if(!(S.items||[]).length) it.innerHTML='<span style="color:var(--dim)">none</span>';
+}
+
+function onEvent(m){
+  switch(m.event){
+    case 'room_state':
+      S.room=m.room; S.npcs=m.npcs||[]; S.players=m.players||[]; S.items=m.items||[]; S.exits=m.exits||[];
+      renderRoom();
+      log(`— ${m.room?m.room.name:''} —`, 'l-sys'); break;
+    case 'chat':
+      log(`${m.from}: ${m.text}`, m.player_id===S.pid?'l-say':'l-say'); break;
+    case 'npc_thinking': log(`${m.name} is thinking…`, 'l-think'); break;
+    case 'npc_said': log(`${m.name}: ${m.text}`, 'l-npc'); break;
+    case 'player_entered': log(`${m.name} arrives.`, 'l-enter'); break;
+    case 'player_left': log(`${m.name} leaves.`, 'l-leave'); break;
+    case 'combat': {
+      const who = m.attacker, tgt = m.target;
+      if(m.hit) log(`${who} hits ${tgt} for ${m.damage} (${tgt} ${m.target_health}/${m.target_max_health}).`, 'l-combat');
+      else log(`${who} misses ${tgt}.`, 'l-combat');
+      break; }
+    case 'npc_defeated': log(`${m.name} is defeated by ${m.by}!`, 'l-win'); break;
+    case 'player_defeated': log(`${m.name} has fallen!`, 'l-lose'); break;
+    case 'respawn': log(`You respawn (HP ${m.health}).`, 'l-sys'); break;
+    case 'error': log(m.detail, 'l-err'); break;
+    default: log(JSON.stringify(m), 'l-sys');
+  }
+}
+
+const DIRS = ['north','south','east','west','northeast','northwest','southeast','southwest','up','down','in','out',
+              'n','s','e','w','ne','nw','se','sw','u','d'];
+function npcByName(name){
+  const q = name.toLowerCase();
+  return (S.npcs||[]).find(n => n.name.toLowerCase().startsWith(q));
+}
+function handleCommand(raw){
+  const text = raw.trim(); if(!text) return;
+  const parts = text.split(/\s+/); const verb = parts[0].toLowerCase();
+  if(verb==='look' || verb==='l'){ send({cmd:'look'}); return; }
+  if(verb==='help' || verb==='?'){
+    log('Commands: look · go <dir> (or just n/s/e/w/up/down) · say <text> · talk <npc> <text> · attack <npc>', 'l-sys'); return; }
+  if(verb==='go' || verb==='move'){ send({cmd:'move', dir:parts[1]||''}); return; }
+  if(DIRS.includes(verb) && parts.length===1){ send({cmd:'move', dir:verb}); return; }
+  if(verb==='say'){ send({cmd:'say', text:parts.slice(1).join(' ')}); return; }
+  if(verb==='talk'){
+    const npc = npcByName(parts[1]||''); if(!npc){ log(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }
+    send({cmd:'talk', npc_id:npc.id, text:parts.slice(2).join(' ') || 'hello'}); return; }
+  if(verb==='attack'){
+    const npc = npcByName(parts[1]||''); if(!npc){ log(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }
+    send({cmd:'attack', npc_id:npc.id}); return; }
+  // default: treat the whole line as speech
+  send({cmd:'say', text:text});
+}
+
+$('#cmd').addEventListener('keydown', e=>{ if(e.key==='Enter'){ handleCommand(e.target.value); e.target.value=''; }});
+
+function connect(){
+  const proto = location.protocol==='https:' ? 'wss' : 'ws';
+  S.ws = new WebSocket(`${proto}://${location.host}/ws/${S.pid}`);
+  S.ws.onopen = ()=> log('Connected.', 'l-enter');
+  S.ws.onmessage = ev => { try{ onEvent(JSON.parse(ev.data)); }catch(_){ log(ev.data,'l-sys'); } };
+  S.ws.onclose = ()=> log('Disconnected.', 'l-err');
+  S.ws.onerror = ()=> log('Connection error.', 'l-err');
+}
+
+async function join(){
+  const name = $('#name').value.trim();
+  if(!name){ $('#joinerr').textContent='Enter a name.'; return; }
+  try{
+    const r = await fetch('/join', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})});
+    if(!r.ok){ const e=await r.json().catch(()=>({})); $('#joinerr').textContent = e.detail||('Error '+r.status); return; }
+    const p = await r.json();
+    S.pid = p.id; S.name = p.name;
+    $('#who').textContent = `${p.name} (#${p.id})`;
+    $('#join').style.display='none';
+    $('#cmd').focus();
+    connect();
+  }catch(err){ $('#joinerr').textContent = 'Could not reach server.'; }
+}
+$('#joinbtn').onclick = join;
+$('#name').addEventListener('keydown', e=>{ if(e.key==='Enter') join(); });
+</script>
+</body>
+</html>
