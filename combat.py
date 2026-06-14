@@ -102,7 +102,7 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
         player_name, player_id, "player", npc_name, npc_id, "npc", roll, npc_hp, npc_max))
 
     if npc_dead:
-        world.remove_npc(room_id, npc_id)
+        world.kill_npc(room_id, npc_id)  # removes from map; schedules respawn if hostile
         await manager.broadcast_to_room(
             room_id, {"event": "entity_died", "id": npc_id, "kind": "npc",
                       "name": npc_name, "by": player_name})

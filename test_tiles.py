@@ -106,6 +106,40 @@ def test_mob_melee_on_adjacency_damages_player(db_session, monkeypatch):
     assert db_session.query(models.Player).get(1).health == 7  # 10 - 3
 
 
+def test_hostile_mob_respawns_after_death(db_session, monkeypatch):
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(smack_talk, "maybe_smack", _noop)
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 50})
+    care = _npc_id(db_session, "Caretaker")  # hostile in the test world
+    world.load()
+    world.place_player(1, 1)                       # (2,2), adjacent to mob (3,2)
+    asyncio.run(combat.resolve_player_attack(1, 1, care))
+    # Slain: off the map, but scheduled to come back.
+    assert world.position_of("npc", 1, care) is None
+    assert care in world.pending_respawns
+    # Force the timer and respawn.
+    world.pending_respawns[care]["due"] = 0.0
+    assert world.due_respawns() == [care]
+    res = world.respawn_npc(care)
+    assert res and res["room_id"] == 1
+    assert world.position_of("npc", 1, care) == (3, 2)   # back at its home tile
+    db_session.expire_all()
+    assert db_session.query(models.Npc).get(care).health == 8  # full health
+
+
+def test_dead_npc_revived_on_load(db_session):
+    """A mob left at 0 hp in the DB (a prior run) is revived + placed on load,
+    not resurrected as an unkillable zombie."""
+    care = _npc_id(db_session, "Caretaker")
+    db_session.query(models.Npc).get(care).health = 0
+    db_session.commit()
+    world.load()
+    assert world.position_of("npc", 1, care) == (3, 2)   # on the map
+    db_session.expire_all()
+    assert db_session.query(models.Npc).get(care).health == 8  # healed
+
+
 # ---------- zone snapshot ----------
 def test_zone_snapshot_shape(db_session):
     care = _npc_id(db_session, "Caretaker")

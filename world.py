@@ -11,6 +11,7 @@ for persistence and recovery, not live reads:
 
 See ARCHITECTURE.md (step 1).
 """
+import time
 from dataclasses import dataclass, field
 from typing import Dict, Set, Optional, List, Any, Tuple
 
@@ -18,6 +19,7 @@ from database import SessionLocal
 import services
 import models
 import directions
+from config import MOB_RESPAWN_SECONDS
 
 # A generous cap so load() pulls the whole table (service defaults are paged).
 _LOAD_LIMIT = 100_000
@@ -83,6 +85,8 @@ class WorldState:
     def __init__(self):
         self.rooms: Dict[int, RoomNode] = {}
         self.player_locations: Dict[int, int] = {}  # online player_id -> room_id
+        # Slain hostile mobs awaiting respawn: npc_id -> {room_id, due (monotonic)}.
+        self.pending_respawns: Dict[int, dict] = {}
         self.loaded: bool = False
 
     # ---------- loading ----------
@@ -99,9 +103,13 @@ class WorldState:
                 rooms[room.id] = node
             for npc in services.NpcService.get_npcs(db, limit=_LOAD_LIMIT):
                 node = rooms.get(npc.room_id)
-                if node:
-                    node.npc_ids.add(npc.id)
-                    self._place_npc(node, npc)
+                if node is None:
+                    continue
+                if npc.health <= 0:        # revive anything slain in a prior run
+                    npc.health = npc.max_health
+                    db.commit()
+                node.npc_ids.add(npc.id)
+                self._place_npc(node, npc)
             for item in services.ItemService.get_items(db, limit=_LOAD_LIMIT):
                 if item.room_id and item.room_id in rooms:
                     rooms[item.room_id].item_ids.add(item.id)
@@ -116,6 +124,7 @@ class WorldState:
                     }
             self.rooms = rooms
             self.player_locations = {}
+            self.pending_respawns = {}
             self.loaded = True
         finally:
             db.close()
@@ -139,18 +148,19 @@ class WorldState:
 
     def _place_npc(self, node: "RoomNode", npc) -> None:
         """Cache an NPC's static metadata and resolve its anchor tile."""
+        x = npc.home_x
+        y = npc.home_y
+        if x is None or y is None or not self._is_walkable_grid(node, x, y):
+            x, y = self._first_free_tile(node)
+        node.npc_pos[npc.id] = (x, y)
         node.npc_meta[npc.id] = {
             "name": npc.name,
             "glyph": npc.glyph or "👤",
             "hostile": bool(npc.is_hostile),
             "aggro_radius": npc.aggro_radius if npc.aggro_radius is not None else 6,
             "combat_enabled": bool(npc.combat_enabled),
+            "home": (x, y),   # anchor tile, used to respawn the mob
         }
-        x = npc.home_x
-        y = npc.home_y
-        if x is None or y is None or not self._is_walkable_grid(node, x, y):
-            x, y = self._first_free_tile(node)
-        node.npc_pos[npc.id] = (x, y)
 
     @staticmethod
     def _is_walkable_grid(node: "RoomNode", x: int, y: int) -> bool:
@@ -291,13 +301,56 @@ class WorldState:
         return [nid for nid in node.npc_pos
                 if node.npc_meta.get(nid, {}).get("hostile")]
 
-    def remove_npc(self, room_id: int, npc_id: int) -> None:
-        """Remove a defeated NPC from the room's tile + membership state."""
+    def kill_npc(self, room_id: int, npc_id: int) -> None:
+        """Remove a defeated NPC from the room's tile + membership state. If it
+        was a hostile mob, schedule it to respawn (see ``due_respawns``)."""
         node = self.rooms.get(room_id)
         if node is None:
             return
+        meta = node.npc_meta.get(npc_id, {})
         node.npc_ids.discard(npc_id)
         node.npc_pos.pop(npc_id, None)
+        if meta.get("hostile"):
+            self.pending_respawns[npc_id] = {
+                "room_id": room_id, "due": time.monotonic() + MOB_RESPAWN_SECONDS}
+
+    def due_respawns(self) -> List[int]:
+        """Mob ids whose respawn timer has elapsed (call ``respawn_npc`` on each)."""
+        now = time.monotonic()
+        return [nid for nid, info in self.pending_respawns.items() if now >= info["due"]]
+
+    def respawn_npc(self, npc_id: int) -> Optional[Dict[str, Any]]:
+        """Bring a slain mob back at its home tile with full health. Returns
+        ``{room_id, entity}`` for an ``entity_spawned`` broadcast, or None."""
+        info = self.pending_respawns.pop(npc_id, None)
+        if info is None:
+            return None
+        room_id = info["room_id"]
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        db = SessionLocal()
+        try:
+            npc = services.NpcService.get_npc(db, npc_id)
+            if npc is None:
+                return None
+            npc.health = npc.max_health
+            db.commit()
+            name, glyph, hp = npc.name, npc.glyph or "👤", npc.max_health
+        finally:
+            db.close()
+        meta = node.npc_meta.get(npc_id, {})
+        home = meta.get("home")
+        if home and self._is_walkable_grid(node, *home) and self._occupant(node, *home) is None:
+            x, y = home
+        else:
+            x, y = self._first_free_tile(node)
+        node.npc_ids.add(npc_id)
+        node.npc_pos[npc_id] = (x, y)
+        return {"room_id": room_id, "entity": {
+            "id": npc_id, "kind": "npc", "name": name, "glyph": glyph,
+            "x": x, "y": y, "hostile": meta.get("hostile", False),
+            "hp": hp, "max_hp": hp}}
 
     def zone_snapshot(self, room_id: int, viewer_id: int) -> Optional[Dict[str, Any]]:
         """Serializable tiled-zone view for a `zone_state` event, from one

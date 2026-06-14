@@ -75,6 +75,15 @@ async def _combat_tick_once() -> None:
     pace and strike at most every ``MOB_ATTACK_COOLDOWN``, regardless of how
     often the tick fires."""
     now = time.monotonic()
+    # Respawn any mobs whose timer elapsed, then run AI.
+    for npc_id in world.due_respawns():
+        res = world.respawn_npc(npc_id)
+        if res:
+            _aggroed.discard(npc_id)
+            _last_move_at.pop(npc_id, None)
+            _last_attack_at.pop(npc_id, None)
+            await manager.broadcast_to_room(
+                res["room_id"], {"event": "entity_spawned", **res["entity"]})
     for room_id, node in list(world.rooms.items()):
         if not node.player_pos:          # no online players standing in this zone
             continue

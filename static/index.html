@@ -274,6 +274,7 @@ function onEvent(m){
       if(!(S.you && m.id===S.you.id)){
         S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile};
         if(m.kind==='player') logSide(`${m.name} arrives.`, 'l-enter');
+        else if(m.hostile) logCombat(`${m.name} appears!`, 'l-combat');
         draw(); renderPanel();
       }
       break;
