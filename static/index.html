@@ -6,62 +6,75 @@
 <title>BGID</title>
 <script src="/static/vendor/rot.min.js"></script>
 <style>
-  :root{--bg:#0d0f12;--panel:#15191e;--fg:#d7dbe0;--dim:#8a929c;--accent:#c0863b;
-        --green:#7fb069;--red:#c1554a;--blue:#5b8bb0;--magenta:#9a6fb0;}
+  /* Palette + type lifted from the Black Goat splash: near-black warm gradient,
+     gold accents, parchment ink, classical serif. */
+  :root{--bg:#0a0908;--panel:#15110a;--fg:#e9e2cf;--dim:#9a8f74;--accent:#c7a24a;
+        --gold-dim:#8a7536;--edge:#2c2516;
+        --green:#8fae5e;--red:#c1554a;--blue:#b08a3c;--magenta:#b48a6a;
+        --serif:"Trajan Pro",Georgia,"Times New Roman",serif;
+        --mono:ui-monospace,SFMono-Regular,Menlo,monospace;}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;height:100vh;display:flex;flex-direction:column}
-  header{padding:.5rem 1rem;background:var(--panel);border-bottom:1px solid #222;display:flex;justify-content:space-between;align-items:center}
-  header b{color:var(--accent);letter-spacing:.1em}
+  body{margin:0;color:var(--fg);font:15px/1.5 var(--mono);height:100vh;display:flex;flex-direction:column;
+       background:radial-gradient(circle at 50% 30%, #17130c 0%, #0a0908 62%, #050403 100%);}
+  header{padding:.5rem 1rem;background:var(--panel);border-bottom:1px solid var(--edge);display:flex;justify-content:space-between;align-items:center}
+  header b{color:var(--accent);letter-spacing:.28em;font-family:var(--serif);font-weight:600}
   #who{color:var(--dim);font-size:.85rem}
   #who a{color:var(--dim);cursor:pointer;margin-left:.75rem;text-decoration:underline}
   #who a:hover{color:var(--accent)}
   main{flex:1;display:flex;min-height:0}
   /* Left: tile map (top) + combat/stats/actions strip (bottom) */
   #world{flex:1;display:flex;flex-direction:column;min-width:0}
-  #map{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#08090b}
-  #map canvas{image-rendering:pixelated}
-  #under{height:34%;min-height:140px;display:flex;border-top:1px solid #222;background:var(--panel)}
+  /* The map: ink-and-gold lines on aged dark vellum, framed like a chart. */
+  #map{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;
+       background:radial-gradient(circle at 50% 45%, #14100a 0%, #0d0a06 75%, #080603 100%);}
+  #map canvas{image-rendering:auto;box-shadow:0 0 0 1px var(--edge),0 0 30px rgba(199,162,74,.06);border-radius:2px}
+  #under{height:34%;min-height:140px;display:flex;border-top:1px solid var(--edge);background:var(--panel)}
   #combat{flex:1;overflow-y:auto;padding:.6rem .8rem;display:flex;flex-direction:column;gap:.1rem;font-size:.85rem}
-  #panel{width:230px;border-left:1px solid #222;padding:.6rem .8rem;overflow-y:auto}
-  #panel h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:.6rem 0 .35rem}
+  #panel{width:230px;border-left:1px solid var(--edge);padding:.6rem .8rem;overflow-y:auto}
+  #panel h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.18em;color:var(--gold-dim);margin:.6rem 0 .35rem;font-family:var(--serif)}
   #panel h2:first-child{margin-top:0}
-  #zone{color:var(--accent);font-size:1rem;margin:0 0 .3rem}
-  .hpbar{height:.7rem;background:#1d242c;border:1px solid #2a333d;border-radius:4px;overflow:hidden;margin:.1rem 0 .3rem}
-  .hpbar > i{display:block;height:100%;background:var(--green)}
+  #zone{color:var(--accent);font-size:1.05rem;margin:0 0 .3rem;font-family:var(--serif);letter-spacing:.12em}
+  .hpbar{height:.7rem;background:#1a1610;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.1rem 0 .3rem}
+  .hpbar > i{display:block;height:100%;background:linear-gradient(90deg,#6f8a48,var(--green))}
   .hptext{color:var(--dim);font-size:.8rem}
   .ent{display:flex;align-items:center;gap:.35rem;margin:.2rem 0;font-size:.85rem}
   .ent .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ent button{background:#1d242c;border:1px solid #2a333d;color:var(--fg);border-radius:4px;cursor:pointer;font-size:.72rem;padding:.1rem .4rem}
-  .ent button:hover{border-color:var(--accent)}
+  .ent button{background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);color:var(--fg);border-radius:3px;cursor:pointer;font-size:.72rem;padding:.1rem .4rem}
+  .ent button:hover{border-color:var(--accent);color:var(--accent)}
   /* Right: Layer-2 dialogue / emotes */
-  #side{width:300px;background:var(--panel);border-left:1px solid #222;padding:1rem;overflow-y:auto;display:flex;flex-direction:column;gap:.15rem}
-  #side h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:0 0 .5rem}
-  footer{padding:.5rem 1rem;background:var(--panel);border-top:1px solid #222}
-  #cmd{width:100%;background:#0a0c0f;border:1px solid #2a333d;color:var(--fg);
-       padding:.5rem .75rem;border-radius:5px;font:inherit;outline:none}
-  #cmd:focus{border-color:var(--accent)}
+  #side{width:300px;background:var(--panel);border-left:1px solid var(--edge);padding:1rem;overflow-y:auto;display:flex;flex-direction:column;gap:.15rem}
+  #side h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.18em;color:var(--gold-dim);margin:0 0 .5rem;font-family:var(--serif)}
+  footer{padding:.5rem 1rem;background:var(--panel);border-top:1px solid var(--edge)}
+  #cmd{width:100%;background:#0a0806;border:1px solid var(--gold-dim);color:var(--fg);
+       padding:.5rem .75rem;border-radius:3px;font:inherit;outline:none}
+  #cmd:focus{border-color:var(--accent);box-shadow:0 0 12px rgba(199,162,74,.15)}
   .hint{color:var(--dim);font-size:.75rem;margin-top:.3rem}
   .l-sys{color:var(--dim)} .l-say{color:var(--fg)} .l-npc{color:var(--accent)}
   .l-think{color:var(--magenta);font-style:italic} .l-enter{color:var(--green)}
   .l-leave{color:var(--dim)} .l-combat{color:var(--blue)} .l-err{color:var(--red)}
   .l-win{color:var(--green);font-weight:bold} .l-lose{color:var(--red);font-weight:bold}
   /* ─── Auth / character gate ─── */
-  #gate{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;
-        align-items:center;justify-content:center;gap:1rem;z-index:10;padding:1rem}
-  #gate h1{color:var(--accent);letter-spacing:.15em;margin:0}
-  #gate .sub{color:var(--dim);font-size:.9rem;text-align:center}
-  #gate input{background:#0a0c0f;border:1px solid #2a333d;color:var(--fg);padding:.6rem 1rem;border-radius:5px;font:inherit;width:260px}
-  #gate button.primary{background:var(--accent);color:#0d0f12;border:0;padding:.6rem 1.5rem;border-radius:5px;font:inherit;font-weight:bold;cursor:pointer}
-  #gate button.ghost{background:transparent;color:var(--dim);border:1px solid #2a333d;padding:.6rem 1.5rem;border-radius:5px;font:inherit;cursor:pointer}
+  #gate{position:fixed;inset:0;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;gap:1rem;z-index:10;padding:1rem;
+        background:radial-gradient(circle at 50% 38%, #17130c 0%, #0a0908 60%, #050403 100%)}
+  #gate h1{color:var(--accent);letter-spacing:.34em;text-indent:.34em;margin:0;
+           font-family:var(--serif);font-weight:600;font-size:2.2rem;
+           filter:drop-shadow(0 0 18px rgba(199,162,74,.18))}
+  #gate .sub{color:var(--dim);font-size:.9rem;text-align:center;font-family:var(--serif);letter-spacing:.04em}
+  #gate input{background:rgba(199,162,74,.04);border:1px solid var(--gold-dim);color:var(--fg);padding:.6rem 1rem;border-radius:3px;font:inherit;width:260px}
+  #gate input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 12px rgba(199,162,74,.15)}
+  #gate button.primary{background:var(--accent);color:#0a0908;border:0;padding:.6rem 1.5rem;border-radius:3px;font:inherit;font-weight:bold;letter-spacing:.06em;cursor:pointer;transition:box-shadow .25s ease}
+  #gate button.primary:hover{box-shadow:0 0 22px rgba(199,162,74,.4)}
+  #gate button.ghost{background:rgba(199,162,74,.04);color:var(--dim);border:1px solid var(--gold-dim);padding:.6rem 1.5rem;border-radius:3px;font:inherit;cursor:pointer}
   #gate button.ghost:hover{color:var(--accent);border-color:var(--accent)}
   .row{display:flex;gap:.5rem;align-items:center}
   .gerr{color:var(--red);min-height:1.2rem;font-size:.85rem;text-align:center}
   .tabs{display:flex;gap:1rem;margin-bottom:.25rem;justify-content:center}
-  .tab{cursor:pointer;color:var(--dim);padding-bottom:.2rem;border-bottom:2px solid transparent}
+  .tab{cursor:pointer;color:var(--dim);padding-bottom:.2rem;border-bottom:2px solid transparent;font-family:var(--serif);letter-spacing:.08em}
   .tab.active{color:var(--accent);border-color:var(--accent)}
   .charlist{display:flex;flex-direction:column;gap:.4rem;width:260px;max-height:40vh;overflow-y:auto}
-  .charlist .charbtn{display:flex;justify-content:space-between;align-items:center;background:#1d242c;border:1px solid #2a333d;color:var(--fg);
-        border-radius:5px;padding:.5rem .75rem;cursor:pointer;font:inherit}
+  .charlist .charbtn{display:flex;justify-content:space-between;align-items:center;background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);color:var(--fg);
+        border-radius:3px;padding:.5rem .75rem;cursor:pointer;font:inherit}
   .charlist .charbtn:hover{border-color:var(--accent)}
   .charlist .charbtn .meta{color:var(--dim);font-size:.8rem}
   .hidden{display:none !important}
@@ -173,17 +186,38 @@ function logSide(msg, cls='l-say'){
 }
 function send(obj){ if(S.ws && S.ws.readyState===1) S.ws.send(JSON.stringify(obj)); }
 
-// ─── Tile renderer (rot.js) ───
+// ─── Tile renderer (rot.js) — hand-drawn D&D map: ink/gold lines on vellum ───
 let display = null;
-const TILE_GLYPH = {'#':'#', '.':'·', '+':'+'};
-const TILE_FG_VIS = {'#':'#6b7686', '.':'#39424f', '+':'#c0863b'};
-const TILE_FG_MEM = {'#':'#333a44', '.':'#1c222a', '+':'#5a4524'};
+const MAP_BG    = '#100c07';                 // aged dark vellum (rot.js Display bg)
+const WALL_VIS  = '#d8ccab', WALL_MEM = '#574b2c';   // double-line room walls (ink)
+const DOOR_VIS  = '#e6bd5e', DOOR_MEM = '#6e5a2c';   // single-line doorways (gold)
+const FLOOR_VIS = '#332d1c';                 // faint floor stipple, shown only in view
 
+// Double-line box-drawing glyph for a wall, by which orthogonal neighbours are
+// also walls. Bitmask: N=1, E=2, S=4, W=8 → a connected ╔═╗║╚╝╠╣╦╩╬ network.
+const WALL_BOX = {0:'═',1:'║',2:'═',3:'╚',4:'║',5:'║',6:'╔',7:'╠',
+                  8:'═',9:'╝',10:'═',11:'╩',12:'╗',13:'╣',14:'╦',15:'╬'};
+
+function inBounds(x,y){ return y>=0 && y<S.h && S.tiles[y] && x>=0 && x<S.tiles[y].length; }
 function tileAt(x,y){
-  if(y<0 || y>=S.h || !S.tiles[y] || x<0 || x>=S.tiles[y].length) return '#';
-  return S.tiles[y][x];
+  // Off-grid reads as wall for FOV/walkability, but wall *connectivity* uses
+  // isWall/isDoor (in-bounds only) so border walls don't join the void.
+  return inBounds(x,y) ? S.tiles[y][x] : '#';
 }
+function isWall(x,y){ return inBounds(x,y) && S.tiles[y][x] === '#'; }
+function isDoor(x,y){ return inBounds(x,y) && S.tiles[y][x] === '+'; }
 function isTransparent(x,y){ return tileAt(x,y) !== '#'; }
+
+function wallGlyph(x,y){
+  let m = 0;
+  if(isWall(x,y-1)) m|=1; if(isWall(x+1,y)) m|=2; if(isWall(x,y+1)) m|=4; if(isWall(x-1,y)) m|=8;
+  return WALL_BOX[m];
+}
+function doorGlyph(x,y){
+  // Single line, oriented to the wall it pierces.
+  const horiz = isWall(x-1,y)||isDoor(x-1,y)||isWall(x+1,y)||isDoor(x+1,y);
+  return horiz ? '─' : '│';
+}
 
 function rebuildDisplay(){
   if(display){ display.getContainer().remove(); display = null; }
@@ -194,7 +228,7 @@ function rebuildDisplay(){
       (area.width  - 16) / S.w,
       (area.height - 16) / S.h) * 0.62)));
   display = new ROT.Display({width:S.w, height:S.h, fontSize:fs,
-                             forceSquareRatio:true, bg:'#08090b',
+                             forceSquareRatio:true, bg:MAP_BG,
                              fontFamily:'ui-monospace, Menlo, monospace'});
   $('#map').appendChild(display.getContainer());
 }
@@ -210,10 +244,16 @@ function draw(){
   }catch(_){ /* player off-grid mid-update; skip this frame */ }
 
   for(let y=0;y<S.h;y++){
-    for(let x=0;x<(S.tiles[y]||'').length;x++){
-      const k = x+','+y, t = tileAt(x,y);
-      if(visible[k]) display.draw(x,y,TILE_GLYPH[t]||'·',TILE_FG_VIS[t]||'#39424f','#0d1014');
-      else if(S.explored[k]) display.draw(x,y,TILE_GLYPH[t]||'·',TILE_FG_MEM[t]||'#1c222a','#08090b');
+    const row = S.tiles[y] || '';
+    for(let x=0;x<row.length;x++){
+      const k = x+','+y, vis = visible[k], seen = S.explored[k];
+      if(!vis && !seen) continue;
+      const t = row[x];
+      let ch, fg;
+      if(t === '#'){ ch = wallGlyph(x,y); fg = vis ? WALL_VIS : WALL_MEM; }
+      else if(t === '+'){ ch = doorGlyph(x,y); fg = vis ? DOOR_VIS : DOOR_MEM; }
+      else { if(!vis) continue; ch = '·'; fg = FLOOR_VIS; }  // floor: faint, in-view only
+      display.draw(x, y, ch, fg, null);
     }
   }
   // Entities only render where currently visible.
