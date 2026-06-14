@@ -22,6 +22,9 @@ from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
 from services import PlayerService, RoomService, ItemService, NpcService, GameActionService, NpcReactionService, RoomExitService
+from dependencies import get_current_user, get_current_admin, authenticate_ws
+import auth_api
+import auth_service
 from config import HOST, PORT, DEBUG
 from utils import log_action
 from datetime import datetime
@@ -37,6 +40,9 @@ app = FastAPI(
     version="1.0.0",
     debug=DEBUG
 )
+
+# Auth + character-management routes (/auth/*, /characters/*)
+app.include_router(auth_api.router)
 
 # ---------- Startup/Shutdown Events ----------
 @app.on_event("startup")
@@ -95,7 +101,10 @@ async def api_info():
         "version": "1.0.0",
         "docs": "/docs",
         "endpoints": {
-            "join": "/join",
+            "register": "/auth/register",
+            "login": "/auth/login",
+            "me": "/auth/me",
+            "characters": "/characters",
             "players": "/players/",
             "rooms": "/rooms/",
             "items": "/items/",
@@ -103,33 +112,42 @@ async def api_info():
             "actions": "/action",
             "chat": "/chat/",
             "state": "/state/{player_id}",
-            "websocket": "/ws/{player_id}",
+            "websocket": "/ws/{player_id}?token=<access_token>",
         },
     }
 
-@app.post("/join", tags=["Players"])
-def join(req: schemas.JoinRequest, db: Session = Depends(get_db)):
-    """Join by name — returns the player (creates one in the starting room if new)."""
-    player = PlayerService.get_or_create_by_name(db, req.name)
-    return {"id": player.id, "name": player.name, "room_id": player.room_id}
-
 # ---------- WebSocket Endpoint ----------
 @app.websocket("/ws/{player_id}")
-async def websocket_endpoint(websocket: WebSocket, player_id: int):
-    """Realtime gameplay channel.
+async def websocket_endpoint(websocket: WebSocket, player_id: int,
+                             token: Optional[str] = Query(default=None)):
+    """Realtime gameplay channel (authenticated).
+
+    The browser passes its access token as `?token=` (the WS handshake can't
+    carry an Authorization header). We resolve the user from the token and
+    require that `player_id` is one of *their* characters — otherwise the
+    socket is rejected, so nobody can puppet a character they don't own.
 
     On connect: place the player in the world, subscribe to their room, send a
     room_state snapshot, and announce them to the room. Then dispatch inbound
     commands (look/move/say). See ARCHITECTURE.md for the message protocol.
     """
-    # Verify the player exists (capture the name before closing the session)
+    # Authenticate the connection and verify character ownership in one session.
     db = next(get_db())
-    player = PlayerService.get_player(db, player_id)
-    player_name = player.name if player else None
-    db.close()
-    if not player_name:
-        await websocket.close(code=4004, reason="Player not found")
-        return
+    try:
+        user = authenticate_ws(db, token)
+        if user is None:
+            await websocket.close(code=4401, reason="Authentication required")
+            return
+        player = PlayerService.get_player(db, player_id)
+        if player is None:
+            await websocket.close(code=4004, reason="Character not found")
+            return
+        if player.user_id != user.id:
+            await websocket.close(code=4403, reason="Not your character")
+            return
+        player_name = player.name
+    finally:
+        db.close()
 
     await manager.connect(websocket, player_id)
 
@@ -328,18 +346,21 @@ def get_player(player_id: int, db: Session = Depends(get_db)):
     return player
 
 @app.post("/players/", response_model=schemas.PlayerOut, tags=["Players"])
-def create_player(player: schemas.PlayerCreate, db: Session = Depends(get_db)):
-    """Create a new player"""
+def create_player(player: schemas.PlayerCreate, db: Session = Depends(get_db),
+                  _admin: models.User = Depends(get_current_admin)):
+    """Create a new player (admin). Players normally use POST /characters."""
     return PlayerService.create_player(db, player)
 
 @app.put("/players/{player_id}", response_model=schemas.PlayerOut, tags=["Players"])
-def update_player(player_id: int, player_update: schemas.PlayerUpdate, db: Session = Depends(get_db)):
-    """Update an existing player"""
+def update_player(player_id: int, player_update: schemas.PlayerUpdate, db: Session = Depends(get_db),
+                  _admin: models.User = Depends(get_current_admin)):
+    """Update an existing player (admin)."""
     return PlayerService.update_player(db, player_id, player_update)
 
 @app.delete("/players/{player_id}", tags=["Players"])
-def delete_player(player_id: int, db: Session = Depends(get_db)):
-    """Delete a player"""
+def delete_player(player_id: int, db: Session = Depends(get_db),
+                  _admin: models.User = Depends(get_current_admin)):
+    """Delete a player (admin). Players delete their own via DELETE /characters/{id}."""
     PlayerService.delete_player(db, player_id)
     return {"message": "Player deleted successfully"}
 
@@ -379,8 +400,9 @@ def get_room(room_id: int, db: Session = Depends(get_db)):
     return room
 
 @app.post("/rooms/", response_model=schemas.RoomOut, tags=["Rooms"])
-def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db)):
-    """Create a new room"""
+def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db),
+                _admin: models.User = Depends(get_current_admin)):
+    """Create a new room (admin)."""
     return RoomService.create_room(db, room)
 
 @app.get("/rooms/{room_id}/state", tags=["Rooms"])
@@ -394,17 +416,19 @@ def get_room_exits(room_id: int, db: Session = Depends(get_db)):
     return RoomExitService.get_exits(db, room_id)
 
 @app.post("/rooms/{room_id}/exits", response_model=schemas.RoomExitOut, tags=["Rooms"])
-def create_room_exit(room_id: int, data: schemas.RoomExitCreate, db: Session = Depends(get_db)):
-    """Create an exit out of a room (auto-creates the reverse exit unless
-    bidirectional=false). Refreshes the live world map."""
+def create_room_exit(room_id: int, data: schemas.RoomExitCreate, db: Session = Depends(get_db),
+                     _admin: models.User = Depends(get_current_admin)):
+    """Create an exit out of a room (admin). Auto-creates the reverse exit
+    unless bidirectional=false. Refreshes the live world map."""
     exit_row = RoomExitService.create_exit(db, room_id, data)
     world.reload()
     return exit_row
 
 @app.delete("/rooms/{room_id}/exits/{direction}", tags=["Rooms"])
 def delete_room_exit(room_id: int, direction: str, bidirectional: bool = False,
-                     db: Session = Depends(get_db)):
-    """Delete an exit (optionally its reverse too). Refreshes the live world map."""
+                     db: Session = Depends(get_db),
+                     _admin: models.User = Depends(get_current_admin)):
+    """Delete an exit (admin; optionally its reverse too). Refreshes the live world map."""
     RoomExitService.delete_exit(db, room_id, direction, bidirectional=bidirectional)
     world.reload()
     return {"message": f"Exit '{direction}' removed from room {room_id}"}
@@ -435,8 +459,9 @@ def get_item(item_id: int, db: Session = Depends(get_db)):
     return item
 
 @app.post("/items/", response_model=schemas.ItemOut, tags=["Items"])
-def create_item(item: schemas.ItemCreate, db: Session = Depends(get_db)):
-    """Create a new item"""
+def create_item(item: schemas.ItemCreate, db: Session = Depends(get_db),
+                _admin: models.User = Depends(get_current_admin)):
+    """Create a new item (admin)."""
     return ItemService.create_item(db, item)
 
 # ---------- NPC Endpoints ----------
@@ -465,8 +490,9 @@ def get_npc(npc_id: int, db: Session = Depends(get_db)):
     return npc
 
 @app.post("/npcs/", response_model=schemas.NpcOut, tags=["NPCs"])
-def create_npc(npc: schemas.NpcCreate, db: Session = Depends(get_db)):
-    """Create a new NPC"""
+def create_npc(npc: schemas.NpcCreate, db: Session = Depends(get_db),
+               _admin: models.User = Depends(get_current_admin)):
+    """Create a new NPC (admin)."""
     return NpcService.create_npc(db, npc)
 
 @app.get("/npcs/{npc_id}/sheet", response_model=schemas.NpcSheet, tags=["NPCs"])
@@ -480,20 +506,25 @@ def get_npc_reaction(npc_id: int, player_id: int, db: Session = Depends(get_db))
     return NpcReactionService.get_or_create_reaction(db, npc_id, player_id)
 
 @app.put("/npcs/{npc_id}/reaction/{player_id}", response_model=schemas.NpcReactionOut, tags=["NPCs"])
-def update_npc_reaction(npc_id: int, player_id: int, data: schemas.NpcReactionUpdate, db: Session = Depends(get_db)):
-    """Update an NPC's reaction values toward a player (creates the row if absent)."""
+def update_npc_reaction(npc_id: int, player_id: int, data: schemas.NpcReactionUpdate, db: Session = Depends(get_db),
+                        _admin: models.User = Depends(get_current_admin)):
+    """Update an NPC's reaction values toward a player (admin; creates the row if absent)."""
     return NpcReactionService.update_reaction(db, npc_id, player_id, data)
 
 # ---------- Game Action Endpoints ----------
 @app.post("/action", response_model=schemas.ActionResponse, tags=["Game Actions"])
-def perform_action(action_request: schemas.ActionRequest, db: Session = Depends(get_db)):
-    """Perform a game action"""
+def perform_action(action_request: schemas.ActionRequest, db: Session = Depends(get_db),
+                   current_user: models.User = Depends(get_current_user)):
+    """Perform a game action as one of your own characters."""
+    auth_service.CharacterService.owned_or_404(db, current_user, action_request.player_id)
     return GameActionService.perform_action(db, action_request)
 
 # ---------- Chat Endpoints ----------
 @app.post("/chat/send", response_model=ChatMessageResponse, tags=["Chat"])
-def send_chat_message(message: ChatMessageRequest, db: Session = Depends(get_db)):
-    """Send a chat message"""
+def send_chat_message(message: ChatMessageRequest, db: Session = Depends(get_db),
+                      current_user: models.User = Depends(get_current_user)):
+    """Send a chat message as one of your own characters."""
+    auth_service.CharacterService.owned_or_404(db, current_user, message.sender_id)
 
     # Resolve the sender's display name from the DB (request only carries sender_id)
     sender = PlayerService.get_player(db, message.sender_id)
@@ -564,12 +595,14 @@ def get_chat_history(
     }
 
 @app.post("/chat/npc", tags=["Chat"])
-async def chat_with_npc(request: NPCChatRequest, db: Session = Depends(get_db)):
-    """Chat with an NPC using LLM (DeepSeek) integration.
+async def chat_with_npc(request: NPCChatRequest, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(get_current_user)):
+    """Chat with an NPC (DeepSeek-backed) as one of your own characters.
 
     Falls back to rule-based responses automatically if DeepSeek is not
     configured/available (handled inside BaseLLMNPC.generate_response).
     """
+    auth_service.CharacterService.owned_or_404(db, current_user, request.player_id)
 
     # Get NPC and player
     npc = NpcService.get_npc(db, request.npc_id)

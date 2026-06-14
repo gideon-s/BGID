@@ -17,3 +17,6 @@ venv/
 # VSCode / Cursor
 .vscode/
 .cursordb/
+
+# Reference art (not part of the app)
+*.jpg

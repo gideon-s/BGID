@@ -89,12 +89,57 @@ class RoomExit(Base):
     from_room = relationship("Room", foreign_keys=[from_room_id], back_populates="exits")
     to_room = relationship("Room", foreign_keys=[to_room_id])
 
+class User(Base):
+    """An account. One user owns many player characters (one-to-many).
+
+    Identity is username + password (no email verification — the host has no
+    mail capability). `role` is 'player' or 'admin'; admins may mutate world
+    state (rooms/npcs/items/exits) via the protected CRUD endpoints.
+    """
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), nullable=False, unique=True, index=True)
+    email = Column(String(255), nullable=True, index=True)  # optional, unverified
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(20), default="player", nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_login = Column(DateTime(timezone=True), nullable=True)
+
+    # An account's player characters.
+    characters = relationship(
+        "Player", back_populates="owner", cascade="all, delete-orphan"
+    )
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
+
+
+class RevokedToken(Base):
+    """Blacklisted refresh-token jti (SQLite stand-in for dreamcrawler's Redis
+    blacklist). A jti lands here when a refresh token is rotated or on logout;
+    kept until `expires_at` (the token's own expiry), after which the token
+    fails its exp check anyway and the row can be pruned."""
+    __tablename__ = "revoked_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    jti = Column(String(64), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Player(Base, AbilityScoresMixin):
     """Player model representing game characters"""
     __tablename__ = "players"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, unique=True, index=True)
+    # Owning account. Nullable so seeded/system characters can exist ownerless,
+    # but every character created through the API belongs to a User.
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=True, index=True)
     room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False, index=True)
     health = Column(Integer, default=DEFAULT_PLAYER_HEALTH, nullable=False)
     max_health = Column(Integer, default=DEFAULT_PLAYER_HEALTH, nullable=False)
@@ -102,8 +147,9 @@ class Player(Base, AbilityScoresMixin):
     experience = Column(Integer, default=DEFAULT_PLAYER_EXP, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_active = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # Relationships
+    owner = relationship("User", back_populates="characters")
     room = relationship("Room", back_populates="players")
     items = relationship("Item", back_populates="player", cascade="all, delete-orphan")
     npc_reactions = relationship("NpcReaction", back_populates="player", cascade="all, delete-orphan")

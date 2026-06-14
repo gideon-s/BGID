@@ -16,6 +16,11 @@ websockets>=12.0
 # Environment and configuration
 python-dotenv>=1.0.0
 
+# Auth: JWT (python-jose) + Argon2 password hashing
+python-jose[cryptography]>=3.3.0
+argon2-cffi>=23.1.0
+python-multipart>=0.0.7
+
 # LLM integration (DeepSeek — OpenAI-compatible API)
 openai>=1.0.0
 

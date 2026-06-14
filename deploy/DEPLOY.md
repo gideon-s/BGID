@@ -72,20 +72,26 @@ Visit `https://phobophilia.com` — the game client loads, you enter a name, and
 you're in.
 
 ## 8. Updating after a change
+The box is a git clone of `origin/main`, owned by `www-data`. Run git as that
+user (it owns the tree; running as root trips git's "dubious ownership" guard):
 ```bash
 cd /var/www/bgid
-git pull                              # or apply a patch
+sudo -u www-data git pull --ff-only         # pulls latest origin/main
 .venv/bin/pip install -r requirements.txt   # only if deps changed
 systemctl restart bgid-api
 sleep 2 && systemctl status bgid-api --no-pager | grep Active
 ```
+`.env`, `game.db`, and `.venv` are gitignored, so pulls never touch them.
 Static client changes (`static/index.html`) take effect on restart (or
 immediately — it's read per request).
 
 ## Notes / before-public checklist
-- **No auth.** `/join` is name-only; anyone can claim a name and connect as any
-  `player_id`. Fine for a closed/test launch; add real identity before opening
-  it up widely.
+- **Auth.** Accounts are username + password (JWT access + refresh, Argon2
+  hashing). Set `JWT_SECRET` in `.env` (`python -c "import secrets;print(secrets.token_hex(32))"`).
+  The WebSocket is token-authenticated and players may only puppet their own
+  characters. The **first account to register becomes admin** (or list names in
+  `ADMIN_USERNAMES`); admins gate the world-mutation CRUD. Registration is open
+  — add a rate limit on `talk` (DeepSeek cost) before opening widely.
 - **LLM cost.** Every `talk` hits the DeepSeek API (real money). Consider a
   per-player cooldown / rate limit before exposing it publicly.
 - **Backups.** The whole game state is `game.db`. Back it up if it matters.

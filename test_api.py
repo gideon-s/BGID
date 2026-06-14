@@ -17,17 +17,6 @@ def test_play_serves_web_client(client):
     assert "BGID" in r.text
 
 
-def test_join_get_or_creates_player(client):
-    r = client.post("/join", json={"name": "Wanderer"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["name"] == "Wanderer" and body["room_id"] == 1
-    pid = body["id"]
-    # Joining again with the same name returns the same player
-    again = client.post("/join", json={"name": "Wanderer"}).json()
-    assert again["id"] == pid
-
-
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200

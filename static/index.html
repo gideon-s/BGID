@@ -12,6 +12,8 @@
   header{padding:.5rem 1rem;background:var(--panel);border-bottom:1px solid #222;display:flex;justify-content:space-between;align-items:center}
   header b{color:var(--accent);letter-spacing:.1em}
   #who{color:var(--dim);font-size:.85rem}
+  #who a{color:var(--dim);cursor:pointer;margin-left:.75rem;text-decoration:underline}
+  #who a:hover{color:var(--accent)}
   main{flex:1;display:flex;min-height:0}
   #log{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.15rem}
   #side{width:300px;background:var(--panel);border-left:1px solid #222;padding:1rem;overflow-y:auto}
@@ -35,20 +37,60 @@
   .l-think{color:var(--magenta);font-style:italic} .l-enter{color:var(--green)}
   .l-leave{color:var(--dim)} .l-combat{color:var(--blue)} .l-err{color:var(--red)}
   .l-win{color:var(--green);font-weight:bold} .l-lose{color:var(--red);font-weight:bold}
-  #join{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;
-        align-items:center;justify-content:center;gap:1rem;z-index:10}
-  #join h1{color:var(--accent);letter-spacing:.15em;margin:0}
-  #join input{background:#0a0c0f;border:1px solid #2a333d;color:var(--fg);padding:.6rem 1rem;border-radius:5px;font:inherit;width:240px;text-align:center}
-  #join button{background:var(--accent);color:#0d0f12;border:0;padding:.6rem 1.5rem;border-radius:5px;font:inherit;font-weight:bold;cursor:pointer}
+  /* ─── Auth / character gate ─── */
+  #gate{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;
+        align-items:center;justify-content:center;gap:1rem;z-index:10;padding:1rem}
+  #gate h1{color:var(--accent);letter-spacing:.15em;margin:0}
+  #gate .sub{color:var(--dim);font-size:.9rem;text-align:center}
+  #gate input{background:#0a0c0f;border:1px solid #2a333d;color:var(--fg);padding:.6rem 1rem;border-radius:5px;font:inherit;width:260px}
+  #gate button.primary{background:var(--accent);color:#0d0f12;border:0;padding:.6rem 1.5rem;border-radius:5px;font:inherit;font-weight:bold;cursor:pointer}
+  #gate button.ghost{background:transparent;color:var(--dim);border:1px solid #2a333d;padding:.6rem 1.5rem;border-radius:5px;font:inherit;cursor:pointer}
+  #gate button.ghost:hover{color:var(--accent);border-color:var(--accent)}
+  .row{display:flex;gap:.5rem;align-items:center}
+  .gerr{color:var(--red);min-height:1.2rem;font-size:.85rem;text-align:center}
+  .tabs{display:flex;gap:1rem;margin-bottom:.25rem}
+  .tab{cursor:pointer;color:var(--dim);padding-bottom:.2rem;border-bottom:2px solid transparent}
+  .tab.active{color:var(--accent);border-color:var(--accent)}
+  .charlist{display:flex;flex-direction:column;gap:.4rem;width:260px;max-height:40vh;overflow-y:auto}
+  .charlist .charbtn{display:flex;justify-content:space-between;align-items:center;background:#1d242c;border:1px solid #2a333d;color:var(--fg);
+        border-radius:5px;padding:.5rem .75rem;cursor:pointer;font:inherit}
+  .charlist .charbtn:hover{border-color:var(--accent)}
+  .charlist .charbtn .meta{color:var(--dim);font-size:.8rem}
+  .hidden{display:none !important}
 </style>
 </head>
 <body>
-<div id="join">
+<div id="gate">
   <h1>BGID</h1>
-  <div style="color:var(--dim)">Enter a name to enter the world</div>
-  <input id="name" placeholder="your name" maxlength="100" autofocus>
-  <button id="joinbtn">Enter</button>
-  <div id="joinerr" class="l-err"></div>
+
+  <!-- Screen 1: login / register -->
+  <div id="screen-auth">
+    <div class="tabs">
+      <span class="tab active" id="tab-login">Log in</span>
+      <span class="tab" id="tab-register">Register</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:.5rem;align-items:center">
+      <input id="au-user" placeholder="username" maxlength="50" autocomplete="username" autofocus>
+      <input id="au-pass" type="password" placeholder="password" autocomplete="current-password">
+      <div class="row">
+        <button class="primary" id="au-submit">Log in</button>
+      </div>
+      <div class="sub" id="au-hint">Min 8 chars, with a letter and a number.</div>
+      <div class="gerr" id="au-err"></div>
+    </div>
+  </div>
+
+  <!-- Screen 2: character select -->
+  <div id="screen-chars" class="hidden">
+    <div class="sub" id="char-greet"></div>
+    <div class="charlist" id="charlist"></div>
+    <div class="row">
+      <input id="newchar" placeholder="new character name" maxlength="100">
+      <button class="primary" id="newchar-btn">Create</button>
+    </div>
+    <div class="gerr" id="char-err"></div>
+    <button class="ghost" id="char-logout">Log out</button>
+  </div>
 </div>
 
 <header><b>BGID</b><span id="who"></span></header>
@@ -67,32 +109,57 @@
 </footer>
 
 <script>
-const S = {pid:null, name:null, ws:null, room:null, npcs:[], players:[], items:[], exits:[]};
+const S = {pid:null, name:null, ws:null, room:null, npcs:[], players:[], items:[], exits:[], user:null};
 const $ = s => document.querySelector(s);
 const logEl = $('#log');
+
+// ─── Token storage ───
+const TOK = {
+  get access(){ return localStorage.getItem('bgid_access'); },
+  get refresh(){ return localStorage.getItem('bgid_refresh'); },
+  set(t){ localStorage.setItem('bgid_access', t.access_token); localStorage.setItem('bgid_refresh', t.refresh_token); },
+  clear(){ localStorage.removeItem('bgid_access'); localStorage.removeItem('bgid_refresh'); },
+};
+
+// Authenticated fetch with one transparent refresh-on-401 retry.
+async function api(path, {method='GET', body=null, retry=true}={}){
+  const headers = {'Content-Type':'application/json'};
+  if(TOK.access) headers['Authorization'] = 'Bearer ' + TOK.access;
+  const r = await fetch(path, {method, headers, body: body?JSON.stringify(body):null});
+  if(r.status===401 && retry && TOK.refresh){
+    const ok = await tryRefresh();
+    if(ok) return api(path, {method, body, retry:false});
+  }
+  return r;
+}
+async function tryRefresh(){
+  try{
+    const r = await fetch('/auth/refresh', {method:'POST', headers:{'Content-Type':'application/json'},
+                          body:JSON.stringify({refresh_token: TOK.refresh})});
+    if(!r.ok){ TOK.clear(); return false; }
+    TOK.set(await r.json());
+    return true;
+  }catch(_){ return false; }
+}
 
 function log(msg, cls='l-sys'){
   const d = document.createElement('div'); d.className = cls; d.textContent = msg;
   logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
 }
-
 function send(obj){ if(S.ws && S.ws.readyState===1) S.ws.send(JSON.stringify(obj)); }
 
 function renderRoom(){
   $('#roomname').textContent = S.room ? S.room.name : '—';
   $('#roomdesc').textContent = S.room ? S.room.description : '';
-  // exits
   const ex = $('#exits'); ex.innerHTML = '';
   (S.exits||[]).forEach(e=>{
     const c = document.createElement('span');
     c.className = 'chip' + (e.is_locked ? ' locked' : '');
     c.textContent = e.direction + ' → ' + (e.to_room||'?') + (e.is_locked?' 🔒':'');
-    if(!e.is_locked) c.onclick = ()=> send({cmd:'move', dir:e.direction});
-    else c.onclick = ()=> send({cmd:'move', dir:e.direction}); // server enforces lock; shows reason
+    c.onclick = ()=> send({cmd:'move', dir:e.direction}); // server enforces lock
     ex.appendChild(c);
   });
   if(!(S.exits||[]).length) ex.innerHTML = '<span style="color:var(--dim)">none</span>';
-  // npcs + players
   const here = $('#here'); here.innerHTML = '';
   (S.npcs||[]).forEach(n=>{
     const row = document.createElement('div'); row.className='ent';
@@ -110,7 +177,6 @@ function renderRoom(){
     here.appendChild(row);
   });
   if(!here.innerHTML) here.innerHTML='<span style="color:var(--dim)">no one else</span>';
-  // items
   const it=$('#items'); it.innerHTML='';
   (S.items||[]).forEach(i=>{ const s=document.createElement('div'); s.className='ent';
     s.innerHTML=`<span class="nm">${i.name}</span>`; it.appendChild(s); });
@@ -123,8 +189,7 @@ function onEvent(m){
       S.room=m.room; S.npcs=m.npcs||[]; S.players=m.players||[]; S.items=m.items||[]; S.exits=m.exits||[];
       renderRoom();
       log(`— ${m.room?m.room.name:''} —`, 'l-sys'); break;
-    case 'chat':
-      log(`${m.from}: ${m.text}`, m.player_id===S.pid?'l-say':'l-say'); break;
+    case 'chat': log(`${m.from}: ${m.text}`, 'l-say'); break;
     case 'npc_thinking': log(`${m.name} is thinking…`, 'l-think'); break;
     case 'npc_said': log(`${m.name}: ${m.text}`, 'l-npc'); break;
     case 'player_entered': log(`${m.name} arrives.`, 'l-enter'); break;
@@ -163,37 +228,129 @@ function handleCommand(raw){
   if(verb==='attack'){
     const npc = npcByName(parts[1]||''); if(!npc){ log(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }
     send({cmd:'attack', npc_id:npc.id}); return; }
-  // default: treat the whole line as speech
   send({cmd:'say', text:text});
 }
-
 $('#cmd').addEventListener('keydown', e=>{ if(e.key==='Enter'){ handleCommand(e.target.value); e.target.value=''; }});
 
+// ─── WebSocket (token-authenticated) ───
+let _wsRetried = false;
 function connect(){
   const proto = location.protocol==='https:' ? 'wss' : 'ws';
-  S.ws = new WebSocket(`${proto}://${location.host}/ws/${S.pid}`);
-  S.ws.onopen = ()=> log('Connected.', 'l-enter');
+  S.ws = new WebSocket(`${proto}://${location.host}/ws/${S.pid}?token=${encodeURIComponent(TOK.access)}`);
+  S.ws.onopen = ()=> { _wsRetried = false; log('Connected.', 'l-enter'); };
   S.ws.onmessage = ev => { try{ onEvent(JSON.parse(ev.data)); }catch(_){ log(ev.data,'l-sys'); } };
-  S.ws.onclose = ()=> log('Disconnected.', 'l-err');
+  S.ws.onclose = async (ev)=>{
+    // 4401 = token expired/invalid: refresh once and reconnect transparently.
+    if(ev.code===4401 && !_wsRetried && TOK.refresh){
+      _wsRetried = true;
+      if(await tryRefresh()){ connect(); return; }
+    }
+    log('Disconnected.', 'l-err');
+  };
   S.ws.onerror = ()=> log('Connection error.', 'l-err');
 }
 
-async function join(){
-  const name = $('#name').value.trim();
-  if(!name){ $('#joinerr').textContent='Enter a name.'; return; }
-  try{
-    const r = await fetch('/join', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})});
-    if(!r.ok){ const e=await r.json().catch(()=>({})); $('#joinerr').textContent = e.detail||('Error '+r.status); return; }
-    const p = await r.json();
-    S.pid = p.id; S.name = p.name;
-    $('#who').textContent = `${p.name} (#${p.id})`;
-    $('#join').style.display='none';
-    $('#cmd').focus();
-    connect();
-  }catch(err){ $('#joinerr').textContent = 'Could not reach server.'; }
+// ─── Gate: auth + character flows ───
+let authMode = 'login';
+function setMode(m){
+  authMode = m;
+  $('#tab-login').classList.toggle('active', m==='login');
+  $('#tab-register').classList.toggle('active', m==='register');
+  $('#au-submit').textContent = m==='login' ? 'Log in' : 'Register';
+  $('#au-hint').style.visibility = m==='register' ? 'visible' : 'hidden';
+  $('#au-pass').autocomplete = m==='login' ? 'current-password' : 'new-password';
+  $('#au-err').textContent = '';
 }
-$('#joinbtn').onclick = join;
-$('#name').addEventListener('keydown', e=>{ if(e.key==='Enter') join(); });
+$('#tab-login').onclick = ()=> setMode('login');
+$('#tab-register').onclick = ()=> setMode('register');
+
+async function submitAuth(){
+  const username = $('#au-user').value.trim();
+  const password = $('#au-pass').value;
+  if(!username || !password){ $('#au-err').textContent = 'Enter a username and password.'; return; }
+  const path = authMode==='login' ? '/auth/login' : '/auth/register';
+  try{
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
+                                 body:JSON.stringify({username, password})});
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok){
+      $('#au-err').textContent = humanError(data) || ('Error ' + r.status);
+      return;
+    }
+    TOK.set(data.tokens);
+    S.user = data.user;
+    showCharacters();
+  }catch(_){ $('#au-err').textContent = 'Could not reach the server.'; }
+}
+function humanError(data){
+  if(!data) return '';
+  if(typeof data.detail === 'string') return data.detail;
+  if(Array.isArray(data.detail) && data.detail[0]) return data.detail[0].msg; // pydantic 422
+  return data.error || '';
+}
+$('#au-submit').onclick = submitAuth;
+$('#au-pass').addEventListener('keydown', e=>{ if(e.key==='Enter') submitAuth(); });
+$('#au-user').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#au-pass').focus(); });
+
+async function showCharacters(){
+  $('#screen-auth').classList.add('hidden');
+  $('#screen-chars').classList.remove('hidden');
+  $('#char-greet').textContent = `Signed in as ${S.user.username}. Choose a character:`;
+  await refreshCharacters();
+  $('#newchar').focus();
+}
+async function refreshCharacters(){
+  const r = await api('/characters');
+  const list = $('#charlist'); list.innerHTML = '';
+  if(!r.ok){ $('#char-err').textContent = 'Could not load characters.'; return; }
+  const chars = await r.json();
+  if(!chars.length){ list.innerHTML = '<div class="sub">No characters yet — create one below.</div>'; }
+  chars.forEach(c=>{
+    const b = document.createElement('button'); b.className='charbtn';
+    b.innerHTML = `<span>${c.name}</span><span class="meta">lvl ${c.level} · ${c.health}/${c.max_health} hp</span>`;
+    b.onclick = ()=> playAs(c);
+    list.appendChild(b);
+  });
+}
+async function createCharacter(){
+  const name = $('#newchar').value.trim();
+  if(!name){ $('#char-err').textContent = 'Enter a character name.'; return; }
+  const r = await api('/characters', {method:'POST', body:{name}});
+  const data = await r.json().catch(()=>({}));
+  if(!r.ok){ $('#char-err').textContent = humanError(data) || ('Error ' + r.status); return; }
+  $('#newchar').value=''; $('#char-err').textContent='';
+  playAs(data);
+}
+$('#newchar-btn').onclick = createCharacter;
+$('#newchar').addEventListener('keydown', e=>{ if(e.key==='Enter') createCharacter(); });
+
+function playAs(ch){
+  S.pid = ch.id; S.name = ch.name;
+  $('#who').innerHTML = `${ch.name} (#${ch.id}) · ${S.user.username} <a id="logout">log out</a>`;
+  $('#logout').onclick = logout;
+  $('#gate').style.display = 'none';
+  $('#cmd').focus();
+  connect();
+}
+function logout(){
+  try{ if(TOK.refresh) fetch('/auth/logout', {method:'POST', headers:{'Content-Type':'application/json',
+        'Authorization':'Bearer '+TOK.access}, body:JSON.stringify({refresh_token:TOK.refresh})}); }catch(_){}
+  TOK.clear();
+  if(S.ws) try{ S.ws.close(); }catch(_){}
+  location.reload();
+}
+function char_logout(){ TOK.clear(); location.reload(); }
+$('#char-logout').onclick = char_logout;
+
+// ─── Boot: rehydrate an existing session ───
+(async function boot(){
+  setMode('login');
+  if(TOK.access){
+    const r = await api('/auth/me');
+    if(r.ok){ const me = await r.json(); S.user = me.user; showCharacters(); return; }
+    TOK.clear();
+  }
+})();
 </script>
 </body>
 </html>

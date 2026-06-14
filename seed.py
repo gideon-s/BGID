@@ -42,7 +42,9 @@ def seed():
         cellar = _get_or_create(db, Room, name="Cellar",
                                 defaults={"description": "A cramped, musty cellar below the foyer."})
 
-        _get_or_create(db, Player, name="Bryan", defaults={"id": 1, "room_id": foyer.id})
+        # No player characters are seeded: every character now belongs to a
+        # registered account (POST /characters). The first account to register
+        # auto-becomes admin (see auth_service._resolve_role).
 
         caretaker = _get_or_create(db, Npc, name="Caretaker", defaults={
             "description": "A curt, watchful presence.", "npc_type": "caretaker",
@@ -75,13 +77,6 @@ def seed():
         _ensure_exit(db, foyer.id, "down", cellar.id, description="a heavy cellar door",
                      is_locked=True, key_item_id=key.id if key else None)
         _ensure_exit(db, cellar.id, "up", foyer.id, description="stairs up to the foyer")
-
-        # Baseline reaction Caretaker -> Bryan
-        bryan = db.query(Player).filter_by(name="Bryan").first()
-        if not db.query(NpcReaction).filter_by(npc_id=caretaker.id, player_id=bryan.id).first():
-            db.add(NpcReaction(npc_id=caretaker.id, player_id=bryan.id,
-                               threat=10, attraction=5, arousal=0, aggression=5))
-            db.commit()
 
         print("Seeded.")
     finally:

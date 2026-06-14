@@ -18,6 +18,24 @@ HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
+# Auth / JWT Configuration
+# JWT_SECRET signs access + refresh tokens. MUST be set in production (.env).
+# If blank, security.py generates an ephemeral per-process secret (fine for
+# local dev/tests — tokens just don't survive a restart) and logs a warning.
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+# The room new characters spawn into.
+STARTING_ROOM_ID = int(os.getenv("STARTING_ROOM_ID", "1"))
+# Comma-separated usernames granted the admin role at registration. The very
+# first account to register also becomes admin if no admin exists yet.
+ADMIN_USERNAMES = [u.strip().lower() for u in os.getenv("ADMIN_USERNAMES", "").split(",") if u.strip()]
+# Password policy minimum length (registration).
+PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))
+# Max characters a single account may own.
+MAX_CHARACTERS_PER_ACCOUNT = int(os.getenv("MAX_CHARACTERS_PER_ACCOUNT", "5"))
+
 # Game Configuration
 DEFAULT_PLAYER_HEALTH = 10
 DEFAULT_PLAYER_LEVEL = 1

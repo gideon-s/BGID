@@ -17,7 +17,8 @@ def test_seed_is_idempotent(db_session):
     try:
         assert db.query(models.Room).filter_by(name="Foyer").count() == 1
         assert db.query(models.Room).filter_by(name="Great Hall").count() == 1
-        assert db.query(models.Player).filter_by(name="Bryan").count() == 1
+        # seed.py no longer creates player characters (accounts own them now)
+        assert db.query(models.Player).count() == 0
         assert db.query(models.Npc).filter_by(name="Caretaker").count() == 1
     finally:
         db.close()
