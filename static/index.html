@@ -186,56 +186,52 @@ function logSide(msg, cls='l-say'){
 }
 function send(obj){ if(S.ws && S.ws.readyState===1) S.ws.send(JSON.stringify(obj)); }
 
-// ─── Tile renderer (rot.js) — hand-drawn D&D map: ink/gold lines on vellum ───
-let display = null;
-const MAP_BG    = '#100c07';                 // aged dark vellum (rot.js Display bg)
-const WALL_VIS  = '#d8ccab', WALL_MEM = '#574b2c';   // double-line room walls (ink)
-const DOOR_VIS  = '#e6bd5e', DOOR_MEM = '#6e5a2c';   // single-line doorways (gold)
-const FLOOR_VIS = '#332d1c';                 // faint floor stipple, shown only in view
-
-// Double-line box-drawing glyph for a wall, by which orthogonal neighbours are
-// also walls. Bitmask: N=1, E=2, S=4, W=8 → a connected ╔═╗║╚╝╠╣╦╩╬ network.
-const WALL_BOX = {0:'═',1:'║',2:'═',3:'╚',4:'║',5:'║',6:'╔',7:'╠',
-                  8:'═',9:'╝',10:'═',11:'╩',12:'╗',13:'╣',14:'╦',15:'╬'};
+// ─── Tile renderer — vector 2D canvas: continuous double-line walls and
+//     single-line doors, traced from the floor boundary (so any room SHAPE
+//     works, not just rectangles). rot.js is kept only for FOV math. ───
+let cv = null, ctx = null, cell = 16;
+const MAP_BG    = '#100c07';                          // aged dark vellum
+const WALL_VIS  = '#d8ccab', WALL_MEM = '#574b2c';    // double-line walls (ink)
+const DOOR_VIS  = '#e6bd5e', DOOR_MEM = '#6e5a2c';    // single-line doorways (gold)
+const FLOOR_DOT = '#2b2616';                          // faint floor stipple
 
 function inBounds(x,y){ return y>=0 && y<S.h && S.tiles[y] && x>=0 && x<S.tiles[y].length; }
-function tileAt(x,y){
-  // Off-grid reads as wall for FOV/walkability, but wall *connectivity* uses
-  // isWall/isDoor (in-bounds only) so border walls don't join the void.
-  return inBounds(x,y) ? S.tiles[y][x] : '#';
-}
-function isWall(x,y){ return inBounds(x,y) && S.tiles[y][x] === '#'; }
+function tileAt(x,y){ return inBounds(x,y) ? S.tiles[y][x] : '#'; }  // off-grid = wall (FOV)
+function isFloor(x,y){ return inBounds(x,y) && S.tiles[y][x] === '.'; }
 function isDoor(x,y){ return inBounds(x,y) && S.tiles[y][x] === '+'; }
-function isTransparent(x,y){ return tileAt(x,y) !== '#'; }
-
-function wallGlyph(x,y){
-  let m = 0;
-  if(isWall(x,y-1)) m|=1; if(isWall(x+1,y)) m|=2; if(isWall(x,y+1)) m|=4; if(isWall(x-1,y)) m|=8;
-  return WALL_BOX[m];
-}
-function doorGlyph(x,y){
-  // Single line, oriented to the wall it pierces.
-  const horiz = isWall(x-1,y)||isDoor(x-1,y)||isWall(x+1,y)||isDoor(x+1,y);
-  return horiz ? '─' : '│';
-}
+function isTransparent(x,y){ return tileAt(x,y) !== '#'; }           // doors see-through
 
 function rebuildDisplay(){
-  if(display){ display.getContainer().remove(); display = null; }
+  if(!cv){ cv = document.createElement('canvas'); $('#map').appendChild(cv); ctx = cv.getContext('2d'); }
   if(!S.w || !S.h) return;
-  // Fit a roughly-square tile to the available map area.
   const area = $('#map').getBoundingClientRect();
-  const fs = Math.max(12, Math.min(40, Math.floor(Math.min(
-      (area.width  - 16) / S.w,
-      (area.height - 16) / S.h) * 0.62)));
-  display = new ROT.Display({width:S.w, height:S.h, fontSize:fs,
-                             forceSquareRatio:true, bg:MAP_BG,
-                             fontFamily:'ui-monospace, Menlo, monospace'});
-  $('#map').appendChild(display.getContainer());
+  cell = Math.max(14, Math.floor(Math.min((area.width - 24) / S.w, (area.height - 24) / S.h)));
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = S.w * cell * dpr; cv.height = S.h * cell * dpr;
+  cv.style.width = (S.w * cell) + 'px'; cv.style.height = (S.h * cell) + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function _line(ax, ay, bx, by, color, w){
+  ctx.strokeStyle = color; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+}
+
+// One edge of a floor cell. nx,ny = the cell across this edge; a..b = the edge
+// endpoints (pre-extended for clean corners). Floor neighbour → nothing; door →
+// single line; wall/void → double line straddling the boundary.
+function edge(nx, ny, ax, ay, bx, by, wallC, doorC, lw, d, orient){
+  if(isFloor(nx, ny)) return;
+  if(isDoor(nx, ny)){ _line(ax, ay, bx, by, doorC, Math.max(1.2, lw * 0.85)); return; }
+  if(orient === 'h'){ _line(ax, ay - d, bx, by - d, wallC, lw); _line(ax, ay + d, bx, by + d, wallC, lw); }
+  else             { _line(ax - d, ay, bx - d, by, wallC, lw); _line(ax + d, ay, bx + d, by, wallC, lw); }
 }
 
 function draw(){
-  if(!display || !S.you) return;
-  display.clear();
+  if(!ctx || !S.you) return;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = MAP_BG; ctx.fillRect(0, 0, S.w * cell, S.h * cell);
+
   // Field of view from the player; remember everything ever seen.
   const visible = {};
   try{
@@ -243,26 +239,36 @@ function draw(){
     fov.compute(S.you.x, S.you.y, FOV_RADIUS, (x,y)=>{ visible[x+','+y]=true; S.explored[x+','+y]=true; });
   }catch(_){ /* player off-grid mid-update; skip this frame */ }
 
+  const lw = Math.max(1.5, cell * 0.07);   // line weight
+  const d  = Math.max(2, cell * 0.11);     // half-gap between the two wall lines
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  // Trace walls from the boundary of every visible/remembered floor cell.
   for(let y=0;y<S.h;y++){
     const row = S.tiles[y] || '';
     for(let x=0;x<row.length;x++){
-      const k = x+','+y, vis = visible[k], seen = S.explored[k];
-      if(!vis && !seen) continue;
-      const t = row[x];
-      let ch, fg;
-      if(t === '#'){ ch = wallGlyph(x,y); fg = vis ? WALL_VIS : WALL_MEM; }
-      else if(t === '+'){ ch = doorGlyph(x,y); fg = vis ? DOOR_VIS : DOOR_MEM; }
-      else { if(!vis) continue; ch = '·'; fg = FLOOR_VIS; }  // floor: faint, in-view only
-      display.draw(x, y, ch, fg, null);
+      if(!isFloor(x,y)) continue;
+      const k = x+','+y, vis = visible[k];
+      if(!vis && !S.explored[k]) continue;
+      const px = x*cell, py = y*cell;
+      if(vis){ ctx.fillStyle = FLOOR_DOT; ctx.beginPath();
+               ctx.arc(px+cell/2, py+cell/2, Math.max(.6, cell*0.035), 0, 7); ctx.fill(); }
+      const wc = vis ? WALL_VIS : WALL_MEM, dc = vis ? DOOR_VIS : DOOR_MEM;
+      edge(x,   y-1, px-d,    py,      px+cell+d, py,      wc, dc, lw, d, 'h');  // N
+      edge(x,   y+1, px-d,    py+cell, px+cell+d, py+cell, wc, dc, lw, d, 'h');  // S
+      edge(x-1, y,   px,      py-d,    px,        py+cell+d, wc, dc, lw, d, 'v'); // W
+      edge(x+1, y,   px+cell, py-d,    px+cell,   py+cell+d, wc, dc, lw, d, 'v'); // E
     }
   }
-  // Entities only render where currently visible.
+
+  // Entities (emoji), in view only; the player is always drawn (FOV origin).
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = Math.floor(cell * 0.72) + 'px ui-monospace, Menlo, monospace';
   for(const id in S.entities){
     const e = S.entities[id];
-    if(visible[e.x+','+e.y]) display.draw(e.x, e.y, e.glyph || '?', null, null);
+    if(visible[e.x+','+e.y]) ctx.fillText(e.glyph || '?', e.x*cell + cell/2, e.y*cell + cell/2 + 1);
   }
-  // The player is always drawn (it's the FOV origin).
-  display.draw(S.you.x, S.you.y, S.you.glyph || '🧙', null, null);
+  ctx.fillText(S.you.glyph || '🧙', S.you.x*cell + cell/2, S.you.y*cell + cell/2 + 1);
 }
 
 function setHp(hp, max){
