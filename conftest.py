@@ -13,6 +13,24 @@ import os
 os.environ["DATABASE_URL"] = "sqlite:///./test_bgid.db"
 os.environ["DEEPSEEK_API_KEY"] = ""  # force rule-based NPC fallback; no network
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production")  # stable tokens
+# Disable the live mob-AI tick during tests so it can't inject nondeterministic
+# combat events into WS streams; the AI is exercised by calling
+# game_loop._combat_tick_once() directly. Drop the move cooldown so movement
+# tests aren't silently rate-limited.
+os.environ["COMBAT_TICK_SECONDS"] = "3600"
+os.environ["MOVE_COOLDOWN_SECONDS"] = "0"
+
+# Tiled test Foyer (8x6). Players spawn at (2,2); the Caretaker (the hostile
+# test mob) sits adjacent at (3,2), the Innkeeper (non-combatant) at (5,4).
+FOYER_TILES = "\n".join([
+    "########",
+    "#......#",
+    "#......#",
+    "#......#",
+    "#......#",
+    "########",
+])
+FOYER_W, FOYER_H, FOYER_SPAWN = 8, 6, (2, 2)
 
 import pathlib
 import pytest
@@ -40,7 +58,9 @@ def _seed(db):
     db.add_all([tester, intruder])
     db.commit()
 
-    foyer = models.Room(name="Foyer", description="A grand entrance hall.")
+    foyer = models.Room(name="Foyer", description="A grand entrance hall.",
+                        width=FOYER_W, height=FOYER_H, tiles=FOYER_TILES,
+                        spawn_x=FOYER_SPAWN[0], spawn_y=FOYER_SPAWN[1])
     hall = models.Room(name="Great Hall", description="A vast chamber.")
     cellar = models.Room(name="Cellar", description="A musty cellar.")
     db.add_all([foyer, hall, cellar])
@@ -62,12 +82,17 @@ def _seed(db):
     db.commit()
 
     db.add(models.Player(id=1, name="Bryan", room_id=foyer.id, user_id=tester.id))
+    # Caretaker doubles as the hostile mob for tile/AI tests: combat_enabled AND
+    # is_hostile, positioned one tile east of the player spawn so bump- and
+    # explicit-attack tests reach it without moving.
     db.add(models.Npc(name="Caretaker", description="A watchful presence.",
-                      npc_type="caretaker", room_id=foyer.id,
-                      is_friendly=False, combat_enabled=True))
+                      npc_type="combat_mob", room_id=foyer.id,
+                      is_friendly=False, combat_enabled=True, is_hostile=True,
+                      aggro_radius=6, glyph="👺", home_x=3, home_y=2))
     db.add(models.Npc(name="Innkeeper", description="Polite, not a fighter.",
                       npc_type="innkeeper", room_id=foyer.id,
-                      combat_enabled=False))
+                      combat_enabled=False, is_hostile=False,
+                      glyph="🧑", home_x=5, home_y=4))
     db.commit()
 
 
@@ -107,12 +132,16 @@ def _reset_singletons():
     import websocket_manager
     import chat_system
     import rate_limit
+    import smack_talk
+    import game_loop
     websocket_manager.manager.active_connections.clear()
     websocket_manager.manager.room_subscriptions.clear()
     chat_system.chat_manager.global_messages.clear()
     chat_system.chat_manager.room_messages.clear()
     chat_system.chat_manager.private_messages.clear()
-    rate_limit.reset()  # clear per-account talk counters between tests
+    rate_limit.reset()       # clear per-account talk + mob-chatter counters
+    smack_talk.reset()       # clear per-mob smack-talk cooldowns
+    game_loop._aggroed.clear()  # clear mob aggro state
 
 
 @pytest.fixture

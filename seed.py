@@ -9,6 +9,23 @@ Idempotent: safe to run repeatedly (won't duplicate rows). Run directly:
 from database import SessionLocal, engine, Base
 from models import Room, Player, Item, Npc, NpcReaction, RoomExit
 
+# Authored 12x9 tiled Foyer (Phase 1 graphical overhaul). '#' wall, '.' floor,
+# '+' door (decorative until Phase 2 wires door transitions). Players spawn at
+# (3, 4); the Innkeeper and a hostile Cellar Rat sit at fixed tiles below.
+FOYER_TILES = "\n".join([
+    "############",
+    "#..........#",
+    "#..........#",
+    "#..........#",
+    "#..........#",
+    "#..........#",
+    "#..........#",
+    "#..........#",
+    "#####++#####",
+])
+FOYER_W, FOYER_H = 12, 9
+FOYER_SPAWN = (3, 4)
+
 
 def _get_or_create(db, model, defaults=None, **filters):
     """Return an existing row matching `filters`, or create one with
@@ -35,8 +52,11 @@ def seed():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        foyer = _get_or_create(db, Room, name="Foyer",
-                               defaults={"description": "A grand entrance hall."})
+        foyer = _get_or_create(db, Room, name="Foyer", defaults={
+            "description": "A grand entrance hall.",
+            "width": FOYER_W, "height": FOYER_H, "tiles": FOYER_TILES,
+            "spawn_x": FOYER_SPAWN[0], "spawn_y": FOYER_SPAWN[1],
+        })
         hall = _get_or_create(db, Room, name="Great Hall",
                               defaults={"description": "A vast chamber with high ceilings."})
         cellar = _get_or_create(db, Room, name="Cellar",
@@ -49,6 +69,7 @@ def seed():
         caretaker = _get_or_create(db, Npc, name="Caretaker", defaults={
             "description": "A curt, watchful presence.", "npc_type": "caretaker",
             "room_id": foyer.id, "is_friendly": False, "combat_enabled": True,
+            "is_hostile": False, "glyph": "🧹", "home_x": 2, "home_y": 2,
             "cha": 8, "wis": 12,
         })
         _get_or_create(db, Item, name="Rusty Key", defaults={
@@ -60,7 +81,17 @@ def seed():
         _get_or_create(db, Npc, name="Innkeeper", defaults={
             "description": "Polite, harried, not interested in brawls.",
             "npc_type": "innkeeper", "room_id": foyer.id,
-            "combat_enabled": False, "cha": 14, "wis": 12,
+            "combat_enabled": False, "is_hostile": False,
+            "glyph": "🧑", "home_x": 8, "home_y": 2, "cha": 14, "wis": 12,
+        })
+
+        # The Phase 1 hostile mob: aggros, paths toward players, talks smack.
+        _get_or_create(db, Npc, name="Cellar Rat", defaults={
+            "description": "A mangy, snarling rat the size of a dog.",
+            "npc_type": "combat_mob", "room_id": foyer.id,
+            "combat_enabled": True, "is_hostile": True, "aggro_radius": 6,
+            "glyph": "🐀", "home_x": 9, "home_y": 6,
+            "str": 12, "dex": 12, "con": 10, "health": 8, "max_health": 8,
         })
         _get_or_create(db, Item, name="Sturdy Stool", defaults={
             "description": "It wobbles but holds.", "item_type": "furniture",

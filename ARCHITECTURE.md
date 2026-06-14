@@ -118,6 +118,64 @@ Server → client:
 {"event":"error","detail":"..."}
 ```
 
+### Tile protocol (Phase 1 — replaces the in-room movement messages)
+
+The single-room tiled view uses a hard-cutover protocol (closed alpha, no
+back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
+
+```json
+// client → server
+{"cmd":"move","dx":1,"dy":0}        // one orthogonal step (bump = attack)
+{"cmd":"attack","target_id":13}     // explicit adjacent melee
+{"cmd":"talk","npc_id":1,"text":"…"}// unchanged (Layer 2)
+{"cmd":"say","text":"…"}            // unchanged
+{"cmd":"look"}                      // resends zone_state
+
+// server → client
+{"event":"zone_state","room":{...},"tiles":{"w":12,"h":9,"grid":["############", …]},
+ "you":{"id":7,"x":3,"y":4,"glyph":"🧙","hp":10,"max_hp":10},
+ "entities":[{"id":13,"kind":"npc","name":"Cellar Rat","glyph":"🐀","x":9,"y":6,
+              "hostile":true,"hp":8,"max_hp":8}, …]}
+{"event":"entity_moved","id":13,"x":8,"y":6}
+{"event":"entity_spawned","id":2,"kind":"player","name":"Aria","glyph":"🧙","x":3,"y":4}
+{"event":"entity_died","id":13,"kind":"npc","name":"Cellar Rat","by":"Bryan"}
+{"event":"entity_left","id":2,"name":"Aria"}
+{"event":"combat","attacker":"Bryan","attacker_id":7,"target":"Cellar Rat","target_id":13,
+ "hit":true,"damage":4,"target_hp":4,"target_max_hp":8}
+{"event":"player_defeated","player_id":7,"name":"Bryan","by":"Cellar Rat"}
+{"event":"respawn","room_id":1,"health":10}
+```
+
+## Graphical overhaul — two-tier tiled world (Phase 1)
+
+BGID is being reshaped into an **overhead, real-time roguelike** while keeping
+the LLM social layer. Two tiers share one world view (see
+`docs/handoff-01-graphical-overhaul-master.md`):
+
+- **Layer 1 — the dungeon (no LLM):** each room is now an overhead **tile grid**
+  (`Room.width/height/tiles/spawn_x/spawn_y`; glyphs `#` wall, `.` floor, `+`
+  door). `WorldState` tracks live tile positions (`RoomNode.player_pos` /
+  `npc_pos`) and resolves all movement through one helper, `try_step` →
+  `MOVED | BLOCKED | ATTACK` (bump-to-attack). Melee is adjacency-gated and
+  single-strike. A **fast combat tick** (`game_loop._combat_loop`,
+  `COMBAT_TICK_SECONDS≈0.3`, separate from the 15s regen tick) drives hostile
+  mob AI: acquire nearest player in `aggro_radius`, `step_toward`, melee when
+  adjacent. The hot tick is **DB-free for movement** (positions in memory).
+- **Layer 2 — the story (LLM):** unchanged `talk`/`npc_said`, plus a throttled
+  **smack-talk bridge** (`smack_talk.py`): Layer-1 combat events fan out to short
+  in-character barbs, gated by a per-mob cooldown + a per-room global budget
+  (`rate_limit.check_mob_chatter`), with a **canned-barb fallback** so combat
+  stays playable and free when DeepSeek is off/throttled.
+
+**Client** (`static/index.html` + vendored `static/vendor/rot.min.js`): a rot.js
+`Display` renders the tiles with `ROT.FOV.PreciseShadowcasting` fog-of-war
+(center), a Layer-2 dialogue sidebar (right), and a combat-log/stats/actions
+strip (under the map). Movement is WASD/arrow keys; bump a foe to attack.
+
+Phase 1 is scoped to a **single tiled room** (no zone-to-zone door transitions —
+that's Phase 2). The room-graph (`RoomExit`, `directions.py`) and the REST
+`/action` movement remain intact underneath for Phase 2 to build on.
+
 ## Persistence strategy
 
 - Load full world from DB at startup.
@@ -150,6 +208,12 @@ Each step keeps the app runnable.
 5. ✅ **Room graph** (`models.RoomExit`, `directions.py`) — directed exits with
    locks/keys; direction-based, lock-aware movement (WS + `/action`); exits in
    room_state/`/state`; exit-management API.
+
+6. ✅ **Tiled combat slice** (graphical overhaul Phase 1) — rooms become overhead
+   tile grids; per-tile movement + FOV; bump-to-attack melee; a real-time mob-AI
+   combat tick (aggro/path/melee); LLM smack-talk with canned fallback; rot.js
+   three-region client. Single room only — zones/doors are Phase 2. See
+   `docs/handoff-02-phase1-tiled-combat-slice.md`.
 
 ### Future
 - Per-NPC conversation memory across `talk` turns.

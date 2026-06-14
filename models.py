@@ -51,9 +51,19 @@ class Room(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text, default="", nullable=False)
+    # Tile grid (Phase 1 graphical overhaul). A room is an overhead zone: a
+    # `width`x`height` grid stored as a newline-joined string of glyphs
+    # ('#'=wall, '.'=floor, '+'=door), parsed into rows on load. spawn_x/spawn_y
+    # is the tile entities appear on when entering the zone. Legacy room-graph
+    # rooms (no layout) leave these null and fall back to a default open box.
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    tiles = Column(Text, nullable=True)
+    spawn_x = Column(Integer, nullable=True)
+    spawn_y = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    
+
     # Relationships
     players = relationship("Player", back_populates="room", cascade="all, delete-orphan")
     npcs = relationship("Npc", back_populates="room", cascade="all, delete-orphan")
@@ -145,6 +155,9 @@ class Player(Base, AbilityScoresMixin):
     max_health = Column(Integer, default=DEFAULT_PLAYER_HEALTH, nullable=False)
     level = Column(Integer, default=DEFAULT_PLAYER_LEVEL, nullable=False)
     experience = Column(Integer, default=DEFAULT_PLAYER_EXP, nullable=False)
+    # Overhead tile rendering glyph. Live (x,y) is not persisted in Phase 1 —
+    # players spawn at the zone's spawn tile on connect (master §6).
+    glyph = Column(String(8), default="🧙", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_active = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -184,8 +197,19 @@ class Npc(Base, AbilityScoresMixin):
     # Combat and behavior flags
     combat_enabled = Column(Boolean, default=True, nullable=False)
     is_friendly = Column(Boolean, default=False, nullable=False)
+    # is_hostile is distinct from combat_enabled: hostile mobs *initiate* —
+    # they aggro and path toward players on the combat tick. A combat_enabled
+    # NPC that isn't hostile can be fought but won't start a fight (e.g. the
+    # Caretaker); the Innkeeper is neither combat_enabled nor hostile.
+    is_hostile = Column(Boolean, default=False, nullable=False)
+    aggro_radius = Column(Integer, default=6, nullable=False)  # 0 = passive
     health = Column(Integer, default=DEFAULT_NPC_HEALTH, nullable=False)
     max_health = Column(Integer, default=DEFAULT_NPC_HEALTH, nullable=False)
+    # Overhead tile rendering: the emoji/glyph drawn for this NPC, and its
+    # anchor/spawn tile within its room's grid.
+    glyph = Column(String(8), default="👤", nullable=False)
+    home_x = Column(Integer, nullable=True)
+    home_y = Column(Integer, nullable=True)
     
     # Relationships
     room = relationship("Room", back_populates="npcs")

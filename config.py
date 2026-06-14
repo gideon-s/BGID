@@ -42,6 +42,17 @@ MAX_CHARACTERS_PER_ACCOUNT = int(os.getenv("MAX_CHARACTERS_PER_ACCOUNT", "5"))
 TALK_RATE_PER_MIN = int(os.getenv("TALK_RATE_PER_MIN", "10"))
 TALK_RATE_PER_HOUR = int(os.getenv("TALK_RATE_PER_HOUR", "120"))
 
+# Real-time tile combat (Phase 1 graphical overhaul). The combat tick drives
+# mob AI and is separate from the slow 15s regen tick. Move cooldown bounds how
+# fast a player can step. Mob chatter (smack-talk) is throttled per-mob.
+COMBAT_TICK_SECONDS = float(os.getenv("COMBAT_TICK_SECONDS", "0.3"))   # mob AI cadence
+MOVE_COOLDOWN_SECONDS = float(os.getenv("MOVE_COOLDOWN_SECONDS", "0.12"))  # per-player move rate cap
+MOB_CHATTER_COOLDOWN_SECONDS = float(os.getenv("MOB_CHATTER_COOLDOWN_SECONDS", "8"))  # per-mob smack-talk cooldown
+FOV_RADIUS = int(os.getenv("FOV_RADIUS", "8"))  # client view radius
+# Global cap on mob smack-talk LLM calls, per room, per minute (distinct from
+# the player-`talk` budget — mob chatter is mob-initiated cost).
+MOB_CHATTER_RATE_PER_MIN = int(os.getenv("MOB_CHATTER_RATE_PER_MIN", "8"))
+
 # Game Configuration
 DEFAULT_PLAYER_HEALTH = 10
 DEFAULT_PLAYER_LEVEL = 1

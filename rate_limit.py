@@ -56,6 +56,7 @@ class _SlidingWindows:
 
 
 _talk = _SlidingWindows()
+_mob_chatter = _SlidingWindows()
 
 
 def check_talk(user_id: int) -> tuple[bool, float]:
@@ -69,6 +70,15 @@ def check_talk(user_id: int) -> tuple[bool, float]:
     return _talk.check(("talk", user_id), windows)
 
 
+def check_mob_chatter(room_id: int) -> tuple[bool, float]:
+    """Global budget for mob smack-talk LLM lines, keyed per room. Distinct from
+    the player-`talk` budget — this cost is mob-initiated. Returns (allowed,
+    retry_after_seconds); over budget, callers fall back to canned barbs."""
+    windows = [(config.MOB_CHATTER_RATE_PER_MIN, 60)]
+    return _mob_chatter.check(("mob_chatter", room_id), windows)
+
+
 def reset():
     """Clear all counters (used by the test harness between tests)."""
     _talk.reset()
+    _mob_chatter.reset()

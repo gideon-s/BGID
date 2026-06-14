@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BGID</title>
+<script src="/static/vendor/rot.min.js"></script>
 <style>
   :root{--bg:#0d0f12;--panel:#15191e;--fg:#d7dbe0;--dim:#8a929c;--accent:#c0863b;
         --green:#7fb069;--red:#c1554a;--blue:#5b8bb0;--magenta:#9a6fb0;}
@@ -15,24 +16,31 @@
   #who a{color:var(--dim);cursor:pointer;margin-left:.75rem;text-decoration:underline}
   #who a:hover{color:var(--accent)}
   main{flex:1;display:flex;min-height:0}
-  #log{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.15rem}
-  #side{width:300px;background:var(--panel);border-left:1px solid #222;padding:1rem;overflow-y:auto}
-  #side h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:1rem 0 .4rem}
-  #side h2:first-child{margin-top:0}
-  #roomname{color:var(--accent);font-size:1.1rem;margin:0 0 .25rem}
-  #roomdesc{color:var(--dim);font-size:.9rem;margin:0 0 .5rem}
-  .chip{display:inline-block;background:#1d242c;border:1px solid #2a333d;border-radius:4px;
-        padding:.15rem .5rem;margin:.15rem .25rem .15rem 0;cursor:pointer;font-size:.85rem}
-  .chip:hover{border-color:var(--accent)}
-  .chip.locked{opacity:.6;cursor:default}
-  .ent{display:flex;align-items:center;gap:.35rem;margin:.2rem 0;font-size:.9rem}
-  .ent .nm{flex:1}
-  .ent button{background:#1d242c;border:1px solid #2a333d;color:var(--fg);border-radius:4px;cursor:pointer;font-size:.75rem;padding:.1rem .4rem}
+  /* Left: tile map (top) + combat/stats/actions strip (bottom) */
+  #world{flex:1;display:flex;flex-direction:column;min-width:0}
+  #map{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#08090b}
+  #map canvas{image-rendering:pixelated}
+  #under{height:34%;min-height:140px;display:flex;border-top:1px solid #222;background:var(--panel)}
+  #combat{flex:1;overflow-y:auto;padding:.6rem .8rem;display:flex;flex-direction:column;gap:.1rem;font-size:.85rem}
+  #panel{width:230px;border-left:1px solid #222;padding:.6rem .8rem;overflow-y:auto}
+  #panel h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:.6rem 0 .35rem}
+  #panel h2:first-child{margin-top:0}
+  #zone{color:var(--accent);font-size:1rem;margin:0 0 .3rem}
+  .hpbar{height:.7rem;background:#1d242c;border:1px solid #2a333d;border-radius:4px;overflow:hidden;margin:.1rem 0 .3rem}
+  .hpbar > i{display:block;height:100%;background:var(--green)}
+  .hptext{color:var(--dim);font-size:.8rem}
+  .ent{display:flex;align-items:center;gap:.35rem;margin:.2rem 0;font-size:.85rem}
+  .ent .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ent button{background:#1d242c;border:1px solid #2a333d;color:var(--fg);border-radius:4px;cursor:pointer;font-size:.72rem;padding:.1rem .4rem}
   .ent button:hover{border-color:var(--accent)}
+  /* Right: Layer-2 dialogue / emotes */
+  #side{width:300px;background:var(--panel);border-left:1px solid #222;padding:1rem;overflow-y:auto;display:flex;flex-direction:column;gap:.15rem}
+  #side h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:0 0 .5rem}
   footer{padding:.5rem 1rem;background:var(--panel);border-top:1px solid #222}
   #cmd{width:100%;background:#0a0c0f;border:1px solid #2a333d;color:var(--fg);
        padding:.5rem .75rem;border-radius:5px;font:inherit;outline:none}
   #cmd:focus{border-color:var(--accent)}
+  .hint{color:var(--dim);font-size:.75rem;margin-top:.3rem}
   .l-sys{color:var(--dim)} .l-say{color:var(--fg)} .l-npc{color:var(--accent)}
   .l-think{color:var(--magenta);font-style:italic} .l-enter{color:var(--green)}
   .l-leave{color:var(--dim)} .l-combat{color:var(--blue)} .l-err{color:var(--red)}
@@ -95,23 +103,35 @@
 
 <header><b>BGID</b><span id="who"></span></header>
 <main>
-  <div id="log"></div>
+  <div id="world">
+    <div id="map"></div>
+    <div id="under">
+      <div id="combat"></div>
+      <div id="panel">
+        <h1 id="zone">—</h1>
+        <h2>You</h2>
+        <div class="hpbar"><i id="hpfill" style="width:100%"></i></div>
+        <div class="hptext" id="hptext">—</div>
+        <h2>Here</h2><div id="here"></div>
+      </div>
+    </div>
+  </div>
   <div id="side">
-    <h1 id="roomname">—</h1>
-    <p id="roomdesc"></p>
-    <h2>Exits</h2><div id="exits"></div>
-    <h2>Here</h2><div id="here"></div>
-    <h2>Items</h2><div id="items"></div>
+    <h2>Dialogue</h2>
   </div>
 </main>
 <footer>
-  <input id="cmd" placeholder="look · go north · say hi · talk caretaker hello · attack goblin · help" autocomplete="off">
+  <input id="cmd" placeholder="say hi · talk innkeeper hello · look · help  (move with WASD / arrows)" autocomplete="off">
+  <div class="hint">Move: WASD or arrow keys · Bump a foe to attack</div>
 </footer>
 
 <script>
-const S = {pid:null, name:null, ws:null, room:null, npcs:[], players:[], items:[], exits:[], user:null};
+const FOV_RADIUS = 8;
+const S = {pid:null, name:null, ws:null, user:null,
+           room:null, tiles:null, w:0, h:0, you:null, entities:{}, explored:{}};
 const $ = s => document.querySelector(s);
-const logEl = $('#log');
+const combatEl = $('#combat');
+const sideEl = $('#side');
 
 // ─── Token storage ───
 const TOK = {
@@ -142,92 +162,176 @@ async function tryRefresh(){
   }catch(_){ return false; }
 }
 
-function log(msg, cls='l-sys'){
+// ─── Logging: combat strip (Layer 1) vs dialogue sidebar (Layer 2) ───
+function logCombat(msg, cls='l-sys'){
   const d = document.createElement('div'); d.className = cls; d.textContent = msg;
-  logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  combatEl.appendChild(d); combatEl.scrollTop = combatEl.scrollHeight;
+}
+function logSide(msg, cls='l-say'){
+  const d = document.createElement('div'); d.className = cls; d.textContent = msg;
+  sideEl.appendChild(d); sideEl.scrollTop = sideEl.scrollHeight;
 }
 function send(obj){ if(S.ws && S.ws.readyState===1) S.ws.send(JSON.stringify(obj)); }
 
-function renderRoom(){
-  $('#roomname').textContent = S.room ? S.room.name : '—';
-  $('#roomdesc').textContent = S.room ? S.room.description : '';
-  const ex = $('#exits'); ex.innerHTML = '';
-  (S.exits||[]).forEach(e=>{
-    const c = document.createElement('span');
-    c.className = 'chip' + (e.is_locked ? ' locked' : '');
-    c.textContent = e.direction + ' → ' + (e.to_room||'?') + (e.is_locked?' 🔒':'');
-    c.onclick = ()=> send({cmd:'move', dir:e.direction}); // server enforces lock
-    ex.appendChild(c);
-  });
-  if(!(S.exits||[]).length) ex.innerHTML = '<span style="color:var(--dim)">none</span>';
-  const here = $('#here'); here.innerHTML = '';
-  (S.npcs||[]).forEach(n=>{
-    const row = document.createElement('div'); row.className='ent';
-    row.innerHTML = `<span class="nm" style="color:var(--accent)">${n.name}</span>`;
-    const t = document.createElement('button'); t.textContent='talk';
-    t.onclick=()=>{ $('#cmd').value = `talk ${n.name} `; $('#cmd').focus(); };
-    const a = document.createElement('button'); a.textContent='attack';
-    a.onclick=()=> send({cmd:'attack', npc_id:n.id});
-    row.appendChild(t); row.appendChild(a); here.appendChild(row);
-  });
-  (S.players||[]).forEach(p=>{
-    if(p.id===S.pid) return;
-    const row=document.createElement('div'); row.className='ent';
-    row.innerHTML=`<span class="nm" style="color:var(--green)">${p.name}</span>`;
-    here.appendChild(row);
-  });
-  if(!here.innerHTML) here.innerHTML='<span style="color:var(--dim)">no one else</span>';
-  const it=$('#items'); it.innerHTML='';
-  (S.items||[]).forEach(i=>{ const s=document.createElement('div'); s.className='ent';
-    s.innerHTML=`<span class="nm">${i.name}</span>`; it.appendChild(s); });
-  if(!(S.items||[]).length) it.innerHTML='<span style="color:var(--dim)">none</span>';
+// ─── Tile renderer (rot.js) ───
+let display = null;
+const TILE_GLYPH = {'#':'#', '.':'·', '+':'+'};
+const TILE_FG_VIS = {'#':'#6b7686', '.':'#39424f', '+':'#c0863b'};
+const TILE_FG_MEM = {'#':'#333a44', '.':'#1c222a', '+':'#5a4524'};
+
+function tileAt(x,y){
+  if(y<0 || y>=S.h || !S.tiles[y] || x<0 || x>=S.tiles[y].length) return '#';
+  return S.tiles[y][x];
+}
+function isTransparent(x,y){ return tileAt(x,y) !== '#'; }
+
+function rebuildDisplay(){
+  if(display){ display.getContainer().remove(); display = null; }
+  if(!S.w || !S.h) return;
+  // Fit a roughly-square tile to the available map area.
+  const area = $('#map').getBoundingClientRect();
+  const fs = Math.max(12, Math.min(40, Math.floor(Math.min(
+      (area.width  - 16) / S.w,
+      (area.height - 16) / S.h) * 0.62)));
+  display = new ROT.Display({width:S.w, height:S.h, fontSize:fs,
+                             forceSquareRatio:true, bg:'#08090b',
+                             fontFamily:'ui-monospace, Menlo, monospace'});
+  $('#map').appendChild(display.getContainer());
 }
 
+function draw(){
+  if(!display || !S.you) return;
+  display.clear();
+  // Field of view from the player; remember everything ever seen.
+  const visible = {};
+  try{
+    const fov = new ROT.FOV.PreciseShadowcasting(isTransparent);
+    fov.compute(S.you.x, S.you.y, FOV_RADIUS, (x,y)=>{ visible[x+','+y]=true; S.explored[x+','+y]=true; });
+  }catch(_){ /* player off-grid mid-update; skip this frame */ }
+
+  for(let y=0;y<S.h;y++){
+    for(let x=0;x<(S.tiles[y]||'').length;x++){
+      const k = x+','+y, t = tileAt(x,y);
+      if(visible[k]) display.draw(x,y,TILE_GLYPH[t]||'·',TILE_FG_VIS[t]||'#39424f','#0d1014');
+      else if(S.explored[k]) display.draw(x,y,TILE_GLYPH[t]||'·',TILE_FG_MEM[t]||'#1c222a','#08090b');
+    }
+  }
+  // Entities only render where currently visible.
+  for(const id in S.entities){
+    const e = S.entities[id];
+    if(visible[e.x+','+e.y]) display.draw(e.x, e.y, e.glyph || '?', null, null);
+  }
+  // The player is always drawn (it's the FOV origin).
+  display.draw(S.you.x, S.you.y, S.you.glyph || '🧙', null, null);
+}
+
+function setHp(hp, max){
+  if(hp==null || max==null) return;
+  $('#hpfill').style.width = Math.max(0, Math.round(100*hp/max)) + '%';
+  $('#hptext').textContent = `${hp} / ${max} HP`;
+}
+
+function renderPanel(){
+  $('#zone').textContent = S.room ? S.room.name : '—';
+  if(S.you) setHp(S.you.hp, S.you.max_hp);
+  const here = $('#here'); here.innerHTML='';
+  const ids = Object.keys(S.entities);
+  let any=false;
+  ids.forEach(id=>{
+    const e = S.entities[id];
+    const row = document.createElement('div'); row.className='ent';
+    const color = e.kind==='player' ? 'var(--green)' : (e.hostile ? 'var(--red)' : 'var(--accent)');
+    row.innerHTML = `<span class="nm" style="color:${color}">${e.glyph||''} ${e.name}</span>`;
+    if(e.kind==='npc'){
+      const t = document.createElement('button'); t.textContent='talk';
+      t.onclick=()=>{ $('#cmd').value = `talk ${e.name} `; $('#cmd').focus(); };
+      row.appendChild(t);
+      const a = document.createElement('button'); a.textContent='attack';
+      a.onclick=()=> send({cmd:'attack', target_id:e.id});
+      row.appendChild(a);
+    }
+    here.appendChild(row); any=true;
+  });
+  if(!any) here.innerHTML='<span style="color:var(--dim)">no one else</span>';
+}
+
+// ─── Event handling ───
 function onEvent(m){
   switch(m.event){
-    case 'room_state':
-      S.room=m.room; S.npcs=m.npcs||[]; S.players=m.players||[]; S.items=m.items||[]; S.exits=m.exits||[];
-      renderRoom();
-      log(`— ${m.room?m.room.name:''} —`, 'l-sys'); break;
-    case 'chat': log(`${m.from}: ${m.text}`, 'l-say'); break;
-    case 'npc_thinking': log(`${m.name} is thinking…`, 'l-think'); break;
-    case 'npc_said': log(`${m.name}: ${m.text}`, 'l-npc'); break;
-    case 'player_entered': log(`${m.name} arrives.`, 'l-enter'); break;
-    case 'player_left': log(`${m.name} leaves.`, 'l-leave'); break;
+    case 'zone_state':
+      S.room=m.room; S.you=m.you; S.entities={}; S.explored={};
+      S.tiles=m.tiles.grid; S.w=m.tiles.w; S.h=m.tiles.h;
+      (m.entities||[]).forEach(e=> S.entities[e.id]=e);
+      rebuildDisplay(); draw(); renderPanel();
+      logCombat(`— ${m.room?m.room.name:''} —`, 'l-sys');
+      break;
+    case 'entity_moved':
+      if(S.you && m.id===S.you.id){ S.you.x=m.x; S.you.y=m.y; }
+      else if(S.entities[m.id]){ S.entities[m.id].x=m.x; S.entities[m.id].y=m.y; }
+      draw();
+      break;
+    case 'entity_spawned':
+      if(!(S.you && m.id===S.you.id)){
+        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile};
+        if(m.kind==='player') logSide(`${m.name} arrives.`, 'l-enter');
+        draw(); renderPanel();
+      }
+      break;
+    case 'entity_died':
+      if(S.entities[m.id]){ delete S.entities[m.id]; draw(); renderPanel(); }
+      logCombat(`${m.name} is slain${m.by?(' by '+m.by):''}!`, 'l-win');
+      break;
+    case 'entity_left':
+      if(S.entities[m.id]){ delete S.entities[m.id]; draw(); renderPanel(); }
+      logSide(`${m.name||'Someone'} leaves.`, 'l-leave');
+      break;
     case 'combat': {
-      const who = m.attacker, tgt = m.target;
-      if(m.hit) log(`${who} hits ${tgt} for ${m.damage} (${tgt} ${m.target_health}/${m.target_max_health}).`, 'l-combat');
-      else log(`${who} misses ${tgt}.`, 'l-combat');
+      const who=m.attacker, tgt=m.target;
+      if(m.hit) logCombat(`${who} hits ${tgt} for ${m.damage} (${tgt} ${m.target_hp}/${m.target_max_hp}).`, 'l-combat');
+      else logCombat(`${who} misses ${tgt}.`, 'l-combat');
+      if(S.you && m.target_id===S.you.id){ S.you.hp=m.target_hp; setHp(m.target_hp, m.target_max_hp); }
       break; }
-    case 'npc_defeated': log(`${m.name} is defeated by ${m.by}!`, 'l-win'); break;
-    case 'player_defeated': log(`${m.name} has fallen!`, 'l-lose'); break;
-    case 'respawn': log(`You respawn (HP ${m.health}).`, 'l-sys'); break;
-    case 'error': log(m.detail, 'l-err'); break;
-    default: log(JSON.stringify(m), 'l-sys');
+    case 'player_defeated': logCombat(`${m.name} has fallen!`, 'l-lose'); break;
+    case 'respawn': logCombat(`You respawn (HP ${m.health}).`, 'l-sys'); break;
+    // ─── Layer 2 (dialogue sidebar) ───
+    case 'chat': logSide(`${m.from}: ${m.text}`, 'l-say'); break;
+    case 'npc_thinking': logSide(`${m.name} is thinking…`, 'l-think'); break;
+    case 'npc_said': logSide(`${m.name}: ${m.text}`, 'l-npc'); break;
+    case 'error': logCombat(m.detail, 'l-err'); break;
+    default: logCombat(JSON.stringify(m), 'l-sys');
   }
 }
 
-const DIRS = ['north','south','east','west','northeast','northwest','southeast','southwest','up','down','in','out',
-              'n','s','e','w','ne','nw','se','sw','u','d'];
+// ─── Movement input (WASD / arrows) ───
+const MOVE = {
+  ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
+  w:[0,-1], s:[0,1], a:[-1,0], d:[1,0], W:[0,-1], S:[0,1], A:[-1,0], D:[1,0],
+};
+window.addEventListener('keydown', e=>{
+  if(document.activeElement === $('#cmd')) return;   // typing a command
+  const m = MOVE[e.key];
+  if(m){ e.preventDefault(); send({cmd:'move', dx:m[0], dy:m[1]}); }
+});
+window.addEventListener('resize', ()=>{ rebuildDisplay(); draw(); });
+
+// ─── Command box (Layer-2 verbs) ───
 function npcByName(name){
-  const q = name.toLowerCase();
-  return (S.npcs||[]).find(n => n.name.toLowerCase().startsWith(q));
+  const q = (name||'').toLowerCase();
+  return Object.values(S.entities).find(e => e.kind==='npc' && e.name.toLowerCase().startsWith(q));
 }
 function handleCommand(raw){
   const text = raw.trim(); if(!text) return;
   const parts = text.split(/\s+/); const verb = parts[0].toLowerCase();
   if(verb==='look' || verb==='l'){ send({cmd:'look'}); return; }
   if(verb==='help' || verb==='?'){
-    log('Commands: look · go <dir> (or just n/s/e/w/up/down) · say <text> · talk <npc> <text> · attack <npc>', 'l-sys'); return; }
-  if(verb==='go' || verb==='move'){ send({cmd:'move', dir:parts[1]||''}); return; }
-  if(DIRS.includes(verb) && parts.length===1){ send({cmd:'move', dir:verb}); return; }
+    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · look', 'l-sys'); return; }
   if(verb==='say'){ send({cmd:'say', text:parts.slice(1).join(' ')}); return; }
   if(verb==='talk'){
-    const npc = npcByName(parts[1]||''); if(!npc){ log(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }
+    const npc = npcByName(parts[1]||''); if(!npc){ logCombat(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }
     send({cmd:'talk', npc_id:npc.id, text:parts.slice(2).join(' ') || 'hello'}); return; }
   if(verb==='attack'){
-    const npc = npcByName(parts[1]||''); if(!npc){ log(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }
-    send({cmd:'attack', npc_id:npc.id}); return; }
+    const npc = npcByName(parts[1]||''); if(!npc){ logCombat(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }
+    send({cmd:'attack', target_id:npc.id}); return; }
   send({cmd:'say', text:text});
 }
 $('#cmd').addEventListener('keydown', e=>{ if(e.key==='Enter'){ handleCommand(e.target.value); e.target.value=''; }});
@@ -237,17 +341,17 @@ let _wsRetried = false;
 function connect(){
   const proto = location.protocol==='https:' ? 'wss' : 'ws';
   S.ws = new WebSocket(`${proto}://${location.host}/ws/${S.pid}?token=${encodeURIComponent(TOK.access)}`);
-  S.ws.onopen = ()=> { _wsRetried = false; log('Connected.', 'l-enter'); };
-  S.ws.onmessage = ev => { try{ onEvent(JSON.parse(ev.data)); }catch(_){ log(ev.data,'l-sys'); } };
+  S.ws.onopen = ()=> { _wsRetried = false; logCombat('Connected.', 'l-enter'); };
+  S.ws.onmessage = ev => { try{ onEvent(JSON.parse(ev.data)); }catch(_){ logCombat(ev.data,'l-sys'); } };
   S.ws.onclose = async (ev)=>{
     // 4401 = token expired/invalid: refresh once and reconnect transparently.
     if(ev.code===4401 && !_wsRetried && TOK.refresh){
       _wsRetried = true;
       if(await tryRefresh()){ connect(); return; }
     }
-    log('Disconnected.', 'l-err');
+    logCombat('Disconnected.', 'l-err');
   };
-  S.ws.onerror = ()=> log('Connection error.', 'l-err');
+  S.ws.onerror = ()=> logCombat('Connection error.', 'l-err');
 }
 
 // ─── Gate: auth + character flows ───
@@ -329,7 +433,6 @@ function playAs(ch){
   $('#who').innerHTML = `${ch.name} (#${ch.id}) · ${S.user.username} <a id="logout">log out</a>`;
   $('#logout').onclick = logout;
   $('#gate').style.display = 'none';
-  $('#cmd').focus();
   connect();
 }
 function logout(){

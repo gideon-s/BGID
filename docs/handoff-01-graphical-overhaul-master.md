@@ -130,9 +130,12 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
 > Order is by dependency, not strict priority. Portraits (Phase 5) are independent
 > and can be pulled forward as a parallel track if desired.
 
-- **Phase 1 — Tiled combat slice (the spine).** Single tiled room, FOV, per-tile
-  movement, bump-to-attack vs a hostile mob that paths + talks smack, one non-combat
-  NPC, new client layout, real-time ticks. *Proves both layers through one loop.*
+- **Phase 1 — Tiled combat slice (the spine).** ✅ **Done** (branch
+  `phase1-tiled-combat-slice`). Single tiled room, FOV, per-tile movement,
+  bump-to-attack vs a hostile mob (Cellar Rat) that paths + talks smack, one
+  non-combat NPC (Innkeeper), rot.js three-region client, real-time combat tick.
+  Tile protocol + config knobs documented in `ARCHITECTURE.md` / `.env.example`;
+  full test suite green (`test_tiles.py` + rewritten `test_realtime.py`).
   → `handoff-02-phase1-tiled-combat-slice.md`.
 - **Phase 2 — Zones & the map.** Room→room tile transitions via doors; multi-zone
   world; map + minimap (zone graph + explored tiles). Migrate the seeded world to

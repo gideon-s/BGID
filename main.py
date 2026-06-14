@@ -16,8 +16,10 @@ from websocket_manager import manager
 from chat_system import chat_manager, ChatType
 from world import world
 from npc_turns import run_npc_turn, build_llm_npc, build_context
-from combat import run_combat_round
+from combat import resolve_player_attack
 import game_loop
+import time
+from config import MOVE_COOLDOWN_SECONDS
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
@@ -63,9 +65,10 @@ async def startup_event():
         print(f"⚠️  Warning: Could not initialize DeepSeek NPC system: {e}")
         print("   NPCs will use rule-based responses instead.")
 
-    # Start the background tick loop
+    # Start the background tick loops (slow regen + fast mob-AI combat tick)
     game_loop.start()
-    print(f"⏱️  Game loop started (tick every {game_loop.TICK_SECONDS}s)")
+    print(f"⏱️  Game loops started (regen {game_loop.TICK_SECONDS}s, "
+          f"combat {game_loop.COMBAT_TICK_SECONDS}s)")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -118,6 +121,25 @@ async def api_info():
     }
 
 # ---------- WebSocket Endpoint ----------
+# Per-player movement cooldown (monotonic timestamp of last accepted step).
+# Single worker, in-memory — same authority model as WorldState.
+_last_move: dict[int, float] = {}
+# The only legal move deltas: one orthogonal tile at a time.
+_ORTHO = {(1, 0), (-1, 0), (0, 1), (0, -1)}
+
+
+def _player_spawn_fields(player_id: int, room_id: int) -> dict:
+    """glyph + (x, y) for a player's entity_spawned event."""
+    pos = world.position_of("player", room_id, player_id) or world.rooms[room_id].spawn
+    db = SessionLocal()
+    try:
+        player = PlayerService.get_player(db, player_id)
+        glyph = (player.glyph if player else None) or "🧙"
+    finally:
+        db.close()
+    return {"glyph": glyph, "x": pos[0], "y": pos[1]}
+
+
 @app.websocket("/ws/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, player_id: int,
                              token: Optional[str] = Query(default=None)):
@@ -153,7 +175,8 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
 
     await manager.connect(websocket, player_id)
 
-    # Place the player into the authoritative world
+    # Place the player into the authoritative world (room membership + DB) and
+    # onto the zone's spawn tile (the live tile layer).
     room_id = world.enter_world(player_id)
     if room_id is None:
         await manager.send_personal_message(
@@ -162,16 +185,18 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
         manager.disconnect(player_id)
         await websocket.close(code=4000, reason="No room")
         return
+    world.place_player(player_id, room_id)
 
     manager.subscribe_to_room(player_id, room_id)
-    # Initial snapshot to the joining player
+    # Initial tiled-zone snapshot to the joining player
     await manager.send_personal_message(
-        player_id, {"event": "room_state", **world.room_snapshot(room_id)}
+        player_id, {"event": "zone_state", **world.zone_snapshot(room_id, player_id)}
     )
-    # Announce to everyone else in the room
+    # Announce the new arrival to everyone else in the zone (with their tile)
     await manager.broadcast_to_room(
         room_id,
-        {"event": "player_entered", "player_id": player_id, "name": player_name},
+        {"event": "entity_spawned", "id": player_id, "kind": "player",
+         "name": player_name, **_player_spawn_fields(player_id, room_id)},
         exclude_player=player_id,
     )
 
@@ -181,10 +206,11 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
             await _handle_ws_command(player_id, player_name, user_id, raw)
     except WebSocketDisconnect:
         left_room = world.leave_world(player_id)
+        _last_move.pop(player_id, None)
         if left_room is not None:
             await manager.broadcast_to_room(
                 left_room,
-                {"event": "player_left", "player_id": player_id, "name": player_name},
+                {"event": "entity_left", "id": player_id, "name": player_name},
             )
         manager.disconnect(player_id)
 
@@ -211,7 +237,7 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
 
     if cmd == "look":
         await manager.send_personal_message(
-            player_id, {"event": "room_state", **world.room_snapshot(room_id)}
+            player_id, {"event": "zone_state", **world.zone_snapshot(room_id, player_id)}
         )
 
     elif cmd == "say":
@@ -227,58 +253,30 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         )
 
     elif cmd == "move":
-        # Preferred: move by direction (follows an exit, enforces locks).
-        # Fallback: explicit room_id teleport.
-        direction = msg.get("dir")
-        if direction is not None:
-            ex = world.exit_in_direction(room_id, direction)
-            if ex is None:
-                await manager.send_personal_message(
-                    player_id, {"event": "error", "detail": f"You can't go {direction} from here."}
-                )
-                return
-            if ex["is_locked"]:
-                db = SessionLocal()
-                try:
-                    has_key = ItemService.is_held_by(db, ex["key_item_id"], player_id)
-                finally:
-                    db.close()
-                if not has_key:
-                    await manager.send_personal_message(
-                        player_id, {"event": "error", "detail": f"The way {direction} is locked."}
-                    )
-                    return
-            target = ex["to_room_id"]
-        else:
-            target = msg.get("room_id")
-            if target is None:
-                await manager.send_personal_message(
-                    player_id, {"event": "error", "detail": "move requires 'dir' (or 'room_id')"}
-                )
-                return
-        old_room = room_id
-        if not world.move_player(player_id, int(target)):
+        # Tile movement: one orthogonal step. Server validates via try_step
+        # (walls, occupancy, bump-to-attack) and enforces a per-player cooldown.
+        try:
+            dx, dy = int(msg.get("dx", 0)), int(msg.get("dy", 0))
+        except (TypeError, ValueError):
             await manager.send_personal_message(
-                player_id, {"event": "error", "detail": f"No such room: {target}"}
-            )
+                player_id, {"event": "error", "detail": "move requires integer 'dx'/'dy'"})
             return
-        new_room = world.room_of(player_id)
-        # Move the player's room subscription
-        manager.unsubscribe_from_room(player_id, old_room)
-        manager.subscribe_to_room(player_id, new_room)
-        # Notify both rooms
-        await manager.broadcast_to_room(
-            old_room, {"event": "player_left", "player_id": player_id, "name": player_name}
-        )
-        await manager.broadcast_to_room(
-            new_room,
-            {"event": "player_entered", "player_id": player_id, "name": player_name},
-            exclude_player=player_id,
-        )
-        # Snapshot of the new room to the mover
-        await manager.send_personal_message(
-            player_id, {"event": "room_state", **world.room_snapshot(new_room)}
-        )
+        if (dx, dy) not in _ORTHO:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "move must be one orthogonal step (dx/dy = ±1)"})
+            return
+        now = time.monotonic()
+        if now - _last_move.get(player_id, 0.0) < MOVE_COOLDOWN_SECONDS:
+            return  # moving too fast — silently drop (client will retry on next keypress)
+        _last_move[player_id] = now
+
+        res = world.try_step("player", player_id, room_id, dx, dy)
+        if res.kind == "MOVED":
+            await manager.broadcast_to_room(
+                room_id, {"event": "entity_moved", "id": player_id, "x": res.x, "y": res.y})
+        elif res.kind == "ATTACK" and res.target_kind == "npc":
+            await resolve_player_attack(player_id, room_id, res.target_id)
+        # BLOCKED: walls/occupied — no-op (the wall is its own feedback).
 
     elif cmd == "talk":
         npc_id = msg.get("npc_id")
@@ -314,19 +312,20 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         asyncio.create_task(run_npc_turn(player_id, room_id, int(npc_id), text))
 
     elif cmd == "attack":
-        npc_id = msg.get("npc_id")
-        if npc_id is None:
+        # Explicit melee on an adjacent target (alongside bump-to-attack).
+        target_id = msg.get("target_id", msg.get("npc_id"))
+        if target_id is None:
             await manager.send_personal_message(
-                player_id, {"event": "error", "detail": "attack requires 'npc_id'"}
+                player_id, {"event": "error", "detail": "attack requires 'target_id'"}
             )
             return
         node = world.rooms.get(room_id)
-        if node is None or int(npc_id) not in node.npc_ids:
+        if node is None or int(target_id) not in node.npc_ids:
             await manager.send_personal_message(
-                player_id, {"event": "error", "detail": f"No NPC {npc_id} in this room"}
+                player_id, {"event": "error", "detail": f"No NPC {target_id} in this room"}
             )
             return
-        await run_combat_round(player_id, room_id, int(npc_id))
+        await resolve_player_attack(player_id, room_id, int(target_id))
 
     else:
         await manager.send_personal_message(
