@@ -56,7 +56,7 @@
   #gate button.ghost:hover{color:var(--accent);border-color:var(--accent)}
   .row{display:flex;gap:.5rem;align-items:center}
   .gerr{color:var(--red);min-height:1.2rem;font-size:.85rem;text-align:center}
-  .tabs{display:flex;gap:1rem;margin-bottom:.25rem}
+  .tabs{display:flex;gap:1rem;margin-bottom:.25rem;justify-content:center}
   .tab{cursor:pointer;color:var(--dim);padding-bottom:.2rem;border-bottom:2px solid transparent}
   .tab.active{color:var(--accent);border-color:var(--accent)}
   .charlist{display:flex;flex-direction:column;gap:.4rem;width:260px;max-height:40vh;overflow-y:auto}
@@ -83,7 +83,7 @@
       <div class="row">
         <button class="primary" id="au-submit">Log in</button>
       </div>
-      <div class="sub" id="au-hint">Min 8 chars, with a letter and a number.</div>
+      <div class="sub" id="au-hint"><strong>Password requirements:</strong> at least 8 characters, including a letter and a number.</div>
       <div class="gerr" id="au-err"></div>
     </div>
   </div>
