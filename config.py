@@ -36,6 +36,12 @@ PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))
 # Max characters a single account may own.
 MAX_CHARACTERS_PER_ACCOUNT = int(os.getenv("MAX_CHARACTERS_PER_ACCOUNT", "5"))
 
+# Rate limits for LLM NPC conversation (`talk` / POST /chat/npc), per account.
+# Each DeepSeek call costs money; these cap burst and sustained usage. Enforced
+# in-memory (single worker). Set either to 0 to block `talk` entirely.
+TALK_RATE_PER_MIN = int(os.getenv("TALK_RATE_PER_MIN", "10"))
+TALK_RATE_PER_HOUR = int(os.getenv("TALK_RATE_PER_HOUR", "120"))
+
 # Game Configuration
 DEFAULT_PLAYER_HEALTH = 10
 DEFAULT_PLAYER_LEVEL = 1

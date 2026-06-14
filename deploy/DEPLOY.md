@@ -90,10 +90,11 @@ immediately — it's read per request).
   hashing). Set `JWT_SECRET` in `.env` (`python -c "import secrets;print(secrets.token_hex(32))"`).
   The WebSocket is token-authenticated and players may only puppet their own
   characters. The **first account to register becomes admin** (or list names in
-  `ADMIN_USERNAMES`); admins gate the world-mutation CRUD. Registration is open
-  — add a rate limit on `talk` (DeepSeek cost) before opening widely.
-- **LLM cost.** Every `talk` hits the DeepSeek API (real money). Consider a
-  per-player cooldown / rate limit before exposing it publicly.
+  `ADMIN_USERNAMES`); admins gate the world-mutation CRUD. Registration is open.
+- **LLM cost.** Every `talk` hits the DeepSeek API (real money). It's rate-limited
+  per account across both the WS `talk` and REST `/chat/npc` paths
+  (`TALK_RATE_PER_MIN` / `TALK_RATE_PER_HOUR`, default 10/min + 120/hr; set to 0
+  to disable `talk`). In-memory, single-worker — moves to Redis if it ever scales.
 - **Backups.** The whole game state is `game.db`. Back it up if it matters.
 - **Schema changes.** Tables are created via `create_all` + `seed.py`. There's
   no migration tool wired up; for additive columns that's fine, for anything

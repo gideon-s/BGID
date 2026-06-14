@@ -106,11 +106,13 @@ def db_session():
 def _reset_singletons():
     import websocket_manager
     import chat_system
+    import rate_limit
     websocket_manager.manager.active_connections.clear()
     websocket_manager.manager.room_subscriptions.clear()
     chat_system.chat_manager.global_messages.clear()
     chat_system.chat_manager.room_messages.clear()
     chat_system.chat_manager.private_messages.clear()
+    rate_limit.reset()  # clear per-account talk counters between tests
 
 
 @pytest.fixture

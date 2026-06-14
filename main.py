@@ -25,6 +25,7 @@ from services import PlayerService, RoomService, ItemService, NpcService, GameAc
 from dependencies import get_current_user, get_current_admin, authenticate_ws
 import auth_api
 import auth_service
+import rate_limit
 from config import HOST, PORT, DEBUG
 from utils import log_action
 from datetime import datetime
@@ -146,6 +147,7 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
             await websocket.close(code=4403, reason="Not your character")
             return
         player_name = player.name
+        user_id = user.id  # owning account — used to rate-limit LLM `talk`
     finally:
         db.close()
 
@@ -176,7 +178,7 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
     try:
         while True:
             raw = await websocket.receive_text()
-            await _handle_ws_command(player_id, player_name, raw)
+            await _handle_ws_command(player_id, player_name, user_id, raw)
     except WebSocketDisconnect:
         left_room = world.leave_world(player_id)
         if left_room is not None:
@@ -187,7 +189,7 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
         manager.disconnect(player_id)
 
 
-async def _handle_ws_command(player_id: int, player_name: str, raw: str):
+async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw: str):
     """Parse and dispatch a single inbound WebSocket command."""
     try:
         msg = json.loads(raw)
@@ -290,6 +292,17 @@ async def _handle_ws_command(player_id: int, player_name: str, raw: str):
         if node is None or int(npc_id) not in node.npc_ids:
             await manager.send_personal_message(
                 player_id, {"event": "error", "detail": f"No NPC {npc_id} in this room"}
+            )
+            return
+        # Rate-limit LLM conversation per account (DeepSeek cost). Checked before
+        # the broadcast so a throttled message neither echoes nor spawns a turn.
+        allowed, retry = rate_limit.check_talk(user_id)
+        if not allowed:
+            wait = int(retry) + 1
+            await manager.send_personal_message(
+                player_id,
+                {"event": "error", "detail": f"You're conversing too quickly — wait {wait}s.",
+                 "retry_after": wait},
             )
             return
         # Show the room what was asked, then run the NPC's turn without blocking
@@ -603,6 +616,14 @@ async def chat_with_npc(request: NPCChatRequest, db: Session = Depends(get_db),
     configured/available (handled inside BaseLLMNPC.generate_response).
     """
     auth_service.CharacterService.owned_or_404(db, current_user, request.player_id)
+
+    # Rate-limit LLM conversation per account (shared budget with WS `talk`).
+    allowed, retry = rate_limit.check_talk(current_user.id)
+    if not allowed:
+        wait = int(retry) + 1
+        raise HTTPException(status_code=429,
+                            detail=f"You're conversing too quickly — wait {wait}s.",
+                            headers={"Retry-After": str(wait)})
 
     # Get NPC and player
     npc = NpcService.get_npc(db, request.npc_id)
