@@ -29,6 +29,18 @@ def test_is_walkable_and_bounds(db_session):
     assert world.is_walkable(1, 8, 2) is False   # off-grid (x>=w)
 
 
+def test_terrain_types_block_movement(db_session):
+    """Pillars and water block movement; floor, door and rubble are walkable."""
+    world.load()
+    node = world.rooms[1]
+    node.tiles[2] = "#.o~:.+#"   # x: 0# 1. 2:pillar 3:water 4:rubble 5. 6:door 7#
+    assert world.is_walkable(1, 1, 2) is True    # floor
+    assert world.is_walkable(1, 2, 2) is False   # pillar
+    assert world.is_walkable(1, 3, 2) is False   # water
+    assert world.is_walkable(1, 4, 2) is True    # rubble (walkable)
+    assert world.is_walkable(1, 6, 2) is True    # door
+
+
 def test_occupant_at(db_session):
     care = _npc_id(db_session, "Caretaker")
     inn = _npc_id(db_session, "Innkeeper")

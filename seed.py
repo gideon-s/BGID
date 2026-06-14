@@ -9,18 +9,20 @@ Idempotent: safe to run repeatedly (won't duplicate rows). Run directly:
 from database import SessionLocal, engine, Base
 from models import Room, Player, Item, Npc, NpcReaction, RoomExit
 
-# Authored 12x9 tiled Foyer (Phase 1 graphical overhaul). '#' wall, '.' floor,
-# '+' door (decorative until Phase 2 wires door transitions). Players spawn at
-# (3, 4); the Innkeeper and a hostile Cellar Rat sit at fixed tiles below.
+# Authored 12x9 tiled Foyer (Phase 1 graphical overhaul). A non-rectangular
+# hall showing off the tile palette: '#' wall, '.' floor, '+' door, 'o' pillar
+# (solid column), '~' water (a corner pool). The top-right and bottom-right
+# corners are chamfered so it isn't a plain box. Players spawn at (3, 4); the
+# Innkeeper (8, 2) and hostile Cellar Rat (9, 6) sit on open floor.
 FOYER_TILES = "\n".join([
     "############",
+    "#.........##",
+    "#..o.....o.#",
     "#..........#",
     "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
-    "#..........#",
+    "#....oo....#",
+    "#.........+#",
+    "#~~.......##",
     "#####++#####",
 ])
 FOYER_W, FOYER_H = 12, 9

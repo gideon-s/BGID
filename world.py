@@ -24,8 +24,20 @@ from config import MOB_RESPAWN_SECONDS
 # A generous cap so load() pulls the whole table (service defaults are paged).
 _LOAD_LIMIT = 100_000
 
-# Tile glyphs in the stored layout string.
+# Tile glyphs in the stored layout string. The palette is intentionally small
+# and authored (no procedural generation — the world is persistent + shared, so
+# every room is hand-made and reviewable). Add a glyph here + a matching render
+# rule in static/index.html to extend it.
+#   '#' wall      — solid, blocks movement + sight
+#   '.' floor     — open ground
+#   '+' door      — open ground, drawn as a single-line doorway
+#   ':' rubble    — open ground, drawn rougher (cosmetic; walkable)
+#   'o' pillar    — solid column, blocks movement + sight (a floor "island")
+#   '~' water     — blocks movement, but see-through (a pool/moat)
 WALL, FLOOR, DOOR = "#", ".", "+"
+PILLAR, WATER, RUBBLE = "o", "~", ":"
+# Glyphs that block movement. Anything not listed is walkable ground.
+BLOCKING = {WALL, PILLAR, WATER}
 # Fallback box dimensions for rooms with no authored layout (legacy room-graph
 # rooms a player might still end up in — Phase 2 tiles the whole world).
 _DEFAULT_W, _DEFAULT_H = 11, 9
@@ -166,7 +178,7 @@ class WorldState:
     def _is_walkable_grid(node: "RoomNode", x: int, y: int) -> bool:
         if not (0 <= y < node.height and 0 <= x < len(node.tiles[y])):
             return False
-        return node.tiles[y][x] != WALL
+        return node.tiles[y][x] not in BLOCKING
 
     def _first_free_tile(self, node: "RoomNode") -> Tuple[int, int]:
         """Spawn tile if free, else the first unoccupied walkable tile."""
