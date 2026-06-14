@@ -113,6 +113,20 @@ def _headers_for(username):
     return {"Authorization": f"Bearer {auth_token(username)}"}
 
 
+@pytest.fixture(autouse=True)
+def _reset_mob_clocks():
+    """Clear mob aggro/cooldown state before every test so unit tests that drive
+    game_loop._combat_tick_once() directly aren't affected by a prior test's
+    clocks (the client fixture also clears these via _reset_singletons)."""
+    import game_loop
+    import smack_talk
+    game_loop._aggroed.clear()
+    game_loop._last_move_at.clear()
+    game_loop._last_attack_at.clear()
+    smack_talk.reset()
+    yield
+
+
 @pytest.fixture
 def db_session():
     """Fresh, seeded database for each test. Yields an open session."""
@@ -141,7 +155,9 @@ def _reset_singletons():
     chat_system.chat_manager.private_messages.clear()
     rate_limit.reset()       # clear per-account talk + mob-chatter counters
     smack_talk.reset()       # clear per-mob smack-talk cooldowns
-    game_loop._aggroed.clear()  # clear mob aggro state
+    game_loop._aggroed.clear()      # clear mob aggro state
+    game_loop._last_move_at.clear()    # clear mob move/attack cooldown clocks
+    game_loop._last_attack_at.clear()
 
 
 @pytest.fixture

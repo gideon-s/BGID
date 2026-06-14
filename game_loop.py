@@ -18,6 +18,7 @@ stall the loop. Player input is handled on the WS coroutine, not here.
 See ARCHITECTURE.md and docs/handoff-02-phase1-tiled-combat-slice.md §5.
 """
 import asyncio
+import time
 from typing import Optional, Set
 
 from database import SessionLocal
@@ -26,7 +27,8 @@ import combat
 import smack_talk
 from websocket_manager import manager
 from world import world
-from config import COMBAT_TICK_SECONDS
+from config import (COMBAT_TICK_SECONDS, MOB_MOVE_COOLDOWN_SECONDS,
+                    MOB_ATTACK_COOLDOWN_SECONDS)
 
 TICK_SECONDS = 15
 NPC_REGEN_PER_TICK = 1
@@ -36,6 +38,16 @@ _combat_task: Optional[asyncio.Task] = None
 # Mobs currently chasing a player — so "aggro acquired" chatter fires once on
 # acquisition, not every tick.
 _aggroed: Set[int] = set()
+# Per-mob action clocks (monotonic). The tick fires fast; a mob only steps or
+# strikes once its own cooldown has elapsed — this is the mob's "speed", kept
+# independent of the tick rate. A missing entry means "ready now".
+_last_move_at: dict[int, float] = {}
+_last_attack_at: dict[int, float] = {}
+
+
+def _ready(table: dict, npc_id: int, cooldown: float, now: float) -> bool:
+    last = table.get(npc_id)
+    return last is None or (now - last) >= cooldown
 
 
 async def _tick_once() -> None:
@@ -56,7 +68,13 @@ async def _tick_once() -> None:
 
 
 async def _combat_tick_once() -> None:
-    """One fast tick of mob AI across all occupied rooms (DB-free movement)."""
+    """One fast tick of mob AI across all occupied rooms (DB-free movement).
+
+    The tick is frequent, but each mob only acts when its own move/attack
+    cooldown has elapsed — so mobs advance at a steady ``MOB_MOVE_COOLDOWN``
+    pace and strike at most every ``MOB_ATTACK_COOLDOWN``, regardless of how
+    often the tick fires."""
+    now = time.monotonic()
     for room_id, node in list(world.rooms.items()):
         if not node.player_pos:          # no online players standing in this zone
             continue
@@ -77,18 +95,26 @@ async def _combat_tick_once() -> None:
                     npc_id, room_id, meta.get("name", "?"), "aggro", glyph=meta.get("glyph")))
 
             if world.chebyshev(mpos, ppos) <= 1:
-                await combat.resolve_mob_attack(npc_id, room_id, pid)
+                # In melee range: strike on the attack cooldown, then hold.
+                if _ready(_last_attack_at, npc_id, MOB_ATTACK_COOLDOWN_SECONDS, now):
+                    _last_attack_at[npc_id] = now
+                    await combat.resolve_mob_attack(npc_id, room_id, pid)
                 continue
-            # Step toward the player; bump = attack. Try the greedy axis, then
-            # fall back to the other if blocked.
+            # Out of reach: advance one tile on the movement cooldown.
+            if not _ready(_last_move_at, npc_id, MOB_MOVE_COOLDOWN_SECONDS, now):
+                continue
             for delta in world.step_candidates(mpos, ppos):
                 res = world.try_step("npc", npc_id, room_id, *delta)
-                if res.kind == "ATTACK" and res.target_id == pid:
-                    await combat.resolve_mob_attack(npc_id, room_id, pid)
-                    break
                 if res.kind == "MOVED":
+                    _last_move_at[npc_id] = now
                     await manager.broadcast_to_room(
                         room_id, {"event": "entity_moved", "id": npc_id, "x": res.x, "y": res.y})
+                    break
+                if res.kind == "ATTACK" and res.target_id == pid:
+                    # Reached the player mid-step — resolve as an attack.
+                    if _ready(_last_attack_at, npc_id, MOB_ATTACK_COOLDOWN_SECONDS, now):
+                        _last_attack_at[npc_id] = now
+                        await combat.resolve_mob_attack(npc_id, room_id, pid)
                     break
 
 
@@ -128,3 +154,5 @@ def stop() -> None:
     _task = None
     _combat_task = None
     _aggroed.clear()
+    _last_move_at.clear()
+    _last_attack_at.clear()
