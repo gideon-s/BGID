@@ -127,8 +127,10 @@ async def api_info():
 # Per-player movement cooldown (monotonic timestamp of last accepted step).
 # Single worker, in-memory — same authority model as WorldState.
 _last_move: dict[int, float] = {}
-# The only legal move deltas: one orthogonal tile at a time.
-_ORTHO = {(1, 0), (-1, 0), (0, 1), (0, -1)}
+# The only legal move deltas: one tile at a time, orthogonal OR diagonal (the 8
+# neighbours). Diagonals only require the destination tile to be open — corner
+# cutting past a wall is allowed (lenient roguelike movement).
+_STEPS = {(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - {(0, 0)}
 
 
 def _player_spawn_fields(player_id: int, room_id: int) -> dict:
@@ -333,17 +335,17 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         )
 
     elif cmd == "move":
-        # Tile movement: one orthogonal step. Server validates via try_step
-        # (walls, occupancy, bump-to-attack) and enforces a per-player cooldown.
+        # Tile movement: one step (orthogonal or diagonal). Server validates via
+        # try_step (walls, occupancy, bump-to-attack) + a per-player cooldown.
         try:
             dx, dy = int(msg.get("dx", 0)), int(msg.get("dy", 0))
         except (TypeError, ValueError):
             await manager.send_personal_message(
                 player_id, {"event": "error", "detail": "move requires integer 'dx'/'dy'"})
             return
-        if (dx, dy) not in _ORTHO:
+        if (dx, dy) not in _STEPS:
             await manager.send_personal_message(
-                player_id, {"event": "error", "detail": "move must be one orthogonal step (dx/dy = ±1)"})
+                player_id, {"event": "error", "detail": "move must be one tile step (dx/dy = -1, 0, or 1)"})
             return
         now = time.monotonic()
         if now - _last_move.get(player_id, 0.0) < MOVE_COOLDOWN_SECONDS:

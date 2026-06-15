@@ -206,7 +206,7 @@
 </main>
 <footer>
   <input id="cmd" placeholder="say hi · talk innkeeper hello · look · help  (move with WASD / arrows)" autocomplete="off">
-  <div class="hint">Move: WASD/arrows · Bump to attack · T target · Space strike · 1–9 cast · G grab · I inventory · M map</div>
+  <div class="hint">Move: WASD/arrows (QEZC diagonals) · Bump to attack · T target · Space strike · 1–9 cast · G grab · I inventory · M map</div>
 </footer>
 
 <script>
@@ -738,10 +738,12 @@ function drawFx(){
   ctx.restore();
 }
 
-// ─── Movement input (WASD / arrows) ───
+// ─── Movement input (WASD / arrows + QEZC diagonals) ───
 const MOVE = {
   ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
   w:[0,-1], s:[0,1], a:[-1,0], d:[1,0], W:[0,-1], S:[0,1], A:[-1,0], D:[1,0],
+  // Diagonals (the corners around WASD): q ↖  e ↗  z ↙  c ↘
+  q:[-1,-1], e:[1,-1], z:[-1,1], c:[1,1], Q:[-1,-1], E:[1,-1], Z:[-1,1], C:[1,1],
 };
 window.addEventListener('keydown', e=>{
   if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); return; }
@@ -856,7 +858,7 @@ function handleCommand(raw){
     if(!sp){ logCombat(`You don't know a spell like "${parts[1]||''}".`,'l-err'); return; }
     tryCast(sp); return; }
   if(verb==='help' || verb==='?'){
-    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · T to target/cycle foes · Space to strike your target · cast <spell> (or 1–9 — fires at your target) · look · map (or M)', 'l-sys'); return; }
+    logCombat('Move with WASD/arrows + QEZC diagonals (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · T to target/cycle foes · Space to strike your target · cast <spell> (or 1–9 — fires at your target) · look · map (or M)', 'l-sys'); return; }
   if(verb==='get' || verb==='pickup' || verb==='take' || verb==='grab'){
     const it = itemByName(parts.slice(1).join(' '));
     send(it ? {cmd:'pickup', item_id:it.id} : {cmd:'pickup'}); return; }

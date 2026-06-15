@@ -125,7 +125,7 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
 
 ```json
 // client → server
-{"cmd":"move","dx":1,"dy":0}        // one orthogonal step (bump = attack)
+{"cmd":"move","dx":1,"dy":0}        // one tile step, orthogonal or diagonal (bump = attack)
 {"cmd":"attack","target_id":13}     // explicit adjacent melee
 {"cmd":"talk","npc_id":1,"text":"…"}// unchanged (Layer 2)
 {"cmd":"say","text":"…"}            // unchanged

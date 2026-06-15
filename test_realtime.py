@@ -83,12 +83,20 @@ def test_move_into_wall_is_silent(client, token):
         assert ws.receive_json()["event"] == "zone_state"  # next msg, not a move
 
 
-def test_diagonal_move_rejected(client, token):
+def test_diagonal_move_allowed(client, token):
+    with _ws(client, token, 1) as ws:
+        ws.receive_json()                                  # zone_state at (2,2)
+        ws.send_json({"cmd": "move", "dx": -1, "dy": -1})  # NW onto (1,1) floor
+        m = ws.receive_json()
+        assert m["event"] == "entity_moved" and (m["x"], m["y"]) == (1, 1)
+
+
+def test_oversized_step_rejected(client, token):
     with _ws(client, token, 1) as ws:
         ws.receive_json()
-        ws.send_json({"cmd": "move", "dx": 1, "dy": 1})
+        ws.send_json({"cmd": "move", "dx": 2, "dy": 0})    # not a single tile step
         m = ws.receive_json()
-        assert m["event"] == "error" and "orthogonal" in m["detail"]
+        assert m["event"] == "error" and "one tile step" in m["detail"]
 
 
 def test_move_cooldown_enforced(client, token, monkeypatch):
