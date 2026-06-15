@@ -18,9 +18,25 @@
        background:radial-gradient(circle at 50% 30%, #17130c 0%, #0a0908 62%, #050403 100%);}
   header{padding:.5rem 1rem;background:var(--panel);border-bottom:1px solid var(--edge);display:flex;justify-content:space-between;align-items:center}
   header b{color:var(--accent);letter-spacing:.28em;font-family:var(--serif);font-weight:600}
+  #hdr-right{display:flex;align-items:center;gap:.75rem}
   #who{color:var(--dim);font-size:.85rem}
   #who a{color:var(--dim);cursor:pointer;margin-left:.75rem;text-decoration:underline}
   #who a:hover{color:var(--accent)}
+  #controls a{color:var(--accent);cursor:pointer;font-size:.82rem;font-family:var(--serif);letter-spacing:.06em;margin-left:.9rem}
+  #controls a:hover{text-decoration:underline}
+  /* Settings (key rebinding) + Help (commands) lists */
+  #keylist{min-width:340px;max-width:80vw;max-height:62vh;overflow-y:auto;display:flex;flex-direction:column;gap:.2rem}
+  .keyrow{display:flex;align-items:center;gap:.6rem;padding:.28rem .5rem;border:1px solid var(--edge);border-radius:3px;background:#0c0a06}
+  .keyrow .kl{flex:1;color:var(--fg);font-size:.86rem}
+  .keyrow .kb{min-width:4.2rem;text-align:center;background:rgba(199,162,74,.06);border:1px solid var(--gold-dim);
+              color:var(--accent);border-radius:3px;padding:.16rem .5rem;cursor:pointer;font:inherit;font-size:.78rem}
+  .keyrow .kb:hover{border-color:var(--accent)}
+  .keyrow .kb.binding{background:rgba(199,162,74,.2);color:var(--fg);border-color:var(--accent)}
+  #helplist{min-width:340px;max-width:80vw;max-height:62vh;overflow-y:auto;display:flex;flex-direction:column;gap:.15rem}
+  .cmdrow{display:flex;gap:.6rem;padding:.2rem .4rem;font-size:.84rem;align-items:baseline}
+  .cmdrow code{color:var(--accent);font-family:var(--mono);white-space:nowrap;min-width:11rem}
+  .cmdrow .cd{color:var(--dim)}
+  .cmdsec{color:var(--gold-dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.16em;margin:.5rem 0 .15rem;font-family:var(--serif)}
   main{flex:1;display:flex;min-height:0}
   /* Left: tile map (top) + combat/stats/actions strip (bottom) */
   #world{flex:1;display:flex;flex-direction:column;min-width:0}
@@ -160,6 +176,27 @@
   </div>
 </div>
 
+<!-- Settings: rebindable keys -->
+<div id="settingsview" class="hidden">
+  <div class="mapcard">
+    <div class="maptitle">Settings — Controls</div>
+    <div id="keylist"></div>
+    <div class="row" style="justify-content:center;gap:1rem;margin-top:.3rem">
+      <button class="ghost" id="keys-reset">Reset to defaults</button>
+    </div>
+    <div class="maphint" id="keys-hint">Click a key, then press a new one. <b>Esc</b> to close.</div>
+  </div>
+</div>
+
+<!-- Help: chat commands -->
+<div id="helpview" class="hidden">
+  <div class="mapcard">
+    <div class="maptitle">Help — Chat Commands</div>
+    <div id="helplist"></div>
+    <div class="maphint">Type these in the command box below the map. <b>Esc</b> to close.</div>
+  </div>
+</div>
+
 <!-- Inventory (carried + worn), toggled with I or the panel link -->
 <div id="invview" class="hidden">
   <div class="mapcard">
@@ -178,7 +215,9 @@
   </div>
 </div>
 
-<header><b>BGID</b><span id="who"></span></header>
+<header><b>BGID</b>
+  <span id="hdr-right"><span id="who"></span><span id="controls"><a id="open-help">Help</a><a id="open-settings">Settings</a></span></span>
+</header>
 <main>
   <div id="world">
     <div id="map"></div>
@@ -206,7 +245,7 @@
 </main>
 <footer>
   <input id="cmd" placeholder="say hi · talk innkeeper hello · look · help  (move with WASD / arrows)" autocomplete="off">
-  <div class="hint">Move: WASD/arrows (QEZC diagonals) · Bump to attack · T target · Space strike · 1–9 cast · G grab · I inventory · M map</div>
+  <div class="hint">Move: WASD/arrows (QEZC diagonals) · T target · Space strike · 1–9 cast · G grab · I inventory · M map · rebind in <b>Settings</b> · commands in <b>Help</b></div>
 </footer>
 
 <script>
@@ -216,7 +255,7 @@ const S = {pid:null, name:null, ws:null, user:null,
            exploredByRoom:{}, visited:{}, worldMap:null,
            groundItems:{}, inventory:[],
            spellbook:[], charClass:null, cooldownUntil:{}, targeting:null, fx:null,
-           target:null};
+           target:null, keys:{}, keyToAction:{}};
 const $ = s => document.querySelector(s);
 const combatEl = $('#combat');
 const sideEl = $('#side');
@@ -738,29 +777,155 @@ function drawFx(){
   ctx.restore();
 }
 
-// ─── Movement input (WASD / arrows + QEZC diagonals) ───
-const MOVE = {
-  ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
-  w:[0,-1], s:[0,1], a:[-1,0], d:[1,0], W:[0,-1], S:[0,1], A:[-1,0], D:[1,0],
-  // Diagonals (the corners around WASD): q ↖  e ↗  z ↙  c ↘
-  q:[-1,-1], e:[1,-1], z:[-1,1], c:[1,1], Q:[-1,-1], E:[1,-1], Z:[-1,1], C:[1,1],
-};
+// ─── Configurable controls (rebindable keys, persisted in localStorage) ───
+// Each action has a default key; movement actions also carry a fixed vector and
+// always respond to the arrow keys too. Quickslots 1–9 are positional (not
+// rebindable). Keys are stored canonically (lowercase letter, or ' ' = Space).
+const ACTIONS = [
+  {id:'moveUp',        label:'Move up',          def:'w', vec:[0,-1]},
+  {id:'moveDown',      label:'Move down',        def:'s', vec:[0,1]},
+  {id:'moveLeft',      label:'Move left',        def:'a', vec:[-1,0]},
+  {id:'moveRight',     label:'Move right',       def:'d', vec:[1,0]},
+  {id:'moveUpLeft',    label:'Move up-left',     def:'q', vec:[-1,-1]},
+  {id:'moveUpRight',   label:'Move up-right',    def:'e', vec:[1,-1]},
+  {id:'moveDownLeft',  label:'Move down-left',   def:'z', vec:[-1,1]},
+  {id:'moveDownRight', label:'Move down-right',  def:'c', vec:[1,1]},
+  {id:'target',        label:'Target / cycle foe', def:'t'},
+  {id:'attack',        label:'Attack target',    def:' '},
+  {id:'grab',          label:'Grab item',        def:'g'},
+  {id:'inventory',     label:'Inventory',        def:'i'},
+  {id:'map',           label:'Map',              def:'m'},
+];
+const ACT = Object.fromEntries(ACTIONS.map(a=>[a.id, a]));
+// Permanent arrow-key movement (independent of rebinding, for accessibility).
+const ARROWS = {arrowup:'moveUp', arrowdown:'moveDown', arrowleft:'moveLeft', arrowright:'moveRight'};
+
+function normKey(e){
+  if(e.key === ' ' || e.code === 'Space') return ' ';
+  return e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+}
+function keyLabel(k){
+  if(k === ' ') return 'Space';
+  if(k.startsWith('arrow')) return {arrowup:'↑',arrowdown:'↓',arrowleft:'←',arrowright:'→'}[k];
+  return k.length === 1 ? k.toUpperCase() : k;
+}
+function loadKeys(){
+  let saved = {};
+  try{ saved = JSON.parse(localStorage.getItem('bgid_keys') || '{}'); }catch(_){}
+  S.keys = {}; ACTIONS.forEach(a=> S.keys[a.id] = saved[a.id] || a.def);
+  rebuildKeyMap();
+}
+function saveKeys(){ localStorage.setItem('bgid_keys', JSON.stringify(S.keys)); }
+function rebuildKeyMap(){
+  S.keyToAction = {};
+  for(const id in S.keys) S.keyToAction[S.keys[id]] = id;
+}
+function runAction(id){
+  const a = ACT[id]; if(!a) return;
+  if(a.vec){ send({cmd:'move', dx:a.vec[0], dy:a.vec[1]}); return; }
+  if(id==='target') cycleTarget();
+  else if(id==='attack') attackTarget();
+  else if(id==='grab') send({cmd:'pickup'});
+  else if(id==='inventory') toggleInv();
+  else if(id==='map') toggleMap();
+}
+
+let rebinding = null;   // action id awaiting a new key, or null
 window.addEventListener('keydown', e=>{
-  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); return; }
-  // Never hijack keys while typing in a field (login, character name, command
-  // box, …) — only move when focus is on the page body.
+  // Rebind capture mode (Settings): the next key becomes the binding.
+  if(rebinding){
+    e.preventDefault();
+    if(e.key !== 'Escape') applyRebind(rebinding, normKey(e));
+    rebinding = null; renderKeys();
+    return;
+  }
+  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); return; }
+  // Never hijack keys while typing in a field (login, character name, command box).
   const ae = document.activeElement;
   if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
-  if(e.key === 'm' || e.key === 'M'){ e.preventDefault(); toggleMap(); return; }
-  if(e.key === 'i' || e.key === 'I'){ e.preventDefault(); toggleInv(); return; }
-  if(e.key === 'g' || e.key === 'G'){ e.preventDefault(); send({cmd:'pickup'}); return; }
-  if(e.key === 't' || e.key === 'T'){ e.preventDefault(); cycleTarget(); return; }
-  if(e.key === ' ' || e.code === 'Space'){ e.preventDefault(); attackTarget(); return; }
+  // While a full-screen panel is open, only Esc (above) acts — don't move underneath.
+  if(!$('#settingsview').classList.contains('hidden') || !$('#helpview').classList.contains('hidden')) return;
+  // Quickslots are fixed (positional).
   if(e.key >= '1' && e.key <= '9'){ e.preventDefault(); castByIndex(+e.key - 1); return; }
-  const m = MOVE[e.key];
-  if(m){ e.preventDefault(); send({cmd:'move', dx:m[0], dy:m[1]}); }
+  // Arrow keys always move, regardless of rebinding.
+  if(ARROWS[normKey(e)]){ e.preventDefault(); runAction(ARROWS[normKey(e)]); return; }
+  const id = S.keyToAction[normKey(e)];
+  if(id){ e.preventDefault(); runAction(id); }
 });
 window.addEventListener('resize', ()=>{ rebuildDisplay(); draw(); });
+
+// ─── Settings overlay (key rebinding) ───
+function renderKeys(){
+  const list = $('#keylist'); if(!list) return; list.innerHTML='';
+  ACTIONS.forEach(a=>{
+    const row = document.createElement('div'); row.className='keyrow';
+    const binding = rebinding===a.id;
+    row.innerHTML = `<span class="kl">${a.label}</span>`;
+    const b = document.createElement('button');
+    b.className = 'kb' + (binding?' binding':'');
+    b.textContent = binding ? 'press a key…' : keyLabel(S.keys[a.id]);
+    b.onclick = ()=>{ rebinding = a.id; renderKeys(); };
+    row.appendChild(b);
+    list.appendChild(row);
+  });
+}
+function applyRebind(id, key){
+  if(!key || key === 'escape') return;
+  // Reserve digits for quickslots; don't let a binding collide with those.
+  if(key >= '1' && key <= '9'){ $('#keys-hint').textContent = '1–9 are reserved for spell quickslots.'; return; }
+  // If another action already uses this key, clear it (no duplicates).
+  for(const other in S.keys){ if(other !== id && S.keys[other] === key) S.keys[other] = ''; }
+  S.keys[id] = key;
+  rebuildKeyMap(); saveKeys();
+  $('#keys-hint').innerHTML = 'Click a key, then press a new one. <b>Esc</b> to close.';
+}
+function openSettings(){ renderKeys(); $('#settingsview').classList.remove('hidden'); }
+function closeSettings(){ rebinding = null; $('#settingsview').classList.add('hidden'); }
+$('#open-settings').onclick = openSettings;
+$('#settingsview').onclick = e=>{ if(e.target.id==='settingsview') closeSettings(); };
+$('#keys-reset').onclick = ()=>{
+  ACTIONS.forEach(a=> S.keys[a.id] = a.def); rebuildKeyMap(); saveKeys(); renderKeys();
+};
+
+// ─── Help overlay (chat commands) ───
+const COMMANDS = [
+  ['Talking', [
+    ['say <text>', 'Speak aloud to everyone in the zone.'],
+    ['talk <npc> <text>', 'Talk to an NPC (LLM reply in the sidebar).'],
+  ]],
+  ['Combat', [
+    ['attack <npc>', 'Strike an adjacent NPC by name.'],
+    ['cast <spell>', 'Cast a known spell at your target (or click a tile).'],
+  ]],
+  ['Items', [
+    ['get [item]', 'Pick up an item on your tile (or by name).'],
+    ['drop <item>', 'Drop a carried item onto your tile.'],
+    ['equip <item> / unequip <item>', 'Wear or remove a piece of gear.'],
+    ['inventory (inv)', 'Open your inventory.'],
+  ]],
+  ['World', [
+    ['look', 'Redraw the current zone.'],
+    ['map', 'Open the zone overview map.'],
+    ['help', 'Open this help.'],
+  ]],
+];
+function renderHelp(){
+  const list = $('#helplist'); if(!list) return; list.innerHTML='';
+  COMMANDS.forEach(([section, cmds])=>{
+    const h = document.createElement('div'); h.className='cmdsec'; h.textContent=section; list.appendChild(h);
+    cmds.forEach(([cmd, desc])=>{
+      const r = document.createElement('div'); r.className='cmdrow';
+      r.innerHTML = `<code>${cmd}</code><span class="cd">${desc}</span>`;
+      list.appendChild(r);
+    });
+  });
+}
+function openHelp(){ renderHelp(); $('#helpview').classList.remove('hidden'); }
+function closeHelp(){ $('#helpview').classList.add('hidden'); }
+$('#open-help').onclick = openHelp;
+$('#helpview').onclick = e=>{ if(e.target.id==='helpview') closeHelp(); };
+
+loadKeys();
 
 // ─── Overview map (zone graph) ───
 function openMap(){
@@ -857,8 +1022,7 @@ function handleCommand(raw){
     const sp = S.spellbook.find(s => s.name.toLowerCase().startsWith(q) || s.id.startsWith(q));
     if(!sp){ logCombat(`You don't know a spell like "${parts[1]||''}".`,'l-err'); return; }
     tryCast(sp); return; }
-  if(verb==='help' || verb==='?'){
-    logCombat('Move with WASD/arrows + QEZC diagonals (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · T to target/cycle foes · Space to strike your target · cast <spell> (or 1–9 — fires at your target) · look · map (or M)', 'l-sys'); return; }
+  if(verb==='help' || verb==='?'){ openHelp(); return; }
   if(verb==='get' || verb==='pickup' || verb==='take' || verb==='grab'){
     const it = itemByName(parts.slice(1).join(' '));
     send(it ? {cmd:'pickup', item_id:it.id} : {cmd:'pickup'}); return; }
