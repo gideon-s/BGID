@@ -160,7 +160,8 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
 - **Phase 5 — Portraits (Novita).** Generated character + mob portraits; portrait
   panel in the sidebar / combat UI. Generation service mirroring
   `deepseek_integration.py`; generate-once + aggressive cache. *Independent — can
-  start any time once a Novita key is on the box.*
+  start any time once a Novita key is on the box.* *Spec ready* →
+  `handoff-06-phase5-portraits-novita.md`.
 - **Phase 6 — Polish.** HUD overlay, sprite tilesets, procedural room generation,
   sound, animation, balance.
 
