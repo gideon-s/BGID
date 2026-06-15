@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BGID</title>
 <script src="/static/vendor/rot.min.js"></script>
+<script src="/static/vendor/rough.min.js"></script>
 <style>
   /* Palette + type lifted from the Black Goat splash: near-black warm gradient,
      gold accents, parchment ink, classical serif. */
@@ -133,7 +134,9 @@
   /* The map: ink-and-gold lines on aged dark vellum, framed like a chart. */
   #map{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;
        background:radial-gradient(circle at 50% 45%, #14100a 0%, #0d0a06 75%, #080603 100%);}
-  #map canvas{image-rendering:auto;box-shadow:0 0 0 1px var(--edge),0 0 30px rgba(199,162,74,.06);border-radius:2px}
+  /* The map canvas is a hand-drawn paper sheet resting on the dark desk. */
+  #map canvas{image-rendering:auto;border-radius:2px;
+    box-shadow:0 6px 22px rgba(0,0,0,.55), 0 0 0 1px rgba(42,36,25,.35)}
   #under{height:34%;min-height:140px;display:flex;border-top:1px solid var(--edge);background:var(--panel)}
   #combat{flex:1;overflow-y:auto;padding:.6rem .8rem;display:flex;flex-direction:column;gap:.1rem;font-size:.85rem}
   #panel{width:230px;border-left:1px solid var(--edge);padding:.6rem .8rem;overflow-y:auto}
@@ -164,7 +167,7 @@
   .ent button:hover{border-color:var(--accent);color:var(--accent)}
   .lnk{color:var(--accent);cursor:pointer;font-size:.7rem;letter-spacing:.04em;text-transform:none}
   .lnk:hover{text-decoration:underline}
-  #minimap{width:100%;background:#0c0a06;border:1px solid var(--edge);border-radius:2px;margin-top:.15rem}
+  #minimap{width:100%;background:#e7dfca;border:1px solid var(--edge);border-radius:2px;margin-top:.15rem}
   /* Modal overlays (map, inventory, sheet, settings, help): centered card over a
      dimmed backdrop. Dismissed only by ✕ or Esc — clicking the backdrop does
      nothing (no close-on-outside-click). */
@@ -174,7 +177,7 @@
   .mapcard{position:relative;background:var(--panel);border:1px solid var(--gold-dim);border-radius:4px;padding:1rem 1.1rem;
            box-shadow:0 0 40px rgba(199,162,74,.12);max-width:92vw;max-height:90vh;display:flex;flex-direction:column;gap:.6rem}
   .maptitle{color:var(--accent);font-family:var(--serif);letter-spacing:.16em;text-align:center;font-size:1.1rem}
-  #mapcv{background:#0c0a06;border:1px solid var(--edge);border-radius:2px}
+  #mapcv{background:#f3ecda;border:1px solid var(--edge);border-radius:2px}
   .maphint{color:var(--dim);font-size:.75rem;text-align:center}
   /* Inventory overlay + panel "worn" list */
   #invlist{min-width:320px;max-width:80vw;max-height:64vh;overflow-y:auto;display:flex;flex-direction:column;gap:.25rem}
@@ -465,12 +468,14 @@ function setPortrait(kind,id,url){
 //     works, not just rectangles). rot.js is kept only for FOV math. ───
 let cv = null, ctx = null, cell = 16;
 let lastVisible = {};   // set of "x,y" tiles in FOV on the last draw (target-cycling)
-const MAP_BG    = '#100c07';                          // aged dark vellum
-const WALL_VIS  = '#d8ccab', WALL_MEM = '#574b2c';    // double-line walls / pillars (ink)
-const DOOR_VIS  = '#e6bd5e', DOOR_MEM = '#6e5a2c';    // single-line doorways (gold)
-const WATER_VIS = '#2c5168', WATER_MEM = '#1b2f3a';   // pools (steel blue)
-const WAVE_VIS  = '#4f829c', WAVE_MEM  = '#2a4654';
-const FLOOR_DOT = '#2b2616';                          // faint floor stipple
+let mapLayer = null, mapKey = '';   // cached hand-drawn map (offscreen) + its (zone,pos) key
+// Cartographic palette: a hand-drawn dungeon map on graph paper (see map.jpg).
+const PAPER     = '#f3ecda';                          // warm graph paper
+const GRID      = 'rgba(120,140,165,0.20)';           // faint blue ruling
+const INK_VIS   = '#2a2419';                          // ink, in view
+const INK_MEM   = '#a89f88';                          // faded ink, remembered (out of FOV)
+const WATER_VIS = '#a9c6d8', WATER_MEM = '#ccd8df';   // pools (pale wash)
+const WAVE_VIS  = '#5d86a0', WAVE_MEM  = '#9fb2bd';
 
 function inBounds(x,y){ return y>=0 && y<S.h && S.tiles[y] && x>=0 && x<S.tiles[y].length; }
 function tileAt(x,y){ return inBounds(x,y) ? S.tiles[y][x] : '#'; }  // off-grid = wall (FOV)
@@ -494,27 +499,131 @@ function rebuildDisplay(){
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-function _line(ax, ay, bx, by, color, w){
-  ctx.strokeStyle = color; ctx.lineWidth = w;
-  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+// Floorish (passable-looking) tiles vs structure, for boundary tracing.
+function _floorish(x,y){ const t=tileAt(x,y); return t==='.'||t===':'||t==='~'; }
+function _passable(x,y){ const t=tileAt(x,y); return t==='.'||t===':'||t==='~'||t==='+'; }
+function _seedAt(x,y){ return ((x*131 + y*53) % 9973) + 1; }   // stable per-tile sketch seed
+
+// A wall/pillar tile is "revealed" only if some adjacent passable tile is seen.
+function _structState(x,y, visible){
+  let mem = false;
+  for(let oy=-1;oy<=1;oy++) for(let ox=-1;ox<=1;ox++){
+    if(!ox && !oy) continue;
+    if(_passable(x+ox, y+oy)){
+      if(visible[(x+ox)+','+(y+oy)]) return 'vis';
+      if(S.explored[(x+ox)+','+(y+oy)]) mem = true;
+    }
+  }
+  return mem ? 'mem' : null;
 }
 
-// One edge of an open cell. nx,ny = the cell across this edge; a..b = the edge
-// endpoints (pre-extended for clean corners). Structural wall/void → double
-// line; door → single line; open ground / pillar / water → nothing (those are
-// drawn as their own features, so e.g. a shoreline gets no wall).
-function edge(nx, ny, ax, ay, bx, by, wallC, doorC, lw, d, orient){
-  if(isOpen(nx, ny) || isPillar(nx, ny) || isWater(nx, ny)) return;
-  if(isDoor(nx, ny)){ _line(ax, ay, bx, by, doorC, Math.max(1.2, lw * 0.85)); return; }
-  if(orient === 'h'){ _line(ax, ay - d, bx, by - d, wallC, lw); _line(ax, ay + d, bx, by + d, wallC, lw); }
-  else             { _line(ax - d, ay, bx - d, by, wallC, lw); _line(ax + d, ay, bx + d, by, wallC, lw); }
+// A small inked compass rose: crossed axes + a four-point diamond + an N arrow.
+function _compass(mc, cx, cy, r, ink){
+  mc.save();
+  mc.strokeStyle = ink; mc.fillStyle = ink; mc.lineWidth = Math.max(1, r*0.07);
+  mc.globalAlpha = 0.8;
+  mc.beginPath(); mc.moveTo(cx,cy-r); mc.lineTo(cx,cy+r);
+  mc.moveTo(cx-r,cy); mc.lineTo(cx+r,cy); mc.stroke();           // crossed axes
+  mc.beginPath();                                               // diamond
+  mc.moveTo(cx,cy-r*0.6); mc.lineTo(cx+r*0.6,cy);
+  mc.lineTo(cx,cy+r*0.6); mc.lineTo(cx-r*0.6,cy); mc.closePath(); mc.stroke();
+  mc.beginPath();                                               // north arrowhead
+  mc.moveTo(cx,cy-r); mc.lineTo(cx-r*0.22,cy-r*0.45);
+  mc.lineTo(cx+r*0.22,cy-r*0.45); mc.closePath(); mc.fill();
+  mc.font = 'italic ' + Math.round(r*0.75) + 'px Georgia, serif';
+  mc.textAlign='center'; mc.textBaseline='middle';
+  mc.fillText('N', cx, cy - r - r*0.55);
+  mc.restore();
+}
+
+// Render the static hand-drawn map (paper, grid, ink walls/doors/features,
+// compass) to an offscreen layer. Re-run only when the zone or FOV changes, so
+// spell-FX redraws blit the cached ink and never re-randomise (no shimmer).
+function renderMapLayer(visible){
+  if(!mapLayer) mapLayer = document.createElement('canvas');
+  const dpr = window.devicePixelRatio || 1;
+  mapLayer.width = cv.width; mapLayer.height = cv.height;
+  const mc = mapLayer.getContext('2d');
+  mc.setTransform(dpr,0,0,dpr,0,0);
+  mc.lineCap = 'round'; mc.lineJoin = 'round';
+  const W = S.w*cell, H = S.h*cell;
+  // Paper + faint graph ruling (one square per tile).
+  mc.fillStyle = PAPER; mc.fillRect(0,0,W,H);
+  mc.strokeStyle = GRID; mc.lineWidth = 1; mc.beginPath();
+  for(let gx=0;gx<=S.w;gx++){ mc.moveTo(gx*cell+0.5,0); mc.lineTo(gx*cell+0.5,H); }
+  for(let gy=0;gy<=S.h;gy++){ mc.moveTo(0,gy*cell+0.5); mc.lineTo(W,gy*cell+0.5); }
+  mc.stroke();
+
+  const rc = rough.canvas(mapLayer);
+  const hgap = Math.max(2, cell*0.30), fw = Math.max(0.5, cell*0.035);
+
+  // Cross-hatched ink walls + pillars (only revealed structure).
+  for(let y=0;y<S.h;y++){ const row=S.tiles[y]||'';
+    for(let x=0;x<row.length;x++){
+      const t=row[x], px=x*cell, py=y*cell, cx=px+cell/2, cy=py+cell/2;
+      if(t==='#'){
+        const st=_structState(x,y,visible); if(!st) continue;
+        const ink = st==='vis'?INK_VIS:INK_MEM;
+        rc.rectangle(px,py,cell,cell,{fill:ink,fillStyle:'cross-hatch',hachureGap:hgap,
+          fillWeight:fw,stroke:'none',roughness:0.9,seed:_seedAt(x,y)});
+      } else if(t==='o'){                                   // pillar
+        const st=_structState(x,y,visible); if(!st) continue;
+        const ink = st==='vis'?INK_VIS:INK_MEM;
+        rc.circle(cx,cy,cell*0.74,{fill:ink,fillStyle:'cross-hatch',hachureGap:cell*0.22,
+          fillWeight:fw,stroke:ink,strokeWidth:Math.max(1,cell*0.05),roughness:1,seed:_seedAt(x,y)});
+      } else if(t==='~'){                                   // water
+        const k=x+','+y, vis=visible[k]; if(!vis && !S.explored[k]) continue;
+        mc.fillStyle = vis?WATER_VIS:WATER_MEM; mc.fillRect(px+1,py+1,cell-2,cell-2);
+        const wv = vis?WAVE_VIS:WAVE_MEM;
+        for(let i=1;i<=2;i++){ rc.line(px+cell*0.16, py+cell*(i/3), px+cell*0.84, py+cell*(i/3),
+          {stroke:wv,strokeWidth:Math.max(1,cell*0.05),roughness:1.6,bowing:3,seed:_seedAt(x,y)+i}); }
+      }
+    }
+  }
+
+  // Crisp ink room outline: trace floor<->wall boundaries as sketchy lines.
+  for(let y=0;y<S.h;y++){ const row=S.tiles[y]||'';
+    for(let x=0;x<row.length;x++){
+      if(!_floorish(x,y)) continue;
+      const k=x+','+y, vis=visible[k]; if(!vis && !S.explored[k]) continue;
+      const ink = vis?INK_VIS:INK_MEM, px=x*cell, py=y*cell;
+      const opt={stroke:ink,strokeWidth:Math.max(1.2,cell*0.055),roughness:0.85,bowing:0.8,seed:_seedAt(x,y)};
+      const wall=(nx,ny)=> !_passable(nx,ny);                 // door is an opening, not a wall edge
+      if(wall(x,y-1)) rc.line(px,py,px+cell,py,opt);
+      if(wall(x,y+1)) rc.line(px,py+cell,px+cell,py+cell,opt);
+      if(wall(x-1,y)) rc.line(px,py,px,py+cell,opt);
+      if(wall(x+1,y)) rc.line(px+cell,py,px+cell,py+cell,opt);
+      if(row[x]===':'){                                       // rubble specks
+        mc.fillStyle = ink;
+        for(const [ox,oy] of [[-.22,-.16],[.20,.08],[-.06,.22]]){
+          mc.beginPath(); mc.arc(px+cell*0.5+ox*cell, py+cell*0.5+oy*cell, Math.max(.6,cell*0.04),0,7); mc.fill(); }
+      }
+    }
+  }
+
+  // Doors: a closed leaf (bar) across the opening, oriented along the passage.
+  for(let y=0;y<S.h;y++){ const row=S.tiles[y]||'';
+    for(let x=0;x<row.length;x++){
+      if(row[x]!=='+') continue;
+      const neigh=[[1,0],[-1,0],[0,1],[0,-1]];
+      const seen = visible[x+','+y] || S.explored[x+','+y]
+        || neigh.some(([dx,dy])=> visible[(x+dx)+','+(y+dy)] || S.explored[(x+dx)+','+(y+dy)]);
+      if(!seen) continue;
+      const ink = visible[x+','+y] ? INK_VIS : INK_MEM;
+      const px=x*cell, py=y*cell, cx=px+cell/2, cy=py+cell/2;
+      const ew = _passable(x-1,y) && _passable(x+1,y);        // passage runs east-west
+      const o={stroke:ink,strokeWidth:Math.max(2,cell*0.12),roughness:0.5,seed:_seedAt(x,y)};
+      if(ew) rc.line(cx, py+cell*0.22, cx, py+cell*0.78, o);
+      else   rc.line(px+cell*0.22, cy, px+cell*0.78, cy, o);
+    }
+  }
+
+  // Compass rose, tucked into the bottom-right of the sheet.
+  _compass(mc, W-cell*1.0, H-cell*1.0, Math.min(cell*0.8, 16), INK_VIS);
 }
 
 function draw(){
   if(!ctx || !S.you) return;
-  ctx.clearRect(0, 0, cv.width, cv.height);
-  ctx.fillStyle = MAP_BG; ctx.fillRect(0, 0, S.w * cell, S.h * cell);
-
   // Field of view from the player; remember everything ever seen.
   const visible = {};
   try{
@@ -523,69 +632,36 @@ function draw(){
   }catch(_){ /* player off-grid mid-update; skip this frame */ }
   lastVisible = visible;   // shared with target-cycling + the reticle
 
-  const lw = Math.max(1.5, cell * 0.07);   // line weight
-  const d  = Math.max(2, cell * 0.11);     // half-gap between the two wall lines
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // (Re)build the cached hand-drawn map only when the zone or FOV changes.
+  const key = (S.room?S.room.id:'?') + ':' + S.you.x + ',' + S.you.y;
+  if(key !== mapKey || !mapLayer){ renderMapLayer(visible); mapKey = key; }
+  // Blit the cached ink layer at device resolution, then dynamic stuff on top.
+  ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
+  if(mapLayer) ctx.drawImage(mapLayer,0,0); ctx.restore();
 
-  // Render terrain features, then trace walls from each open cell's boundary.
-  for(let y=0;y<S.h;y++){
-    const row = S.tiles[y] || '';
-    for(let x=0;x<row.length;x++){
-      const k = x+','+y, vis = visible[k];
-      if(!vis && !S.explored[k]) continue;
-      const t = row[x], px = x*cell, py = y*cell, cx = px+cell/2, cy = py+cell/2;
-
-      if(t === '~'){                                   // water pool
-        ctx.fillStyle = vis ? WATER_VIS : WATER_MEM;
-        ctx.fillRect(px+1, py+1, cell-2, cell-2);
-        ctx.strokeStyle = vis ? WAVE_VIS : WAVE_MEM; ctx.lineWidth = Math.max(1, cell*0.05);
-        for(let i=1;i<=2;i++){ const wy = py + cell*(i/3);
-          ctx.beginPath(); ctx.moveTo(px+cell*0.18, wy);
-          ctx.quadraticCurveTo(cx, wy - cell*0.12, px+cell*0.82, wy); ctx.stroke(); }
-        continue;
-      }
-      if(t === 'o'){                                   // stone pillar (column)
-        ctx.fillStyle = vis ? WALL_VIS : WALL_MEM;
-        ctx.beginPath(); ctx.arc(cx, cy, cell*0.30, 0, 7); ctx.fill();
-        continue;
-      }
-      if(t === '.' || t === ':'){                      // open ground
-        if(vis){
-          ctx.fillStyle = FLOOR_DOT;
-          ctx.beginPath(); ctx.arc(cx, cy, Math.max(.6, cell*0.035), 0, 7); ctx.fill();
-          if(t === ':'){                               // rubble: rougher stipple
-            for(const [ox,oy] of [[-.22,-.16],[.20,.08],[-.06,.22]]){
-              ctx.beginPath(); ctx.arc(cx+ox*cell, cy+oy*cell, Math.max(.5,cell*0.03), 0, 7); ctx.fill(); }
-          }
-        }
-        const wc = vis ? WALL_VIS : WALL_MEM, dc = vis ? DOOR_VIS : DOOR_MEM;
-        edge(x,   y-1, px-d,    py,      px+cell+d, py,      wc, dc, lw, d, 'h');  // N
-        edge(x,   y+1, px-d,    py+cell, px+cell+d, py+cell, wc, dc, lw, d, 'h');  // S
-        edge(x-1, y,   px,      py-d,    px,        py+cell+d, wc, dc, lw, d, 'v'); // W
-        edge(x+1, y,   px+cell, py-d,    px+cell,   py+cell+d, wc, dc, lw, d, 'v'); // E
-      }
-      // wall / door cells: drawn by their open neighbours, nothing to do here.
-    }
-  }
-
-  // Ground items (emoji), drawn beneath living entities, in view only.
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = Math.floor(cell * 0.6) + 'px ui-monospace, Menlo, monospace';
-  for(const id in S.groundItems){
-    const it = S.groundItems[id];
-    if(visible[it.x+','+it.y]) ctx.fillText(it.glyph || '📦', it.x*cell + cell/2, it.y*cell + cell/2 + 1);
-  }
-
-  // Entities (emoji), in view only; the player is always drawn (FOV origin).
-  ctx.font = Math.floor(cell * 0.72) + 'px ui-monospace, Menlo, monospace';
-  for(const id in S.entities){
-    const e = S.entities[id];
-    if(visible[e.x+','+e.y]) ctx.fillText(e.glyph || '?', e.x*cell + cell/2, e.y*cell + cell/2 + 1);
-  }
-  ctx.fillText(S.you.glyph || '🧙', S.you.x*cell + cell/2, S.you.y*cell + cell/2 + 1);
+  // Ground items (tokens), beneath living entities, in view only.
+  for(const id in S.groundItems){ const it=S.groundItems[id];
+    if(visible[it.x+','+it.y]) drawToken(it.x, it.y, it.glyph||'📦', cell*0.58, 0.34); }
+  // Entities (tokens), in view only; the player is always drawn (FOV origin).
+  for(const id in S.entities){ const e=S.entities[id];
+    if(visible[e.x+','+e.y]) drawToken(e.x, e.y, e.glyph||'?', cell*0.72, 0.42); }
+  drawToken(S.you.x, S.you.y, S.you.glyph||'🧙', cell*0.72, 0.44);
   drawReticle(visible);
   drawFx();
   drawMinimap();
+}
+
+// An emoji/glyph token on a soft paper disc, so it reads on the inked map.
+function drawToken(tx, ty, glyph, fpx, r){
+  const cx = tx*cell + cell/2, cy = ty*cell + cell/2;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, cell*r, 0, 7);
+  ctx.fillStyle = 'rgba(245,239,224,0.82)'; ctx.fill();
+  ctx.lineWidth = Math.max(1, cell*0.04); ctx.strokeStyle = 'rgba(42,36,25,0.5)'; ctx.stroke();
+  ctx.font = Math.floor(fpx) + 'px ui-monospace, Menlo, monospace';
+  ctx.fillStyle = '#1a1710'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(glyph, cx, cy+1);
+  ctx.restore();
 }
 
 // Targeting reticle: gold corner-brackets around the current target's tile.
@@ -593,7 +669,7 @@ function drawReticle(visible){
   const e = S.target!=null ? S.entities[S.target] : null;
   if(!e || !visible[e.x+','+e.y]) return;
   const px = e.x*cell, py = e.y*cell, m = Math.max(2, cell*0.12), L = Math.max(4, cell*0.3);
-  ctx.strokeStyle = '#e6bd5e'; ctx.lineWidth = Math.max(1.5, cell*0.07); ctx.lineCap='round';
+  ctx.strokeStyle = '#b1402f'; ctx.lineWidth = Math.max(1.8, cell*0.08); ctx.lineCap='round';
   const corner = (cx, cy, dx, dy)=>{ ctx.beginPath();
     ctx.moveTo(cx, cy+dy*L); ctx.lineTo(cx, cy); ctx.lineTo(cx+dx*L, cy); ctx.stroke(); };
   corner(px+m,        py+m,        1,  1);   // top-left
@@ -612,26 +688,26 @@ function drawMinimap(){
   c.width = S.w*cs*dpr; c.height = S.h*cs*dpr;
   c.style.width = (S.w*cs)+'px'; c.style.height = (S.h*cs)+'px';
   m.setTransform(dpr,0,0,dpr,0,0);
-  m.fillStyle = '#0c0a06'; m.fillRect(0,0, S.w*cs, S.h*cs);
+  m.fillStyle = PAPER; m.fillRect(0,0, S.w*cs, S.h*cs);
   for(let y=0;y<S.h;y++){ const row = S.tiles[y] || '';
     for(let x=0;x<row.length;x++){
       if(!S.explored[x+','+y]) continue;
       const t = row[x];
-      m.fillStyle = t==='#' ? '#4a4128' : t==='~' ? '#27475a' : t==='o' ? '#6b5d34'
-                  : (t==='+'||t==='>'||t==='<') ? '#c7a24a' : '#1d1810';
+      m.fillStyle = t==='#' ? '#6f6750' : t==='~' ? '#a9c6d8' : t==='o' ? '#6f6750'
+                  : (t==='+'||t==='>'||t==='<') ? '#b88a3a' : '#e7dfca';
       m.fillRect(x*cs, y*cs, cs, cs);
     }
   }
   for(const id in S.groundItems){ const it = S.groundItems[id];
     if(!S.explored[it.x+','+it.y]) continue;
-    m.fillStyle = '#b48a6a'; m.fillRect(it.x*cs+cs*0.25, it.y*cs+cs*0.25, Math.max(1,cs*0.5), Math.max(1,cs*0.5));
+    m.fillStyle = '#7a5a3a'; m.fillRect(it.x*cs+cs*0.25, it.y*cs+cs*0.25, Math.max(1,cs*0.5), Math.max(1,cs*0.5));
   }
   for(const id in S.entities){ const e = S.entities[id];
     if(!S.explored[e.x+','+e.y]) continue;
-    m.fillStyle = e.kind==='player' ? '#8fae5e' : (e.hostile ? '#c1554a' : '#e6bd5e');
+    m.fillStyle = e.kind==='player' ? '#5f7d3a' : (e.hostile ? '#b1402f' : '#b88a3a');
     m.fillRect(e.x*cs, e.y*cs, cs, cs);
   }
-  m.fillStyle = '#f0d98a'; m.fillRect(S.you.x*cs, S.you.y*cs, cs, cs);
+  m.fillStyle = '#1a1710'; m.fillRect(S.you.x*cs, S.you.y*cs, cs, cs);
 }
 
 function setHp(hp, max){
@@ -938,13 +1014,13 @@ function drawFx(){
   const cx = x=> x*cell + cell/2, cy = y=> y*cell + cell/2;
   ctx.save();
   if(S.fx.kind === 'bolt'){
-    ctx.strokeStyle = '#e6bd5e'; ctx.lineWidth = Math.max(2, cell*0.12); ctx.lineCap='round';
+    ctx.strokeStyle = '#c2521f'; ctx.lineWidth = Math.max(2, cell*0.12); ctx.lineCap='round';
     ctx.beginPath(); ctx.moveTo(cx(S.fx.x0), cy(S.fx.y0)); ctx.lineTo(cx(S.fx.x), cy(S.fx.y)); ctx.stroke();
   } else if(S.fx.kind === 'blast'){
-    ctx.strokeStyle = '#5b8fd6'; ctx.lineWidth = Math.max(2, cell*0.1);
+    ctx.strokeStyle = '#2f6aa8'; ctx.lineWidth = Math.max(2, cell*0.12);
     ctx.beginPath(); ctx.arc(cx(S.fx.x), cy(S.fx.y), (S.fx.radius+0.5)*cell, 0, 7); ctx.stroke();
   } else { // self / glow
-    ctx.fillStyle = 'rgba(199,162,74,.25)';
+    ctx.fillStyle = 'rgba(176,120,40,.30)';
     ctx.beginPath(); ctx.arc(cx(S.fx.x), cy(S.fx.y), cell*0.7, 0, 7); ctx.fill();
   }
   ctx.restore();
@@ -1360,8 +1436,9 @@ function _roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y);
 
 function drawOverview(){
   const c = $('#mapcv'), x = c.getContext('2d'), wm = S.worldMap;
-  if(!wm){ c.width=360; c.height=70; x.clearRect(0,0,360,70);
-           x.fillStyle='#9a8f74'; x.font='15px Georgia,serif'; x.textAlign='center';
+  if(!wm){ c.width=360; c.height=70; x.setTransform(1,0,0,1,0,0); x.clearRect(0,0,360,70);
+           x.fillStyle=PAPER; x.fillRect(0,0,360,70);
+           x.fillStyle=INK_MEM; x.font='italic 16px Georgia,serif'; x.textAlign='center';
            x.fillText('Mapping…', 180, 40); return; }
   // Reveal: rooms you've visited + their immediate neighbours (shown as "???").
   const revealed = {};
@@ -1386,32 +1463,69 @@ function drawOverview(){
   const P = Object.values(pos);
   const minX=Math.min(...P.map(p=>p[0])), maxX=Math.max(...P.map(p=>p[0]));
   const minY=Math.min(...P.map(p=>p[1])), maxY=Math.max(...P.map(p=>p[1]));
-  const GW=130, GH=82, PAD=46, W=(maxX-minX+1)*GW+PAD*2, H=(maxY-minY+1)*GH+PAD*2;
+  const GW=150, GH=104, PAD=58, W=(maxX-minX+1)*GW+PAD*2, H=(maxY-minY+1)*GH+PAD*2;
   const dpr = window.devicePixelRatio||1;
   c.width=W*dpr; c.height=H*dpr; c.style.width=W+'px'; c.style.height=H+'px';
   x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
   const CX = id=> PAD + (pos[id][0]-minX)*GW + GW/2;
   const CY = id=> PAD + (pos[id][1]-minY)*GH + GH/2;
 
-  x.lineWidth = 2;
+  // Paper sheet + faint graph ruling.
+  x.fillStyle = PAPER; x.fillRect(0,0,W,H);
+  x.strokeStyle = GRID; x.lineWidth = 1; x.beginPath();
+  for(let gx=0; gx<=W; gx+=22){ x.moveTo(gx+0.5,0); x.lineTo(gx+0.5,H); }
+  for(let gy=0; gy<=H; gy+=22){ x.moveTo(0,gy+0.5); x.lineTo(W,gy+0.5); }
+  x.stroke();
+
+  const rc = rough.canvas(c);
+  const order = wm.rooms.map(r=>r.id).sort((a,b)=>a-b);   // stable room numbering
+  const numOf = id => order.indexOf(id) + 1;
+  const RW=120, RH=68;
+
+  // Corridors between chambers (locked = red, with a small bar at the midpoint).
   wm.exits.forEach(e=>{
     if(pos[e.from]===undefined || pos[e.to]===undefined) return;
-    x.strokeStyle = e.locked ? '#c1554a' : '#8a7536';
-    x.setLineDash(e.locked ? [5,4] : []);
-    x.beginPath(); x.moveTo(CX(e.from),CY(e.from)); x.lineTo(CX(e.to),CY(e.to)); x.stroke();
+    const ax=CX(e.from), ay=CY(e.from), bx=CX(e.to), by=CY(e.to);
+    rc.line(ax,ay,bx,by,{stroke: e.locked?'#b1402f':INK_VIS, strokeWidth:2.4,
+      roughness:1.1, bowing:1.2, seed:(e.from*31+e.to*7)%9000+1});
+    if(e.locked){                                          // lock tick at the midpoint
+      const mx=(ax+bx)/2, my=(ay+by)/2;
+      x.strokeStyle='#b1402f'; x.lineWidth=2;
+      x.beginPath(); x.moveTo(mx-5,my-5); x.lineTo(mx+5,my+5); x.moveTo(mx+5,my-5); x.lineTo(mx-5,my+5); x.stroke();
+    }
   });
-  x.setLineDash([]);
+
+  // Chambers: explored = drawn room; unexplored neighbour = hatched unknown.
   Object.keys(pos).forEach(idStr=>{
-    const id = +idStr, vx = CX(id), vy = CY(id);
+    const id=+idStr, vx=CX(id), vy=CY(id), rx=vx-RW/2, ry=vy-RH/2;
     const here = S.room && id===S.room.id, seen = S.visited[id];
-    x.fillStyle = here ? 'rgba(199,162,74,.18)' : '#15110a';
-    x.strokeStyle = here ? '#c7a24a' : (seen ? '#8a7536' : '#3a3320');
-    x.lineWidth = here ? 2.5 : 1.5;
-    _roundRect(x, vx-48, vy-19, 96, 38, 4); x.fill(); x.stroke();
-    x.fillStyle = here ? '#e6bd5e' : (seen ? '#d8ccab' : '#6b6450');
-    x.font = '13px "Trajan Pro", Georgia, serif'; x.textAlign='center'; x.textBaseline='middle';
-    x.fillText(seen ? (byId[id] ? byId[id].name : '#'+id) : '???', vx, vy);
+    if(seen){
+      rc.rectangle(rx,ry,RW,RH,{fill:'#efe7d2',fillStyle:'solid',stroke:INK_VIS,
+        strokeWidth: here?3:1.8, roughness:1.1, bowing:1.4, seed:id*17+3});
+      // room number badge (top-left corner)
+      x.fillStyle=INK_VIS; x.font='bold 12px Georgia,serif'; x.textAlign='left'; x.textBaseline='top';
+      x.fillText(numOf(id), rx+6, ry+5);
+      // name
+      x.fillStyle = here ? '#7a3b12' : INK_VIS;
+      x.font = (here?'bold ':'') + '14px Georgia, serif'; x.textAlign='center'; x.textBaseline='middle';
+      x.fillText(byId[id] ? byId[id].name : '#'+id, vx, vy+2);
+      if(here){                                            // "you are here" ✦
+        x.fillStyle='#7a3b12'; x.font='13px Georgia,serif';
+        x.fillText('✦ you are here', vx, vy+RH/2-9);
+      }
+    } else {
+      rc.rectangle(rx,ry,RW,RH,{fill:INK_MEM,fillStyle:'cross-hatch',hachureGap:6,
+        fillWeight:0.8,stroke:INK_MEM,strokeWidth:1.2,roughness:1.3,seed:id*17+3});
+      x.fillStyle='#f3ecda'; x.font='italic 15px Georgia,serif'; x.textAlign='center'; x.textBaseline='middle';
+      x.fillText('? ? ?', vx, vy);
+    }
   });
+
+  // Cartouche title + compass rose.
+  x.textAlign='left'; x.textBaseline='alphabetic';
+  x.fillStyle=INK_VIS; x.font='bold 16px Georgia, serif';
+  x.fillText('The Black Goat — First Level', 14, 26);
+  _compass(x, W-34, H-34, 18, INK_VIS);
 }
 
 // ─── Command box (Layer-2 verbs) ───

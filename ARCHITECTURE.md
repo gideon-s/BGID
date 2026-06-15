@@ -235,10 +235,18 @@ the LLM social layer. Two tiers share one world view (see
   (`rate_limit.check_mob_chatter`), with a **canned-barb fallback** so combat
   stays playable and free when DeepSeek is off/throttled.
 
-**Client** (`static/index.html` + vendored `static/vendor/rot.min.js`): a rot.js
-`Display` renders the tiles with `ROT.FOV.PreciseShadowcasting` fog-of-war
-(center), a Layer-2 dialogue sidebar (right), and a combat-log/stats/actions
-strip (under the map). Movement is WASD/arrow keys; bump a foe to attack.
+**Client** (`static/index.html` + vendored `static/vendor/rot.min.js`,
+`rough.min.js`): the tile world renders as a **hand-drawn ink-on-graph-paper
+dungeon map** (Phase 6 — `rough.js` sketchy cross-hatched walls, ink room
+outline, arc doorways, compass rose; the static map is cached to an offscreen
+layer so spell-FX frames don't re-randomise). `ROT.FOV.PreciseShadowcasting`
+still drives fog-of-war (visible = full ink, remembered = faded). Entities/items
+are emoji **tokens** on paper discs. The **M** overview redraws as a `map.jpg`-
+style floor plan (numbered chambers, locked exits, cartouche, compass). A Layer-2
+dialogue window (right) and combat-log/stats strip complete the layout. Movement
+is WASD/arrow keys; bump a foe to attack. (Renderer evolved: Phase 1 used rot.js
+`Display` with emoji tiles → a custom dark-vellum 2D-canvas → the Phase-6
+cartographic look; rot.js is kept only for FOV math.)
 
 Phase 1 is scoped to a **single tiled room** (no zone-to-zone door transitions —
 that's Phase 2). The room-graph (`RoomExit`, `directions.py`) and the REST

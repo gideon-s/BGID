@@ -182,8 +182,16 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
   triggered on connect / zone entry / first `talk` / first `sheet`. Dark by default
   (no `NOVITA_API_KEY` → emoji-glyph fallback, exactly like DeepSeek-off). Additive
   `migrate_phase5.py`. *Independent track.* → `handoff-06-phase5-portraits-novita.md`.
-- **Phase 6 — Polish.** HUD overlay, sprite tilesets, procedural room generation,
-  sound, animation, balance.
+- **Phase 6 — Polish.** A basket of independent slices.
+  - **Slice 1 — Hand-drawn cartographic map. ✅ built 2026-06-15** (client-only;
+    `rough.js` vendored). The play view + the M overview re-skinned to an
+    ink-on-graph-paper dungeon-map look (cross-hatched walls, ink outlines, arc
+    doors, compass, numbered chambers) matching `map.jpg`. Gameplay/server
+    unchanged. → `handoff-07-phase6-handdrawn-map.md`.
+  - **Queued:** sound & ambience, animation/juice (movement tweening, floating
+    damage numbers, hit-flash), combat HUD/readability, sprite tilesets, balance.
+    (Procedural room generation conflicts with the hand-authored shared world —
+    revisit only as an instanced/optional mode.)
 
 ---
 
