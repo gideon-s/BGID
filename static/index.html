@@ -622,43 +622,124 @@ function renderMapLayer(visible){
   _compass(mc, W-cell*1.0, H-cell*1.0, Math.min(cell*0.8, 16), INK_VIS);
 }
 
+// ─── Animation & juice (Phase 6 slice 2) ──────────────────────────────────
+// The hand-drawn map is cached offscreen, so animating is just: blit the cached
+// ink, then paint tokens at their *visual* (tweened) positions + flashes /
+// floaters / dying ghosts on top — driven by a rAF loop that runs ONLY while
+// something is moving. draw() owns FOV + the map cache; paint() is per-frame.
+const ANIM = { move:{}, lunge:{}, flash:{}, floaters:[], dying:{}, last:{}, raf:0 };
+const MOVE_MS=130, LUNGE_MS=180, FLASH_MS=300, FLOAT_MS=950, DEATH_MS=440;
+const _now = ()=> performance.now();
+const easeOutCubic = p => 1 - Math.pow(1-p, 3);
+function animId(id){ return (S.you && id===S.you.id) ? 'you' : id; }   // player == 'you'
+function resetAnims(){ ANIM.move={}; ANIM.lunge={}; ANIM.flash={}; ANIM.dying={}; ANIM.floaters=[]; ANIM.last={}; }
+
+// Visual tile position: logical tile + move tween + lunge offset.
+function vpos(id, lx, ly){
+  let x=lx, y=ly;
+  const mv = ANIM.move[id];
+  if(mv){ const e = easeOutCubic(Math.min(1,(_now()-mv.t0)/MOVE_MS));
+          x = mv.fx + (lx-mv.fx)*e; y = mv.fy + (ly-mv.fy)*e; }
+  const lg = ANIM.lunge[id];
+  if(lg){ const p=(_now()-lg.t0)/LUNGE_MS; if(p<1){ const o=Math.sin(p*Math.PI)*0.34;
+          x += lg.dx*o; y += lg.dy*o; } }
+  return {x, y};
+}
+// Slide an entity that just moved: start from where it visually is now.
+function startMove(id){ const f = ANIM.last[id]; if(f){ ANIM.move[id]={fx:f.x, fy:f.y, t0:_now()}; ensureRaf(); } }
+function lungeToward(id, ax, ay, tx, ty){ const dx=tx-ax, dy=ty-ay, n=Math.hypot(dx,dy)||1;
+  ANIM.lunge[id]={dx:dx/n, dy:dy/n, t0:_now()}; ensureRaf(); }
+function flashEntity(id, color){ ANIM.flash[id]={t0:_now(), color}; ensureRaf(); }
+function floatText(x, y, text, color){ ANIM.floaters.push({x, y, text, color, t0:_now()}); ensureRaf(); }
+function killGhost(id, x, y, glyph){ ANIM.dying[id]={x, y, glyph, t0:_now()}; ensureRaf(); }
+function flashOf(id){ const f=ANIM.flash[id]; if(!f) return null;
+  const p=(_now()-f.t0)/FLASH_MS; return p>=1 ? null : {color:f.color, a:(1-p)*0.6}; }
+
+function animActive(){ const t=_now();
+  for(const k in ANIM.move)  if(t-ANIM.move[k].t0  < MOVE_MS)  return true;
+  for(const k in ANIM.lunge) if(t-ANIM.lunge[k].t0 < LUNGE_MS) return true;
+  for(const k in ANIM.flash) if(t-ANIM.flash[k].t0 < FLASH_MS) return true;
+  for(const k in ANIM.dying) if(t-ANIM.dying[k].t0 < DEATH_MS) return true;
+  return ANIM.floaters.length > 0;
+}
+function pruneAnims(){ const t=_now();
+  for(const k in ANIM.move)  if(t-ANIM.move[k].t0  >= MOVE_MS)  delete ANIM.move[k];
+  for(const k in ANIM.lunge) if(t-ANIM.lunge[k].t0 >= LUNGE_MS) delete ANIM.lunge[k];
+  for(const k in ANIM.flash) if(t-ANIM.flash[k].t0 >= FLASH_MS) delete ANIM.flash[k];
+  for(const k in ANIM.dying) if(t-ANIM.dying[k].t0 >= DEATH_MS) delete ANIM.dying[k];
+  ANIM.floaters = ANIM.floaters.filter(f=> t-f.t0 < FLOAT_MS);
+}
+function ensureRaf(){ if(!ANIM.raf) ANIM.raf = requestAnimationFrame(tick); }
+function tick(){ paint(); pruneAnims(); ANIM.raf = animActive() ? requestAnimationFrame(tick) : 0; }
+
 function draw(){
   if(!ctx || !S.you) return;
-  // Field of view from the player; remember everything ever seen.
+  // Field of view from the player's LOGICAL tile; remember everything ever seen.
   const visible = {};
   try{
     const fov = new ROT.FOV.PreciseShadowcasting(isTransparent);
     fov.compute(S.you.x, S.you.y, FOV_RADIUS, (x,y)=>{ visible[x+','+y]=true; S.explored[x+','+y]=true; });
   }catch(_){ /* player off-grid mid-update; skip this frame */ }
-  lastVisible = visible;   // shared with target-cycling + the reticle
-
+  lastVisible = visible;   // shared with target-cycling, the reticle, and paint()
   // (Re)build the cached hand-drawn map only when the zone or FOV changes.
   const key = (S.room?S.room.id:'?') + ':' + S.you.x + ',' + S.you.y;
   if(key !== mapKey || !mapLayer){ renderMapLayer(visible); mapKey = key; }
-  // Blit the cached ink layer at device resolution, then dynamic stuff on top.
-  ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
-  if(mapLayer) ctx.drawImage(mapLayer,0,0); ctx.restore();
-
-  // Ground items (tokens), beneath living entities, in view only.
-  for(const id in S.groundItems){ const it=S.groundItems[id];
-    if(visible[it.x+','+it.y]) drawToken(it.x, it.y, it.glyph||'📦', cell*0.58, 0.34); }
-  // Entities (tokens), in view only; the player is always drawn (FOV origin).
-  for(const id in S.entities){ const e=S.entities[id];
-    if(visible[e.x+','+e.y]) drawToken(e.x, e.y, e.glyph||'?', cell*0.72, 0.42); }
-  drawToken(S.you.x, S.you.y, S.you.glyph||'🧙', cell*0.72, 0.44);
-  drawReticle(visible);
-  drawFx();
+  paint();
   drawMinimap();
 }
 
-// An emoji/glyph token on a soft paper disc, so it reads on the inked map.
-function drawToken(tx, ty, glyph, fpx, r){
-  const cx = tx*cell + cell/2, cy = ty*cell + cell/2;
+// Per-frame paint: blit the cached ink map, then dynamic tokens at their visual
+// positions + flashes / floaters / dying ghosts. Run by draw() and the rAF loop.
+function paint(){
+  if(!ctx || !S.you) return;
+  const visible = lastVisible || {};
+  ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
+  if(mapLayer) ctx.drawImage(mapLayer,0,0); ctx.restore();
+
+  for(const id in S.groundItems){ const it=S.groundItems[id];
+    if(visible[it.x+','+it.y]) drawToken(it.x, it.y, it.glyph||'📦', cell*0.58, 0.34); }
+  for(const id in ANIM.dying){ const g=ANIM.dying[id];
+    const p=Math.min(1,(_now()-g.t0)/DEATH_MS);
+    drawToken(g.x, g.y, g.glyph||'✗', cell*0.72, 0.42, {alpha:1-p, scale:1-0.35*p}); }
+  for(const id in S.entities){ const e=S.entities[id];
+    if(!visible[e.x+','+e.y]) continue;
+    const v = vpos(e.id, e.x, e.y); ANIM.last[e.id]=v;
+    drawToken(v.x, v.y, e.glyph||'?', cell*0.72, 0.42, {flash:flashOf(e.id)}); }
+  const yv = vpos('you', S.you.x, S.you.y); ANIM.last['you']=yv;
+  drawToken(yv.x, yv.y, S.you.glyph||'🧙', cell*0.72, 0.44, {flash:flashOf('you')});
+
+  drawReticle(visible);
+  drawFx();
+  drawFloaters();
+}
+
+// Rising, fading combat numbers ("-5" red, "+3" green, "miss" grey).
+function drawFloaters(){
+  if(!ANIM.floaters.length) return;
+  ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font = 'bold ' + Math.floor(cell*0.5) + 'px Georgia, serif';
+  ctx.lineWidth = Math.max(2, cell*0.06); ctx.strokeStyle = 'rgba(243,236,218,0.92)';
+  for(const f of ANIM.floaters){ const p=(_now()-f.t0)/FLOAT_MS;
+    const x=f.x*cell+cell/2, y=f.y*cell+cell/2 - p*cell*1.15;
+    ctx.globalAlpha = p<0.7 ? 1 : Math.max(0,(1-p)/0.3);
+    ctx.strokeText(f.text, x, y); ctx.fillStyle=f.color; ctx.fillText(f.text, x, y); }
+  ctx.globalAlpha=1; ctx.restore();
+}
+
+// An emoji/glyph token on a soft paper disc. opts: {alpha, scale, flash:{color,a}}.
+function drawToken(tx, ty, glyph, fpx, r, opts){
+  opts = opts || {};
+  const cx = tx*cell + cell/2, cy = ty*cell + cell/2, rad = cell*r*(opts.scale||1);
+  const base = opts.alpha!=null ? opts.alpha : 1;
   ctx.save();
-  ctx.beginPath(); ctx.arc(cx, cy, cell*r, 0, 7);
+  ctx.globalAlpha = base;
+  ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7);
   ctx.fillStyle = 'rgba(245,239,224,0.82)'; ctx.fill();
   ctx.lineWidth = Math.max(1, cell*0.04); ctx.strokeStyle = 'rgba(42,36,25,0.5)'; ctx.stroke();
-  ctx.font = Math.floor(fpx) + 'px ui-monospace, Menlo, monospace';
+  if(opts.flash){ ctx.globalAlpha = base*opts.flash.a;
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7); ctx.fillStyle = opts.flash.color; ctx.fill();
+    ctx.globalAlpha = base; }
+  ctx.font = Math.floor(fpx*(opts.scale||1)) + 'px ui-monospace, Menlo, monospace';
   ctx.fillStyle = '#1a1710'; ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillText(glyph, cx, cy+1);
   ctx.restore();
@@ -811,6 +892,7 @@ function onEvent(m){
     case 'zone_state': {
       S.room=m.room; S.you=m.you; S.entities={}; S.groundItems={}; S.target=null;
       S.tiles=m.tiles.grid; S.w=m.tiles.w; S.h=m.tiles.h;
+      resetAnims();                                        // no stale tweens across zones
       const rid = m.room.id; S.visited[rid] = true;        // for the overview map
       S.explored = S.exploredByRoom[rid] = (S.exploredByRoom[rid] || {});  // per-zone fog memory
       (m.entities||[]).forEach(e=>{ S.entities[e.id]=e; setPortrait(e.kind, e.id, e.portrait_url); });
@@ -840,7 +922,9 @@ function onEvent(m){
     case 'stats':
       if(S.you && (m.player_id==null || m.player_id===S.you.id)){
         if(m.mana!=null){ S.you.mana=m.mana; S.you.max_mana=m.max_mana; setMana(m.mana, m.max_mana); }
-        if(m.hp!=null){ S.you.hp=m.hp; setHp(m.hp, m.max_hp); }
+        if(m.hp!=null){ const heal = m.hp - (S.you.hp!=null ? S.you.hp : m.hp);
+          if(heal>0) floatText(S.you.x, S.you.y, '+'+heal, '#3f8f4f');   // heal floater
+          S.you.hp=m.hp; setHp(m.hp, m.max_hp); }
       }
       break;
     case 'spell_cast': playFx(m); break;
@@ -863,8 +947,9 @@ function onEvent(m){
       if(winOpen('fw-map')) drawOverview();
       break;
     case 'entity_moved':
-      if(S.you && m.id===S.you.id){ S.you.x=m.x; S.you.y=m.y; draw(); grabHint(); }
-      else if(S.entities[m.id]){ S.entities[m.id].x=m.x; S.entities[m.id].y=m.y; draw(); }
+      // Begin the slide from the token's current visual spot, then snap logical.
+      if(S.you && m.id===S.you.id){ startMove('you'); S.you.x=m.x; S.you.y=m.y; draw(); grabHint(); }
+      else if(S.entities[m.id]){ startMove(m.id); S.entities[m.id].x=m.x; S.entities[m.id].y=m.y; draw(); }
       break;
     case 'entity_spawned':
       if(!(S.you && m.id===S.you.id)){
@@ -877,7 +962,10 @@ function onEvent(m){
       break;
     case 'entity_died':
       clearTargetIfGone(m.id);
-      if(S.entities[m.id]){ delete S.entities[m.id]; draw(); renderPanel(); }
+      if(S.entities[m.id]){ const e=S.entities[m.id]; const v=ANIM.last[m.id]||{x:e.x,y:e.y};
+        killGhost(m.id, v.x, v.y, e.glyph);                 // fade-out ghost
+        delete ANIM.move[m.id]; delete ANIM.flash[m.id];
+        delete S.entities[m.id]; draw(); renderPanel(); }
       logCombat(`${m.name} is slain${m.by?(' by '+m.by):''}!`, 'l-win');
       break;
     case 'entity_left':
@@ -890,6 +978,15 @@ function onEvent(m){
       if(m.hit) logCombat(`${who} hits ${tgt} for ${m.damage} (${tgt} ${m.target_hp}/${m.target_max_hp}).`, 'l-combat');
       else logCombat(`${who} misses ${tgt}.`, 'l-combat');
       if(S.you && m.target_id===S.you.id){ S.you.hp=m.target_hp; setHp(m.target_hp, m.target_max_hp); }
+      // Juice: floating number over the target, a hit-flash, and an attacker lunge.
+      const tEnt = (S.you && m.target_id===S.you.id) ? S.you : S.entities[m.target_id];
+      const aEnt = (S.you && m.attacker_id===S.you.id) ? S.you : S.entities[m.attacker_id];
+      if(tEnt){
+        if(m.hit){ floatText(tEnt.x, tEnt.y, '-'+m.damage, '#c2402f');
+                   flashEntity(animId(m.target_id), 'rgba(194,64,47,0.85)');
+                   if(aEnt) lungeToward(animId(m.attacker_id), aEnt.x, aEnt.y, tEnt.x, tEnt.y); }
+        else floatText(tEnt.x, tEnt.y, 'miss', 'rgba(70,62,48,0.95)');
+      }
       break; }
     case 'player_defeated': logCombat(`${m.name} has fallen!`, 'l-lose'); break;
     case 'respawn': logCombat(`You respawn (HP ${m.health}).`, 'l-sys'); break;

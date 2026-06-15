@@ -188,10 +188,15 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
     ink-on-graph-paper dungeon-map look (cross-hatched walls, ink outlines, arc
     doors, compass, numbered chambers) matching `map.jpg`. Gameplay/server
     unchanged. → `handoff-07-phase6-handdrawn-map.md`.
-  - **Queued:** sound & ambience, animation/juice (movement tweening, floating
-    damage numbers, hit-flash), combat HUD/readability, sprite tilesets, balance.
-    (Procedural room generation conflicts with the hand-authored shared world —
-    revisit only as an instanced/optional mode.)
+  - **Slice 2 — Animation & juice. ✅ built 2026-06-15** (client-only). A rAF
+    loop over the cached map layer: entity **movement tweening** (eased slide),
+    **floating combat numbers** (−dmg red / +heal green / miss), **hit-flash** on
+    the struck token, **attacker lunge**, and a **death fade-out** ghost. Rides
+    existing `entity_moved`/`combat`/`entity_died`/`stats` events; loop runs only
+    while something animates. (Camera-follow dropped — zones fit on screen.)
+  - **Queued:** sound & ambience, combat HUD/readability, sprite tilesets,
+    balance. (Procedural room generation conflicts with the hand-authored shared
+    world — revisit only as an instanced/optional mode.)
 
 ---
 

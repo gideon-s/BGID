@@ -241,7 +241,10 @@ dungeon map** (Phase 6 — `rough.js` sketchy cross-hatched walls, ink room
 outline, arc doorways, compass rose; the static map is cached to an offscreen
 layer so spell-FX frames don't re-randomise). `ROT.FOV.PreciseShadowcasting`
 still drives fog-of-war (visible = full ink, remembered = faded). Entities/items
-are emoji **tokens** on paper discs. The **M** overview redraws as a `map.jpg`-
+are emoji **tokens** on paper discs, animated by a `requestAnimationFrame` loop
+(`paint()` blits the cached map; `draw()` owns FOV + the cache): eased movement
+slides, floating combat numbers, hit-flash, attacker lunge, and death fade — the
+loop runs only while something is animating. The **M** overview redraws as a `map.jpg`-
 style floor plan (numbered chambers, locked exits, cartouche, compass). A Layer-2
 dialogue window (right) and combat-log/stats strip complete the layout. Movement
 is WASD/arrow keys; bump a foe to attack. (Renderer evolved: Phase 1 used rot.js
