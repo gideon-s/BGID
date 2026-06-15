@@ -47,6 +47,15 @@
   .fw-body{flex:1;min-height:0;overflow:hidden;display:flex}
   .fw-body > *{flex:1;min-height:0;width:auto !important;border:0 !important}
   .floatwin .popbtn{display:none}   /* the dock button replaces it while floating */
+  /* Content windows (sheet / room / map) scroll their generated content. */
+  #fw-sheet{width:560px;height:440px;left:calc(50% - 280px);top:11%;right:auto}
+  #fw-map{width:560px;height:440px;left:calc(50% - 280px);top:9%;right:auto}
+  #fw-room{width:340px;height:230px;left:calc(50% - 170px);top:26%;right:auto}
+  #fw-sheet .fw-body, #fw-room .fw-body, #fw-map .fw-body{overflow:auto;padding:.7rem .9rem}
+  #fw-sheet #sheetbody{min-width:0;max-width:none;max-height:none}
+  #roombody .rname{color:var(--accent);font-family:var(--serif);font-size:1.2rem;letter-spacing:.06em;margin-bottom:.4rem}
+  #roombody .rdesc{color:var(--fg);font-size:.9rem;line-height:1.6}
+  #mapscroll{overflow:auto;width:100%;height:100%}
   /* Settings (key rebinding) + Help (commands) lists */
   #keylist{min-width:340px;max-width:80vw;max-height:62vh;overflow-y:auto;display:flex;flex-direction:column;gap:.2rem}
   .keyrow{display:flex;align-items:center;gap:.6rem;padding:.28rem .5rem;border:1px solid var(--edge);border-radius:3px;background:#0c0a06}
@@ -61,12 +70,10 @@
   .cmdrow .cd{color:var(--dim)}
   .cmdsec{color:var(--gold-dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.16em;margin:.5rem 0 .15rem;font-family:var(--serif)}
   /* Character sheet — styled like a tabletop RPG sheet on aged parchment */
-  #sheetview .mapcard{background:
-      radial-gradient(circle at 30% 18%, rgba(199,162,74,.06), transparent 60%),
-      linear-gradient(160deg, #211b10 0%, #1a160d 55%, #120e08 100%);
-      border:2px solid var(--gold-dim);box-shadow:0 0 0 1px #000 inset,0 0 50px rgba(199,162,74,.12)}
-  #sheetview .maptitle{border-bottom:1px solid var(--gold-dim);padding-bottom:.4rem;margin-bottom:.2rem}
-  #sheetbody{display:flex;gap:1.6rem;min-width:560px;max-width:90vw;max-height:72vh;overflow-y:auto;padding:.2rem .1rem}
+  #fw-sheet .fw-body{background:
+      radial-gradient(circle at 30% 12%, rgba(199,162,74,.06), transparent 60%),
+      linear-gradient(160deg, #211b10 0%, #1a160d 55%, #120e08 100%)}
+  #sheetbody{display:flex;gap:1.6rem;min-width:0;padding:.2rem .1rem}
   #sheetbody .col{display:flex;flex-direction:column;gap:.15rem;min-width:0}
   #sheetbody .col.left{flex:1}
   .shname{color:var(--accent);font-family:var(--serif);font-size:1.5rem;letter-spacing:.06em}
@@ -133,7 +140,7 @@
   /* Modal overlays (map, inventory, sheet, settings, help): centered card over a
      dimmed backdrop. Dismissed only by ✕ or Esc — clicking the backdrop does
      nothing (no close-on-outside-click). */
-  #mapview, #invview, #sheetview, #settingsview, #helpview{
+  #invview, #settingsview, #helpview{
            position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
            background:rgba(5,4,3,.86)}
   .mapcard{position:relative;background:var(--panel);border:1px solid var(--gold-dim);border-radius:4px;padding:1rem 1.1rem;
@@ -270,15 +277,6 @@
   </div>
 </div>
 
-<!-- Character sheet -->
-<div id="sheetview" class="hidden">
-  <div class="mapcard"><a class="cardx" title="Close (Esc)">✕</a>
-    <div class="maptitle">Character</div>
-    <div id="sheetbody"></div>
-    <div class="maphint">press <b>✕</b>, the Character key, or <b>Esc</b> to close</div>
-  </div>
-</div>
-
 <!-- Inventory (carried + worn), toggled with I or the panel link -->
 <div id="invview" class="hidden">
   <div class="mapcard"><a class="cardx" title="Close (Esc)">✕</a>
@@ -288,17 +286,9 @@
   </div>
 </div>
 
-<!-- Overview map (zone graph), toggled with M or the panel link -->
-<div id="mapview" class="hidden">
-  <div class="mapcard"><a class="cardx" title="Close (Esc)">✕</a>
-    <div class="maptitle">The Black Goat — Map</div>
-    <canvas id="mapcv"></canvas>
-    <div class="maphint">press <b>✕</b>, <b>M</b>, or <b>Esc</b> to close · gold = where you are · dashed = locked</div>
-  </div>
-</div>
 
 <header><b>BGID</b>
-  <span id="hdr-right"><span id="who"></span><span id="controls"><a id="open-sheet">Character</a><a id="open-help">Help</a><a id="open-settings">Settings</a></span></span>
+  <span id="hdr-right"><span id="who"></span><span id="controls"><a id="open-sheet">Character</a><a id="open-room">Room</a><a id="open-help">Help</a><a id="open-settings">Settings</a></span></span>
 </header>
 <main>
   <div id="world">
@@ -337,6 +327,19 @@
 <div id="fw-combat" class="floatwin hidden">
   <div class="fw-bar"><span>Battle</span><span class="fw-btns"><a class="fw-dock" title="Dock back">⤡</a></span></div>
   <div class="fw-body" id="fw-combat-body"></div>
+</div>
+<!-- Content windows (character sheet, room description, overhead map) -->
+<div id="fw-sheet" class="floatwin hidden">
+  <div class="fw-bar"><span>Character</span><span class="fw-btns"><a class="fw-x" title="Close (Esc)">✕</a></span></div>
+  <div class="fw-body"><div id="sheetbody"></div></div>
+</div>
+<div id="fw-room" class="floatwin hidden">
+  <div class="fw-bar"><span>Room</span><span class="fw-btns"><a class="fw-x" title="Close (Esc)">✕</a></span></div>
+  <div class="fw-body"><div id="roombody"></div></div>
+</div>
+<div id="fw-map" class="floatwin hidden">
+  <div class="fw-bar"><span>Map — The Black Goat</span><span class="fw-btns"><a class="fw-x" title="Close (Esc)">✕</a></span></div>
+  <div class="fw-body"><div id="mapscroll"><canvas id="mapcv"></canvas></div></div>
 </div>
 <footer>
   <input id="cmd" placeholder="say hi · talk innkeeper hello · look · help  (move with WASD / arrows)" autocomplete="off">
@@ -675,7 +678,8 @@ function onEvent(m){
       (m.items||[]).forEach(it=> S.groundItems[it.id]=it);
       rebuildDisplay(); draw(); renderPanel();
       if(S.you) setMana(S.you.mana, S.you.max_mana);
-      if(!$('#mapview').classList.contains('hidden')) drawOverview();
+      if(winOpen('fw-map')) drawOverview();
+      if(winOpen('fw-room')) renderRoom();
       logCombat(`— ${m.room?m.room.name:''} —`, 'l-sys');
       grabHint();
       break; }
@@ -685,7 +689,7 @@ function onEvent(m){
       break;
     case 'character_sheet':
       S.sheet = m;
-      if(!$('#sheetview').classList.contains('hidden')) renderSheet();
+      if(winOpen('fw-sheet')) renderSheet();
       break;
     case 'stats':
       if(S.you && (m.player_id==null || m.player_id===S.you.id)){
@@ -710,7 +714,7 @@ function onEvent(m){
     case 'info': logCombat(m.detail, 'l-sys'); break;
     case 'world_map':
       S.worldMap = {rooms:m.rooms, exits:m.exits};
-      if(!$('#mapview').classList.contains('hidden')) drawOverview();
+      if(winOpen('fw-map')) drawOverview();
       break;
     case 'entity_moved':
       if(S.you && m.id===S.you.id){ S.you.x=m.x; S.you.y=m.y; draw(); grabHint(); }
@@ -940,7 +944,7 @@ window.addEventListener('keydown', e=>{
     rebinding = null; renderKeys();
     return;
   }
-  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); closeSheet(); return; }
+  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); closeSheet(); closeRoom(); return; }
   // Never hijack keys while typing in a field (login, character name, command box).
   const ae = document.activeElement;
   if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
@@ -1007,6 +1011,7 @@ const COMMANDS = [
   ]],
   ['World', [
     ['look', 'Redraw the current zone.'],
+    ['room (desc)', 'Open the room description.'],
     ['map', 'Open the zone overview map.'],
     ['help', 'Open this help.'],
   ]],
@@ -1094,11 +1099,6 @@ function renderSheet(){
     + `<div class="col"><div class="shsec">Equipment</div>${doll}
          <div class="shsec">Weapon &amp; Trinkets</div>${trinkets}</div>`;
 }
-function openSheet(){ send({cmd:'sheet'}); $('#sheetview').classList.remove('hidden'); renderSheet(); }
-function closeSheet(){ $('#sheetview').classList.add('hidden'); }
-function toggleSheet(){ $('#sheetview').classList.contains('hidden') ? openSheet() : closeSheet(); }
-$('#open-sheet').onclick = openSheet;
-$('#sheetview .cardx').onclick = closeSheet;
 
 // ─── Gender picker (character creation) ───
 const GENDER_OPTIONS = [['female','Female'],['male','Male'],['none','None'],['other','Other']];
@@ -1121,16 +1121,21 @@ function chosenGender(){
   return genderChoice;
 }
 
-// ─── Pop-out windows (dialogue / battle logs → draggable, resizable) ───
-// Placement (open/position/size) is persisted in localStorage and restored
-// after login (windows live above the gate, so we only show them in-game).
+// ─── Floating windows (draggable, resizable) ───
+// Two kinds: "dock" windows reparent an existing panel (dialogue/battle); and
+// "content" windows render generated content (character sheet, room, map).
+// Open/position/size persist in localStorage and restore after login.
 const WIN_DEFS = {
   'fw-side':   {key:'side',   panelId:'side'},
   'fw-combat': {key:'combat', panelId:'combatwrap'},
+  'fw-sheet':  {key:'sheet',  onShow:()=>{ send({cmd:'sheet'}); renderSheet(); }},
+  'fw-room':   {key:'room',   onShow:()=> renderRoom()},
+  'fw-map':    {key:'map',    onShow:()=>{ if(!S.worldMap) send({cmd:'map'}); drawOverview(); }},
 };
 const _floatHome = {};   // panelId -> {parent, next} to dock back to
 let _winState = {};
 let _winSaveT = null;
+function winOpen(winId){ return !$('#'+winId).classList.contains('hidden'); }
 function loadWinState(){ try{ _winState = JSON.parse(localStorage.getItem('bgid_windows')||'{}'); }catch(_){ _winState = {}; } }
 function saveWinState(){ clearTimeout(_winSaveT); _winSaveT = setTimeout(()=>{
   try{ localStorage.setItem('bgid_windows', JSON.stringify(_winState)); }catch(_){} }, 200); }
@@ -1152,34 +1157,45 @@ function recordWinGeom(winId){
     left:Math.round(r.left), top:Math.round(r.top), w:Math.round(r.width), h:Math.round(r.height)});
   saveWinState();
 }
-function floatOut(winId){
-  const def = WIN_DEFS[winId], panel = $('#'+def.panelId), win = $('#'+winId);
-  if(!panel || !win.classList.contains('hidden')) return;
-  _floatHome[def.panelId] = {parent: panel.parentNode, next: panel.nextSibling};
-  $('#'+winId+'-body').appendChild(panel);
+function showWin(winId){
+  const def = WIN_DEFS[winId], win = $('#'+winId);
+  if(!win.classList.contains('hidden')){ if(def.onShow) def.onShow(); return; }
+  if(def.panelId){                       // dock window: reparent the live panel
+    const panel = $('#'+def.panelId);
+    _floatHome[def.panelId] = {parent: panel.parentNode, next: panel.nextSibling};
+    $('#'+winId+'-body').appendChild(panel);
+  }
   win.classList.remove('hidden');
   applyWinGeom(winId);
+  if(def.onShow) def.onShow();
   _winState[def.key] = Object.assign({}, _winState[def.key], {open:true});
   saveWinState();
-  setTimeout(()=>{ rebuildDisplay(); draw(); }, 0);   // the docked layout changed
+  setTimeout(()=>{ rebuildDisplay(); draw(); }, 0);   // the docked layout may have changed
 }
-function dockBack(winId){
-  const def = WIN_DEFS[winId], panel = $('#'+def.panelId), win = $('#'+winId), h = _floatHome[def.panelId];
+function hideWin(winId){
+  const def = WIN_DEFS[winId], win = $('#'+winId);
   win.classList.add('hidden');
-  if(h && h.parent) h.parent.insertBefore(panel, h.next);
+  if(def.panelId){                       // dock window: return the panel home
+    const h = _floatHome[def.panelId];
+    if(h && h.parent) h.parent.insertBefore($('#'+def.panelId), h.next);
+  }
   _winState[def.key] = Object.assign({}, _winState[def.key], {open:false});
   saveWinState();
   setTimeout(()=>{ rebuildDisplay(); draw(); }, 0);
 }
+function toggleWin(winId){ winOpen(winId) ? hideWin(winId) : showWin(winId); }
 // Restore saved placement once the player is in-game (called from playAs).
 function restoreWindows(){
   loadWinState();
-  Object.keys(WIN_DEFS).forEach(winId=>{ if(_winState[WIN_DEFS[winId].key] && _winState[WIN_DEFS[winId].key].open) floatOut(winId); });
+  Object.keys(WIN_DEFS).forEach(winId=>{ if(_winState[WIN_DEFS[winId].key] && _winState[WIN_DEFS[winId].key].open) showWin(winId); });
 }
-$('#pop-side').onclick = ()=> floatOut('fw-side');
-$('#pop-combat').onclick = ()=> floatOut('fw-combat');
-$('#fw-side .fw-dock').onclick = ()=> dockBack('fw-side');
-$('#fw-combat .fw-dock').onclick = ()=> dockBack('fw-combat');
+$('#pop-side').onclick = ()=> showWin('fw-side');
+$('#pop-combat').onclick = ()=> showWin('fw-combat');
+$('#fw-side .fw-dock').onclick = ()=> hideWin('fw-side');
+$('#fw-combat .fw-dock').onclick = ()=> hideWin('fw-combat');
+$('#fw-sheet .fw-x').onclick = ()=> hideWin('fw-sheet');
+$('#fw-room .fw-x').onclick = ()=> hideWin('fw-room');
+$('#fw-map .fw-x').onclick = ()=> hideWin('fw-map');
 
 // Drag any floating window by its title bar (resize is the native CSS handle).
 document.querySelectorAll('.fw-bar').forEach(bar=>{
@@ -1202,22 +1218,26 @@ document.querySelectorAll('.fw-bar').forEach(bar=>{
 // Persist size changes from the native resize handle.
 if(window.ResizeObserver){
   const ro = new ResizeObserver(es=> es.forEach(en=> recordWinGeom(en.target.id)));
-  ['fw-side','fw-combat'].forEach(id=> ro.observe($('#'+id)));
+  Object.keys(WIN_DEFS).forEach(id=> ro.observe($('#'+id)));
 }
+
+// Window wrappers (keep existing call-sites working)
+function renderRoom(){
+  const el = $('#roombody'); if(!el) return;
+  if(!S.room){ el.innerHTML = '<div style="color:var(--dim)">You are nowhere.</div>'; return; }
+  el.innerHTML = `<div class="rname">${S.room.name||''}</div>`
+    + `<div class="rdesc">${S.room.description || '(This place defies description.)'}</div>`;
+}
+function openSheet(){ showWin('fw-sheet'); }  function closeSheet(){ hideWin('fw-sheet'); }  function toggleSheet(){ toggleWin('fw-sheet'); }
+function openRoom(){ showWin('fw-room'); }     function closeRoom(){ hideWin('fw-room'); }     function toggleRoom(){ toggleWin('fw-room'); }
+function openMap(){ showWin('fw-map'); }       function closeMap(){ hideWin('fw-map'); }       function toggleMap(){ toggleWin('fw-map'); }
+$('#open-sheet').onclick = toggleSheet;
+$('#open-room').onclick = toggleRoom;
+$('#mapbtn').onclick = openMap;
 
 loadKeys();
 
 // ─── Overview map (zone graph) ───
-function openMap(){
-  if(!S.worldMap) send({cmd:'map'});      // arrives async → drawOverview re-runs
-  $('#mapview').classList.remove('hidden');
-  drawOverview();
-}
-function closeMap(){ $('#mapview').classList.add('hidden'); }
-function toggleMap(){ $('#mapview').classList.contains('hidden') ? openMap() : closeMap(); }
-$('#mapbtn').onclick = openMap;
-$('#mapview .cardx').onclick = closeMap;
-
 function _roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y);
   c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r);
   c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
@@ -1298,6 +1318,7 @@ function handleCommand(raw){
   if(verb==='map'){ openMap(); return; }
   if(verb==='inventory' || verb==='inv' || verb==='i'){ openInv(); return; }
   if(verb==='sheet' || verb==='character' || verb==='char'){ openSheet(); return; }
+  if(verb==='room' || verb==='description' || verb==='desc'){ openRoom(); return; }
   if(verb==='cast' || verb==='c'){
     const q = (parts[1]||'').toLowerCase();
     const sp = S.spellbook.find(s => s.name.toLowerCase().startsWith(q) || s.id.startsWith(q));
@@ -1333,7 +1354,10 @@ function connect(){
   const proto = location.protocol==='https:' ? 'wss' : 'ws';
   S.ws = new WebSocket(`${proto}://${location.host}/ws/${S.pid}?token=${encodeURIComponent(TOK.access)}`);
   S.ws.onopen = ()=> { _wsRetried = false; logCombat('Connected.', 'l-enter');
-                       send({cmd:'inventory'}); send({cmd:'spells'}); };
+                       send({cmd:'inventory'}); send({cmd:'spells'});
+                       // Re-fetch data for any content windows restored open.
+                       if(winOpen('fw-sheet')) send({cmd:'sheet'});
+                       if(winOpen('fw-map')) send({cmd:'map'}); };
   S.ws.onmessage = ev => { try{ onEvent(JSON.parse(ev.data)); }catch(_){ logCombat(ev.data,'l-sys'); } };
   S.ws.onclose = async (ev)=>{
     // 4401 = token expired/invalid: refresh once and reconnect transparently.

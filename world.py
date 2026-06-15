@@ -624,7 +624,7 @@ class WorldState:
             sx, sy = node.spawn
             you = {"id": viewer_id, "x": sx, "y": sy, "glyph": "🧙"}
         return {
-            "room": {"id": node.id, "name": node.name},
+            "room": {"id": node.id, "name": node.name, "description": node.description},
             "tiles": {"w": node.width, "h": node.height, "grid": node.tiles},
             "you": you,
             "entities": entities,

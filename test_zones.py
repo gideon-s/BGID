@@ -124,6 +124,13 @@ def test_locked_stairs_pass_with_key(client, token, db_session):
         assert (zs["you"]["x"], zs["you"]["y"]) == (3, 3)   # just below the up stairs
 
 
+def test_zone_state_carries_room_description(client, token):
+    with _ws(client, token, 1) as ws:
+        zs = _drain_until(ws, lambda m: m["event"] == "zone_state")
+        assert zs["room"]["name"] == "Foyer"
+        assert zs["room"]["description"] == "A grand entrance hall."   # for the Room window
+
+
 def test_map_command_returns_graph(client, token):
     with _ws(client, token, 1) as ws:
         ws.receive_json()
