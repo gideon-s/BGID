@@ -178,6 +178,8 @@ class Player(Base, AbilityScoresMixin):
     # Phase 5: generate-once portrait pointer (a /static/portraits/{hash}.png
     # url). Null until a portrait is generated; falls back to the glyph.
     portrait_url = Column(String(255), nullable=True)
+    # Phase 6: generate-once overhead map token (top-down). Null → glyph.
+    token_url = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_active = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -238,6 +240,8 @@ class Npc(Base, AbilityScoresMixin):
     home_y = Column(Integer, nullable=True)
     # Phase 5: generate-once portrait pointer (see Player.portrait_url).
     portrait_url = Column(String(255), nullable=True)
+    # Phase 6: generate-once overhead map token (top-down). Null → glyph.
+    token_url = Column(String(255), nullable=True)
     
     # Relationships
     room = relationship("Room", back_populates="npcs")
@@ -287,6 +291,8 @@ class Item(Base):
     value = Column(Integer, default=0, nullable=False)
     # Overhead map glyph drawn when the item lies on the ground (Phase 3).
     glyph = Column(String(8), default="📦", nullable=False)
+    # Phase 6: generate-once overhead map token (top-down). Null → glyph.
+    token_url = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Location tracking. An item is in exactly one of three states:

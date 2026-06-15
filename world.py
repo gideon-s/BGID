@@ -245,15 +245,26 @@ class WorldState:
 
     # ---------- ground items (Phase 3) ----------
     def ground_items(self, room_id: int) -> List[Dict[str, Any]]:
-        """Serializable ground items in a room: [{id,name,glyph,x,y}]."""
+        """Serializable ground items in a room: [{id,name,glyph,token_url,x,y}]."""
         node = self.rooms.get(room_id)
         if node is None:
             return []
+        ids = list(node.item_pos.keys())
+        tokens: Dict[int, Any] = {}
+        if ids:   # fetch token urls fresh (set lazily after generation)
+            db = SessionLocal()
+            try:
+                for iid, turl in db.query(models.Item.id, models.Item.token_url).filter(
+                        models.Item.id.in_(ids)):
+                    tokens[iid] = turl
+            finally:
+                db.close()
         out = []
         for iid, (x, y) in node.item_pos.items():
             meta = node.item_meta.get(iid, {})
             out.append({"id": iid, "name": meta.get("name", "item"),
-                        "glyph": meta.get("glyph", "📦"), "x": x, "y": y})
+                        "glyph": meta.get("glyph", "📦"), "token_url": tokens.get(iid),
+                        "x": x, "y": y})
         return out
 
     def item_at(self, room_id: int, x: int, y: int) -> Optional[int]:
@@ -482,6 +493,7 @@ class WorldState:
             db.commit()
             name, glyph, hp = npc.name, npc.glyph or "👤", npc.max_health
             portrait_url = npc.portrait_url
+            token_url = npc.token_url
         finally:
             db.close()
         meta = node.npc_meta.get(npc_id, {})
@@ -495,7 +507,7 @@ class WorldState:
         return {"room_id": room_id, "entity": {
             "id": npc_id, "kind": "npc", "name": name, "glyph": glyph,
             "x": x, "y": y, "hostile": meta.get("hostile", False),
-            "hp": hp, "max_hp": hp, "portrait_url": portrait_url}}
+            "hp": hp, "max_hp": hp, "portrait_url": portrait_url, "token_url": token_url}}
 
     # ---------- zone transitions (Phase 2) ----------
     def transition_for_tile(self, room_id: int, x: int, y: int) -> Optional[Dict[str, Any]]:
@@ -602,7 +614,7 @@ class WorldState:
                 rec = {"id": pid, "kind": "player", "name": player.name,
                        "glyph": player.glyph or "🧙", "x": pos[0], "y": pos[1],
                        "hp": player.health, "max_hp": player.max_health,
-                       "portrait_url": player.portrait_url}
+                       "portrait_url": player.portrait_url, "token_url": player.token_url}
                 if pid == viewer_id:
                     rec["mana"] = player.mana
                     rec["max_mana"] = player.max_mana
@@ -619,7 +631,7 @@ class WorldState:
                     "glyph": meta.get("glyph", npc.glyph or "👤"),
                     "x": pos[0], "y": pos[1], "hostile": meta.get("hostile", False),
                     "hp": npc.health, "max_hp": npc.max_health,
-                    "portrait_url": npc.portrait_url,
+                    "portrait_url": npc.portrait_url, "token_url": npc.token_url,
                 })
         finally:
             db.close()

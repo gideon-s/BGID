@@ -54,6 +54,12 @@ STYLES = {
 
 # Back-compat alias: the portrait suffix (the original single style).
 STYLE_SUFFIX = STYLES["portrait"]["suffix"]
+# Item tokens want an object icon, not a character token.
+TOKEN_ITEM_SUFFIX = ("top-down game item icon token, single centered object, "
+                     "clean dark background, game asset")
+
+# Which DB column each purpose persists its url to.
+_URL_COLUMN = {"portrait": "portrait_url", "token": "token_url"}
 
 # Hashes currently being generated — guards against two simultaneous triggers
 # for the same subject spawning two jobs.
@@ -111,7 +117,7 @@ def build_player_prompt(name: str, gender: str, race: str, char_class: str,
 
 
 def prompt_for_subject(kind: str, subject) -> str:
-    """Build the deterministic prompt for an Npc or Player ORM object."""
+    """Build the deterministic PORTRAIT prompt for an Npc or Player ORM object."""
     if kind == "npc":
         return build_npc_prompt(subject.name, subject.npc_type, subject.description)
     return build_player_prompt(
@@ -119,11 +125,36 @@ def prompt_for_subject(kind: str, subject) -> str:
         subject.appearance)
 
 
-def ensure_portrait(kind: str, subject_id: int, broadcast_room: Optional[int] = None
-                    ) -> Optional[str]:
-    """Ensure a portrait exists for a subject; return its url if already known.
+def _subject_core(kind: str, subject) -> str:
+    """The subject-describing part of a prompt (no style suffix), per kind."""
+    if kind == "npc":
+        desc = (subject.description or "").strip()
+        return f"{subject.name}, {subject.npc_type}" + (f", {desc}" if desc else "")
+    if kind == "item":
+        return f"{subject.name}, a {subject.item_type or 'object'}"
+    # player
+    descriptors = " ".join(t for t in (_clean(subject.gender), _clean(subject.race),
+                                       _clean(subject.char_class)) if t)
+    who = f"{subject.name}, a {descriptors} adventurer" if descriptors \
+        else f"{subject.name}, an adventurer"
+    look = (subject.appearance or "").strip()
+    return f"{who}, {look}" if look else who
 
-    - Returns the stored ``portrait_url`` if set.
+
+def prompt_for(purpose: str, kind: str, subject) -> str:
+    """Deterministic prompt for a (purpose, kind) — the hashed cache key."""
+    if purpose == "portrait":
+        return prompt_for_subject(kind, subject)
+    suffix = TOKEN_ITEM_SUFFIX if kind == "item" else STYLES["token"]["suffix"]
+    return f"{_subject_core(kind, subject)} — {suffix}"
+
+
+def ensure_image(purpose: str, kind: str, subject_id: int,
+                 broadcast_room: Optional[int] = None) -> Optional[str]:
+    """Ensure a generated image (``purpose`` = portrait | token) exists for a
+    subject; return its url if already known.
+
+    - Returns the stored url column if set.
     - Else adopts an existing on-disk file for the prompt hash (persists +
       returns its url) — covers a wiped DB with surviving files, and dedup
       across distinct subjects that share a prompt.
@@ -131,22 +162,23 @@ def ensure_portrait(kind: str, subject_id: int, broadcast_room: Optional[int] = 
       fire-and-forget job and returns ``None`` (the glyph shows until ready).
 
     Safe to call from any async handler; never blocks on the network, never
-    raises. ``broadcast_room`` (if given) is the room a ``portrait`` event is
+    raises. ``broadcast_room`` (if given) is the room the availability event is
     broadcast to once the image is ready.
     """
+    column = _URL_COLUMN[purpose]
     db = SessionLocal()
     try:
         subject = _load(db, kind, subject_id)
         if subject is None:
             return None
-        if subject.portrait_url:
-            return subject.portrait_url
-        prompt = prompt_for_subject(kind, subject)
+        if getattr(subject, column):
+            return getattr(subject, column)
+        prompt = prompt_for(purpose, kind, subject)
         prompt_hash = _hash(prompt)
         # Adopt an existing file for this hash (no new API call).
         if os.path.exists(_path_for(prompt_hash)):
             url = _url_for(prompt_hash)
-            subject.portrait_url = url
+            setattr(subject, column, url)
             db.commit()
             return url
     finally:
@@ -159,7 +191,7 @@ def ensure_portrait(kind: str, subject_id: int, broadcast_room: Optional[int] = 
     _inflight.add(prompt_hash)
     try:
         asyncio.create_task(
-            _generate_job(kind, subject_id, prompt, prompt_hash, broadcast_room))
+            _generate_job(purpose, kind, subject_id, prompt, prompt_hash, broadcast_room))
     except RuntimeError:
         # No running event loop (e.g. a sync REST path) — drop the guard so a
         # later trigger from an async context can retry.
@@ -167,15 +199,28 @@ def ensure_portrait(kind: str, subject_id: int, broadcast_room: Optional[int] = 
     return None
 
 
-async def _generate_job(kind: str, subject_id: int, prompt: str,
+def ensure_portrait(kind: str, subject_id: int, broadcast_room: Optional[int] = None
+                    ) -> Optional[str]:
+    """Ensure a character portrait (Npc/Player). See ensure_image."""
+    return ensure_image("portrait", kind, subject_id, broadcast_room)
+
+
+def ensure_token(kind: str, subject_id: int, broadcast_room: Optional[int] = None
+                 ) -> Optional[str]:
+    """Ensure an overhead map token (Npc/Player/Item). See ensure_image."""
+    return ensure_image("token", kind, subject_id, broadcast_room)
+
+
+async def _generate_job(purpose: str, kind: str, subject_id: int, prompt: str,
                         prompt_hash: str, broadcast_room: Optional[int]) -> None:
     """Generate the image, persist the file + pointer, broadcast availability.
 
-    Errors are swallowed (logged): a failed job leaves ``portrait_url`` null and
+    Errors are swallowed (logged): a failed job leaves the url column null and
     the glyph stays. Retry is lazy — the next natural trigger tries again.
     """
+    column = _URL_COLUMN[purpose]
     try:
-        style = STYLES["portrait"]
+        style = STYLES[purpose]
         image_bytes = await novita_integration.portrait_manager.generate_image(
             prompt, style["model"], style["width"], style["height"])
         ensure_portrait_dir()
@@ -186,29 +231,29 @@ async def _generate_job(kind: str, subject_id: int, prompt: str,
         try:
             subject = _load(db, kind, subject_id)
             if subject is not None:
-                subject.portrait_url = url
+                setattr(subject, column, url)
                 db.commit()
         finally:
             db.close()
-        await _broadcast(kind, subject_id, url, broadcast_room)
-    except Exception as exc:  # never let a portrait job crash the loop
-        print(f"⚠️  Portrait generation failed for {kind} {subject_id}: {exc}")
+        await _broadcast(purpose, kind, subject_id, url, broadcast_room)
+    except Exception as exc:  # never let a generation job crash the loop
+        print(f"⚠️  {purpose} generation failed for {kind} {subject_id}: {exc}")
     finally:
         _inflight.discard(prompt_hash)
 
 
-async def _broadcast(kind: str, subject_id: int, url: str,
+async def _broadcast(purpose: str, kind: str, subject_id: int, url: str,
                      room_id: Optional[int]) -> None:
-    """Broadcast a ``portrait`` event so open windows swap the glyph for art."""
+    """Broadcast a ``portrait``/``token`` event so the client swaps the glyph."""
     if room_id is None:
         return
     # Imported lazily to avoid an import cycle at module load.
     from websocket_manager import manager
     await manager.broadcast_to_room(
-        room_id, {"event": "portrait", "kind": kind, "id": subject_id, "url": url})
+        room_id, {"event": purpose, "kind": kind, "id": subject_id, "url": url})
 
 
 def _load(db, kind: str, subject_id: int):
-    """Load the Npc/Player row for a subject (or None)."""
-    model = models.Npc if kind == "npc" else models.Player
+    """Load the Npc/Player/Item row for a subject (or None)."""
+    model = {"npc": models.Npc, "player": models.Player, "item": models.Item}[kind]
     return db.query(model).filter(model.id == subject_id).first()

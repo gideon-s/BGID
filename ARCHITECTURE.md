@@ -188,8 +188,13 @@ configured" path) but talks to Novita's text-to-image HTTP API with `httpx`
 (POST `/v3/async/txt2img` → poll `/v3/async/task-result` → download `image_url`).
 Models are **per-purpose** via `portraits.STYLES` (each purpose → model + image
 size + prompt suffix; swap via `.env`, no code change): `portrait` uses
-**ZavyChromaXL** at 1024² (painterly fantasy busts); `token` is wired (SDXL
-Unstable Diffusers at 768², for a future top-down overhead-map token feature).
+**ZavyChromaXL** at 1024² (painterly fantasy busts); `token` uses **SDXL Unstable
+Diffusers** at 768² for **overhead map tokens** (top-down) — players + NPCs +
+items each get a generate-once token (`token_url` on Npc/Player/Item), rendered
+circular-clipped on the tile in place of the emoji glyph (emoji fallback). The
+generic seam is `portraits.ensure_image(purpose, kind, subject_id)` (kind ∈
+npc/player/item) with `ensure_portrait`/`ensure_token` wrappers; a `token` WS
+event + `token_url` snapshot fields mirror the `portrait` ones.
 `portraits.py` is a **generate-once store**: a prompt is hashed
 (`sha256(prompt)[:16]`), the PNG is written to `static/portraits/{hash}.png`
 (served by the `/static` mount, gitignored), and a nullable `portrait_url` is

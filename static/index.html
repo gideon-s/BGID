@@ -388,6 +388,7 @@ const S = {pid:null, name:null, ws:null, user:null,
            spellbook:[], charClass:null, cooldownUntil:{}, targeting:null, fx:null,
            target:null, keys:{}, keyToAction:{}, sheet:null,
            portraits:{},    // "kind:id" -> portrait_url (Phase 5; generate-once)
+           tokens:{},       // "kind:id" -> token_url (Phase 6; overhead map tokens)
            editAppr:false, apprDraft:null};   // character-sheet appearance editor
 const $ = s => document.querySelector(s);
 const combatEl = $('#combat');
@@ -461,6 +462,28 @@ function setPortrait(kind,id,url){
   document.querySelectorAll(`.pavatar[data-pk="${pkey(kind,id)}"]`).forEach(el=>{
     if(!el.querySelector('img')) el.innerHTML = `<img src="${esc(url)}" alt="">`;
   });
+}
+
+// ─── Overhead tokens (Phase 6) — generate-once map art with emoji fallback ───
+// "kind:id" -> token_url; images are preloaded into _imgCache and drawn on the
+// tile (circular-clipped) instead of the emoji glyph once ready.
+const _imgCache = {};   // url -> HTMLImageElement (loading or loaded)
+function loadImg(url){
+  let img = _imgCache[url];
+  if(!img){ img = _imgCache[url] = new Image();
+    img.onload = ()=>{ if(ctx) draw(); };   // repaint when the token arrives
+    img.src = url; }
+  return img;
+}
+function setToken(kind,id,url){
+  if(!url) return;
+  S.tokens[pkey(kind,id)] = url; loadImg(url);
+}
+// A loaded token image for a subject, or null (caller falls back to the glyph).
+function tokenImg(kind,id){
+  const url = S.tokens[pkey(kind,id)]; if(!url) return null;
+  const img = loadImg(url);
+  return (img.complete && img.naturalWidth) ? img : null;
 }
 
 // ─── Tile renderer — vector 2D canvas: continuous double-line walls and
@@ -651,7 +674,7 @@ function lungeToward(id, ax, ay, tx, ty){ const dx=tx-ax, dy=ty-ay, n=Math.hypot
   ANIM.lunge[id]={dx:dx/n, dy:dy/n, t0:_now()}; ensureRaf(); }
 function flashEntity(id, color){ ANIM.flash[id]={t0:_now(), color}; ensureRaf(); }
 function floatText(x, y, text, color){ ANIM.floaters.push({x, y, text, color, t0:_now()}); ensureRaf(); }
-function killGhost(id, x, y, glyph){ ANIM.dying[id]={x, y, glyph, t0:_now()}; ensureRaf(); }
+function killGhost(kind, id, x, y, glyph){ ANIM.dying[id]={kind, id, x, y, glyph, t0:_now()}; ensureRaf(); }
 function flashOf(id){ const f=ANIM.flash[id]; if(!f) return null;
   const p=(_now()-f.t0)/FLASH_MS; return p>=1 ? null : {color:f.color, a:(1-p)*0.6}; }
 
@@ -697,16 +720,16 @@ function paint(){
   if(mapLayer) ctx.drawImage(mapLayer,0,0); ctx.restore();
 
   for(const id in S.groundItems){ const it=S.groundItems[id];
-    if(visible[it.x+','+it.y]) drawToken(it.x, it.y, it.glyph||'📦', cell*0.58, 0.34); }
+    if(visible[it.x+','+it.y]) drawToken(it.x, it.y, it.glyph||'📦', cell*0.58, 0.36, {img:tokenImg('item', it.id)}); }
   for(const id in ANIM.dying){ const g=ANIM.dying[id];
     const p=Math.min(1,(_now()-g.t0)/DEATH_MS);
-    drawToken(g.x, g.y, g.glyph||'✗', cell*0.72, 0.42, {alpha:1-p, scale:1-0.35*p}); }
+    drawToken(g.x, g.y, g.glyph||'✗', cell*0.72, 0.44, {alpha:1-p, scale:1-0.35*p, img:tokenImg(g.kind, g.id)}); }
   for(const id in S.entities){ const e=S.entities[id];
     if(!visible[e.x+','+e.y]) continue;
     const v = vpos(e.id, e.x, e.y); ANIM.last[e.id]=v;
-    drawToken(v.x, v.y, e.glyph||'?', cell*0.72, 0.42, {flash:flashOf(e.id)}); }
+    drawToken(v.x, v.y, e.glyph||'?', cell*0.72, 0.44, {flash:flashOf(e.id), img:tokenImg(e.kind, e.id)}); }
   const yv = vpos('you', S.you.x, S.you.y); ANIM.last['you']=yv;
-  drawToken(yv.x, yv.y, S.you.glyph||'🧙', cell*0.72, 0.44, {flash:flashOf('you')});
+  drawToken(yv.x, yv.y, S.you.glyph||'🧙', cell*0.72, 0.46, {flash:flashOf('you'), img:tokenImg('player', S.you.id)});
 
   drawReticle(visible);
   drawFx();
@@ -726,7 +749,8 @@ function drawFloaters(){
   ctx.globalAlpha=1; ctx.restore();
 }
 
-// An emoji/glyph token on a soft paper disc. opts: {alpha, scale, flash:{color,a}}.
+// A map token: a generated overhead image (circular-clipped) when available,
+// else the emoji glyph on a soft paper disc. opts: {alpha, scale, flash, img}.
 function drawToken(tx, ty, glyph, fpx, r, opts){
   opts = opts || {};
   const cx = tx*cell + cell/2, cy = ty*cell + cell/2, rad = cell*r*(opts.scale||1);
@@ -734,14 +758,20 @@ function drawToken(tx, ty, glyph, fpx, r, opts){
   ctx.save();
   ctx.globalAlpha = base;
   ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7);
-  ctx.fillStyle = 'rgba(245,239,224,0.82)'; ctx.fill();
-  ctx.lineWidth = Math.max(1, cell*0.04); ctx.strokeStyle = 'rgba(42,36,25,0.5)'; ctx.stroke();
+  if(opts.img){                                   // generated token image
+    ctx.save(); ctx.clip(); ctx.drawImage(opts.img, cx-rad, cy-rad, rad*2, rad*2); ctx.restore();
+  } else {                                        // emoji fallback on a paper disc
+    ctx.fillStyle = 'rgba(245,239,224,0.82)'; ctx.fill();
+  }
+  ctx.lineWidth = Math.max(1, cell*0.05); ctx.strokeStyle = 'rgba(42,36,25,0.6)'; ctx.stroke();
   if(opts.flash){ ctx.globalAlpha = base*opts.flash.a;
     ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7); ctx.fillStyle = opts.flash.color; ctx.fill();
     ctx.globalAlpha = base; }
-  ctx.font = Math.floor(fpx*(opts.scale||1)) + 'px ui-monospace, Menlo, monospace';
-  ctx.fillStyle = '#1a1710'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillText(glyph, cx, cy+1);
+  if(!opts.img){
+    ctx.font = Math.floor(fpx*(opts.scale||1)) + 'px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = '#1a1710'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(glyph, cx, cy+1);
+  }
   ctx.restore();
 }
 
@@ -895,9 +925,9 @@ function onEvent(m){
       resetAnims();                                        // no stale tweens across zones
       const rid = m.room.id; S.visited[rid] = true;        // for the overview map
       S.explored = S.exploredByRoom[rid] = (S.exploredByRoom[rid] || {});  // per-zone fog memory
-      (m.entities||[]).forEach(e=>{ S.entities[e.id]=e; setPortrait(e.kind, e.id, e.portrait_url); });
-      (m.items||[]).forEach(it=> S.groundItems[it.id]=it);
-      if(S.you) setPortrait('player', S.you.id, S.you.portrait_url);
+      (m.entities||[]).forEach(e=>{ S.entities[e.id]=e; setPortrait(e.kind, e.id, e.portrait_url); setToken(e.kind, e.id, e.token_url); });
+      (m.items||[]).forEach(it=>{ S.groundItems[it.id]=it; setToken('item', it.id, it.token_url); });
+      if(S.you){ setPortrait('player', S.you.id, S.you.portrait_url); setToken('player', S.you.id, S.you.token_url); }
       rebuildDisplay(); draw(); renderPanel();
       if(S.you) setMana(S.you.mana, S.you.max_mana);
       if(winOpen('fw-map')) drawOverview();
@@ -919,6 +949,9 @@ function onEvent(m){
       if(winOpen('fw-sheet')) renderSheet();
       if(winOpen('fw-panel')) renderPanel();
       break;
+    case 'token':
+      setToken(m.kind, m.id, m.url); draw();   // swap the glyph on the map
+      break;
     case 'stats':
       if(S.you && (m.player_id==null || m.player_id===S.you.id)){
         if(m.mana!=null){ S.you.mana=m.mana; S.you.max_mana=m.max_mana; setMana(m.mana, m.max_mana); }
@@ -935,6 +968,7 @@ function onEvent(m){
       break;
     case 'item_dropped':
       S.groundItems[m.id] = {id:m.id, name:m.name, glyph:m.glyph, x:m.x, y:m.y};
+      setToken('item', m.id, m.token_url);
       draw(); grabHint();
       break;
     case 'item_taken':
@@ -953,8 +987,8 @@ function onEvent(m){
       break;
     case 'entity_spawned':
       if(!(S.you && m.id===S.you.id)){
-        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile, portrait_url:m.portrait_url};
-        setPortrait(m.kind, m.id, m.portrait_url);
+        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile, portrait_url:m.portrait_url, token_url:m.token_url};
+        setPortrait(m.kind, m.id, m.portrait_url); setToken(m.kind, m.id, m.token_url);
         if(m.kind==='player') logSide(`${m.name} arrives.`, 'l-enter');
         else if(m.hostile) logCombat(`${m.name} appears!`, 'l-combat');
         draw(); renderPanel();
@@ -963,7 +997,7 @@ function onEvent(m){
     case 'entity_died':
       clearTargetIfGone(m.id);
       if(S.entities[m.id]){ const e=S.entities[m.id]; const v=ANIM.last[m.id]||{x:e.x,y:e.y};
-        killGhost(m.id, v.x, v.y, e.glyph);                 // fade-out ghost
+        killGhost(e.kind, m.id, v.x, v.y, e.glyph);         // fade-out ghost
         delete ANIM.move[m.id]; delete ANIM.flash[m.id];
         delete S.entities[m.id]; draw(); renderPanel(); }
       logCombat(`${m.name} is slain${m.by?(' by '+m.by):''}!`, 'l-win');

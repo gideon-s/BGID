@@ -334,3 +334,102 @@ def test_appearance_migration_idempotent(db_session):
     with database.engine.begin() as conn:
         cols = {r[1] for r in conn.execute(text("PRAGMA table_info(players)"))}
     assert "appearance" in cols
+
+
+# ─── overhead map tokens (Phase 6) ───
+def _item_id(name="Iron Sword"):
+    db = database.SessionLocal()
+    try:
+        return db.query(models.Item).filter_by(name=name).first().id
+    finally:
+        db.close()
+
+
+def test_token_prompt_distinct_from_portrait_and_per_kind():
+    db = database.SessionLocal()
+    try:
+        npc = db.query(models.Npc).filter_by(name="Innkeeper").first()
+        # Token prompt differs from the portrait prompt for the same subject.
+        assert portraits.prompt_for("token", "npc", npc) != portraits.prompt_for("portrait", "npc", npc)
+        assert "token" in portraits.prompt_for("token", "npc", npc)
+        # Item tokens use the item-icon suffix, not the character-token suffix.
+        item = db.query(models.Item).filter_by(name="Iron Sword").first()
+        ip = portraits.prompt_for("token", "item", item)
+        assert "Iron Sword" in ip and "item icon" in ip
+        assert portraits._hash(ip) != portraits._hash(portraits.prompt_for("token", "npc", npc))
+    finally:
+        db.close()
+
+
+def test_ensure_token_generate_once_for_item(
+        db_session, portrait_dir, enabled_manager, record_broadcasts):
+    iid = _item_id()
+
+    async def go():
+        first = portraits.ensure_token("item", iid, 1)
+        await _drain_pending()
+        return first
+
+    first = asyncio.run(go())
+    assert first is None
+    assert enabled_manager["calls"] == 1
+    # The TOKEN style's model + size were used (not the portrait style).
+    assert enabled_manager["last"] == {
+        "model": config.NOVITA_TOKEN_MODEL,
+        "width": config.NOVITA_TOKEN_WIDTH,
+        "height": config.NOVITA_TOKEN_HEIGHT}
+    # token_url persisted on the Item; a 'token' event broadcast.
+    db = database.SessionLocal()
+    try:
+        url = db.query(models.Item).filter_by(id=iid).first().token_url
+    finally:
+        db.close()
+    assert url and url.startswith("/static/portraits/")
+    assert record_broadcasts and record_broadcasts[0][1]["event"] == "token"
+    assert record_broadcasts[0][1] == {"event": "token", "kind": "item", "id": iid, "url": url}
+    # Cached: a second call returns the url with no new API call.
+    assert portraits.ensure_token("item", iid, 1) == url
+    assert enabled_manager["calls"] == 1
+
+
+def test_token_and_portrait_are_independent(
+        db_session, portrait_dir, enabled_manager, record_broadcasts):
+    nid = _innkeeper_id()
+
+    async def go():
+        portraits.ensure_portrait("npc", nid, 1)   # portrait job
+        portraits.ensure_token("npc", nid, 1)      # token job (different hash)
+        await _drain_pending()
+
+    asyncio.run(go())
+    assert enabled_manager["calls"] == 2           # two distinct images
+    db = database.SessionLocal()
+    try:
+        npc = db.query(models.Npc).filter_by(id=nid).first()
+        assert npc.portrait_url and npc.token_url and npc.portrait_url != npc.token_url
+    finally:
+        db.close()
+
+
+def test_zone_snapshot_and_items_carry_token_url(db_session):
+    world_mod.world.load()
+    world_mod.world.enter_world(1)
+    world_mod.world.place_player(1, 1)
+    snap = world_mod.world.zone_snapshot(1, 1)
+    assert "token_url" in snap["you"]
+    for e in snap["entities"]:
+        assert "token_url" in e
+    for it in snap["items"]:
+        assert "token_url" in it
+
+
+def test_tokens_migration_idempotent(db_session):
+    import migrate_tokens
+    migrate_tokens.migrate()
+    migrate_tokens.migrate()
+    from sqlalchemy import text
+    with database.engine.begin() as conn:
+        pc = {r[1] for r in conn.execute(text("PRAGMA table_info(players)"))}
+        nc = {r[1] for r in conn.execute(text("PRAGMA table_info(npcs)"))}
+        ic = {r[1] for r in conn.execute(text("PRAGMA table_info(items)"))}
+    assert "token_url" in pc and "token_url" in nc and "token_url" in ic

@@ -194,9 +194,16 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
     the struck token, **attacker lunge**, and a **death fade-out** ghost. Rides
     existing `entity_moved`/`combat`/`entity_died`/`stats` events; loop runs only
     while something animates. (Camera-follow dropped — zones fit on screen.)
-  - **Queued:** sound & ambience, combat HUD/readability, sprite tilesets,
-    balance. (Procedural room generation conflicts with the hand-authored shared
-    world — revisit only as an instanced/optional mode.)
+  - **Slice 3 — AI overhead tokens. ✅ built 2026-06-15.** Replace the emoji map
+    glyphs with **generate-once Novita tokens** (top-down, the `token` style +
+    SDXL Unstable Diffusers, 768²) for players, NPCs, **and items**. Generalized
+    the Phase-5 pipeline to `ensure_image(purpose, kind)` (kind ∈ npc/player/item);
+    `token_url` on Npc/Player/Item (`migrate_tokens.py`), `token` WS event +
+    snapshot fields, client draws the image circular-clipped on the tile (emoji
+    fallback). Triggered on connect / zone entry / drop.
+  - **Queued:** sound & ambience, combat HUD/readability, sprite map tilesets
+    (terrain), balance. (Procedural room generation conflicts with the
+    hand-authored shared world — revisit only as an instanced/optional mode.)
 
 ---
 

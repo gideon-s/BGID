@@ -159,9 +159,11 @@ def _player_spawn_fields(player_id: int, room_id: int) -> dict:
         player = PlayerService.get_player(db, player_id)
         glyph = (player.glyph if player else None) or "🧙"
         portrait_url = player.portrait_url if player else None
+        token_url = player.token_url if player else None
     finally:
         db.close()
-    return {"glyph": glyph, "portrait_url": portrait_url, "x": pos[0], "y": pos[1]}
+    return {"glyph": glyph, "portrait_url": portrait_url, "token_url": token_url,
+            "x": pos[0], "y": pos[1]}
 
 
 def _kick_portraits(room_id: int, player_id: Optional[int] = None) -> None:
@@ -179,6 +181,21 @@ def _kick_portraits(room_id: int, player_id: Optional[int] = None) -> None:
     if node:
         for nid in list(node.npc_ids):
             portraits.ensure_portrait("npc", nid, room_id)
+
+
+def _kick_tokens(room_id: int, player_id: Optional[int] = None) -> None:
+    """Fire-and-forget overhead-token generation for everything on the map in a
+    room: the viewer, every NPC, and every ground item. No-op when disabled."""
+    if not portrait_manager.is_enabled():
+        return
+    if player_id is not None:
+        portraits.ensure_token("player", player_id, room_id)
+    node = world.rooms.get(room_id)
+    if node:
+        for nid in list(node.npc_ids):
+            portraits.ensure_token("npc", nid, room_id)
+        for iid in list(node.item_ids):
+            portraits.ensure_token("item", iid, room_id)
 
 
 def _inventory_payload(player_id: int) -> dict:
@@ -286,9 +303,10 @@ async def _try_transition(player_id: int, player_name: str, from_room: int, ex: 
     )
     await manager.send_personal_message(
         player_id, {"event": "zone_state", **world.zone_snapshot(to_room, player_id)})
-    # Generate portraits for the destination zone's NPCs (and the arriving
-    # player, already covered on connect but cheap/idempotent).
+    # Generate portraits + overhead tokens for the destination zone (player,
+    # NPCs, ground items) — generate-once + cached, so this is cheap/idempotent.
     _kick_portraits(to_room, player_id)
+    _kick_tokens(to_room, player_id)
 
 
 @app.websocket("/ws/{player_id}")
@@ -354,9 +372,11 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
          "name": player_name, **_player_spawn_fields(player_id, room_id)},
         exclude_player=player_id,
     )
-    # Phase 5: kick off portrait generation for this player + the NPCs they can
-    # see, so art is ready by the time they open a window. No-op without a key.
+    # Phase 5/6: kick off portrait + overhead-token generation for this player,
+    # the NPCs they can see, and the ground items — so art is ready by the time
+    # they look. Generate-once + cached; no-op without a key.
     _kick_portraits(room_id, player_id)
+    _kick_tokens(room_id, player_id)
 
     try:
         while True:
@@ -551,9 +571,10 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         finally:
             db.close()
         world.add_ground_item(room_id, int(item_id), pos[0], pos[1], name, glyph)
+        token_url = portraits.ensure_token("item", int(item_id), room_id)   # generate-once
         await manager.broadcast_to_room(
             room_id, {"event": "item_dropped", "id": int(item_id), "name": name,
-                      "glyph": glyph, "x": pos[0], "y": pos[1]})
+                      "glyph": glyph, "token_url": token_url, "x": pos[0], "y": pos[1]})
         await _send_inventory(player_id)
 
     elif cmd in ("equip", "unequip"):
