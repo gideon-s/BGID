@@ -20,6 +20,8 @@ from combat import resolve_player_attack
 from casting import resolve_cast
 import classes
 import spells as spellbook
+import skills as skillbook
+import services
 import game_loop
 import time
 from config import MOVE_COOLDOWN_SECONDS
@@ -176,6 +178,42 @@ def _spellbook_payload(player_id: int) -> dict:
     known = [spellbook.spell_summary(sid) for sid in classes.spell_ids_for(class_id)]
     return {"event": "spellbook", "char_class": class_id,
             "spells": [s for s in known if s]}
+
+
+def _sheet_payload(player_id: int) -> dict:
+    """Full character-sheet snapshot (abilities, skills, class/gender/level,
+    bars, and worn equipment by slot) as a `character_sheet` event."""
+    db = SessionLocal()
+    try:
+        p = PlayerService.get_player(db, player_id)
+        if p is None:
+            return {"event": "character_sheet"}
+        cdef = classes.get_class(p.char_class)
+        try:
+            stored_skills = json.loads(p.skills or "{}")
+        except (json.JSONDecodeError, TypeError):
+            stored_skills = {}
+        abilities = {a: getattr(p, a if a != "int" else "intel")
+                     for a in ("str", "dex", "con", "intel", "wis", "cha")}
+        mods = {a: p.ability_mod(a) for a in abilities}
+        # Worn gear keyed by slot (body-part paperdoll + weapon/ring/amulet).
+        equipment = {}
+        for it in ItemService.inventory_of(db, player_id):
+            if it.equipped and it.equip_slot:
+                equipment.setdefault(it.equip_slot, []).append(
+                    {"id": it.id, "name": it.name, "glyph": it.glyph or "📦"})
+        return {
+            "event": "character_sheet",
+            "name": p.name, "char_class": p.char_class,
+            "class_name": cdef.get("name", p.char_class.title()),
+            "gender": p.gender or "none", "level": p.level, "experience": p.experience,
+            "hp": p.health, "max_hp": p.max_health, "mana": p.mana, "max_mana": p.max_mana,
+            "abilities": abilities, "modifiers": mods,
+            "skills": skillbook.normalize(stored_skills),
+            "equipment": equipment, "slots": services.BODY_SLOTS,
+        }
+    finally:
+        db.close()
 
 
 async def _try_transition(player_id: int, player_name: str, from_room: int, ex: dict) -> None:
@@ -491,6 +529,9 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
 
     elif cmd == "spells":
         await manager.send_personal_message(player_id, _spellbook_payload(player_id))
+
+    elif cmd == "sheet":
+        await manager.send_personal_message(player_id, _sheet_payload(player_id))
 
     elif cmd == "cast":
         spell_id = msg.get("spell_id")

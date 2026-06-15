@@ -10,9 +10,15 @@ import schemas
 import directions
 from utils import dict_from_model, log_action, validate_ability_scores
 
-# How many items may be worn in each equipment slot at once (Phase 3). Equipping
-# into a full slot swaps out the oldest item there rather than erroring.
-SLOT_LIMITS = {"weapon": 1, "armor": 1, "amulet": 1, "ring": 2}
+# How many items may be worn in each equipment slot at once. Equipping into a
+# full slot swaps out the oldest item there rather than erroring. The body
+# armour slots (head…feet) drive the character-sheet paperdoll; 'armor' is kept
+# as a back-compat alias for 'torso'. equip() falls back to a limit of 1 for any
+# slot not listed, so unknown/legacy slots still work.
+BODY_SLOTS = ["head", "torso", "upper_arms", "lower_arms", "hands",
+              "pelvis", "upper_legs", "lower_legs", "feet"]
+SLOT_LIMITS = {"weapon": 1, "ring": 2, "amulet": 1, "armor": 1,
+               **{slot: 1 for slot in BODY_SLOTS}}
 
 # ---------- Player Services ----------
 class PlayerService:

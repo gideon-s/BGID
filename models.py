@@ -162,6 +162,10 @@ class Player(Base, AbilityScoresMixin):
     char_class = Column(String(20), default="wanderer", nullable=False)
     mana = Column(Integer, default=0, nullable=False)
     max_mana = Column(Integer, default=0, nullable=False)
+    # Character-sheet fields. gender is free-form ('female'/'male'/'none' or a
+    # custom value). skills is a JSON dict {skill_name: rank} (see skills.py).
+    gender = Column(String(50), default="", nullable=False)
+    skills = Column(Text, default="{}", nullable=False)
     # Overhead tile rendering glyph. Live (x,y) is not persisted in Phase 1 —
     # players spawn at the zone's spawn tile on connect (master §6).
     glyph = Column(String(8), default="🧙", nullable=False)

@@ -125,11 +125,33 @@ def seed():
             "is_movable": True, "is_equippable": True, "equip_slot": "weapon",
             "attack_bonus": 1, "damage_bonus": 2,
         })
-        _get_or_create(db, Item, name="Leather Armor", defaults={
+        armor = _get_or_create(db, Item, name="Leather Armor", defaults={
             "description": "Boiled hide; better than nothing.", "item_type": "armor",
             "value": 8, "room_id": foyer.id, "glyph": "🛡️", "tile_x": 7, "tile_y": 1,
-            "is_movable": True, "is_equippable": True, "equip_slot": "armor",
+            "is_movable": True, "is_equippable": True, "equip_slot": "torso",
             "defense_bonus": 2,
+        })
+        # In-place re-slot for a pre-charsheet row (was 'armor' → now 'torso').
+        if armor.equip_slot == "armor":
+            armor.equip_slot = "torso"; db.commit()
+        # A few body-part pieces so the paperdoll is populated (head/hands/feet).
+        _get_or_create(db, Item, name="Leather Cap", defaults={
+            "description": "A snug boiled-leather cap.", "item_type": "armor",
+            "value": 4, "room_id": foyer.id, "glyph": "🧢", "tile_x": 2, "tile_y": 6,
+            "is_movable": True, "is_equippable": True, "equip_slot": "head",
+            "defense_bonus": 1,
+        })
+        _get_or_create(db, Item, name="Leather Gloves", defaults={
+            "description": "Worn but supple.", "item_type": "armor",
+            "value": 3, "room_id": foyer.id, "glyph": "🧤", "tile_x": 8, "tile_y": 6,
+            "is_movable": True, "is_equippable": True, "equip_slot": "hands",
+            "defense_bonus": 1,
+        })
+        _get_or_create(db, Item, name="Worn Boots", defaults={
+            "description": "They've walked some miles.", "item_type": "armor",
+            "value": 3, "room_id": foyer.id, "glyph": "🥾", "tile_x": 4, "tile_y": 6,
+            "is_movable": True, "is_equippable": True, "equip_slot": "feet",
+            "defense_bonus": 1,
         })
         # A ring in the Cellar — the reward for braving the Rat past the locked door.
         _get_or_create(db, Item, name="Ring of Vigor", defaults={

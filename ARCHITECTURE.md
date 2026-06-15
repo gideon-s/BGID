@@ -137,6 +137,7 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
 {"cmd":"equip","item_id":5}         // / {"cmd":"unequip","item_id":5}
 {"cmd":"spells"}                    // request the spellbook (Phase 4)
 {"cmd":"cast","spell_id":"firebolt","x":9,"y":6}  // x/y omitted for self spells
+{"cmd":"sheet"}                     // request the character sheet
 
 // server → client
 {"event":"zone_state","room":{...},"tiles":{"w":12,"h":9,"grid":["############", …]},
@@ -169,7 +170,18 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
 {"event":"spell_cast","caster_id":7,"spell":"firebolt","glyph":"🔥","fx":"bolt",
  "x0":3,"y0":4,"x":9,"y":6,"radius":0}
 {"event":"stats","player_id":7,"mana":24,"max_mana":30}   // hp/max_hp too when healed
+// Character sheet: identity, abilities+mods, skills, and worn gear by slot.
+{"event":"character_sheet","name":"Bryan","char_class":"warrior","class_name":"Warrior",
+ "gender":"male","level":1,"experience":0,"hp":10,"max_hp":10,"mana":0,"max_mana":0,
+ "abilities":{"str":15,…},"modifiers":{"str":2,…},"skills":{"Melee":3,…},
+ "equipment":{"head":[{"id":9,"name":"Steel Helm","glyph":"⛑️"}]},
+ "slots":["head","torso","upper_arms","lower_arms","hands","pelvis","upper_legs","lower_legs","feet"]}
 ```
+
+Equipment slots: `weapon`, `ring`×2, `amulet`, and the nine **body slots** above
+(`classes.py`-stamped, paperdoll on the character sheet). `Player` carries
+`char_class`/`mana`/`gender`/`skills` (a JSON `{skill: rank}` dict from
+`skills.py`); the legacy `armor` slot maps to `torso`.
 
 ## Graphical overhaul — two-tier tiled world (Phase 1)
 

@@ -67,6 +67,7 @@ class UserResponse(BaseModel):
 class CharacterCreate(BaseModel):
     name: str
     char_class: str = classes.DEFAULT_CLASS   # validated against classes.py below
+    gender: str = "none"                       # female/male/none or a custom value
 
     @field_validator("name")
     @classmethod
@@ -84,15 +85,25 @@ class CharacterCreate(BaseModel):
             raise ValueError(f"Pick a class: {', '.join(classes.SELECTABLE)}")
         return v
 
+    @field_validator("gender")
+    @classmethod
+    def gender_valid(cls, v: str) -> str:
+        v = (v or "none").strip()
+        if len(v) > 50:
+            raise ValueError("Gender must be at most 50 characters")
+        return v or "none"
+
 
 class CharacterOut(BaseModel):
     id: int
     name: str
     room_id: int
     level: int
+    experience: int = 0
     health: int
     max_health: int
     char_class: str = "wanderer"
+    gender: str = ""
     mana: int = 0
     max_mana: int = 0
 
