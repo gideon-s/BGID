@@ -157,11 +157,16 @@ def seed():
             "glyph": "🐀", "home_x": 6, "home_y": 1,
             "str": 12, "dex": 12, "con": 10, "health": 8, "max_health": 8,
         })
-        _get_or_create(db, Item, name="Sturdy Stool", defaults={
+        stool = _get_or_create(db, Item, name="Sturdy Stool", defaults={
             "description": "It wobbles but holds.", "item_type": "furniture",
             "room_id": foyer.id, "is_movable": False, "is_usable": True,
             "glyph": "🪑", "tile_x": 10, "tile_y": 1,
         })
+        # In-place glyph/tile for a pre-Phase-3 Stool row (predates the columns,
+        # so _get_or_create above is a no-op there) — same pattern as the key.
+        if stool.tile_x is None:
+            stool.glyph, stool.tile_x, stool.tile_y = "🪑", 10, 1
+            db.commit()
 
         # Room connections:
         #   Foyer <-> Great Hall (open, north/south)
