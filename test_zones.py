@@ -1,0 +1,107 @@
+"""Phase 2 — zone transitions and the overview map.
+
+Test world (conftest): Foyer (1) has a north door (4,0) → Great Hall (2) and
+down stairs (6,3) → Cellar (3, locked w/ Rusty Key); Great Hall has a south door
+(2,4) → Foyer; Cellar has up stairs (3,2) → Foyer.
+"""
+import models
+from world import world
+
+
+def _ws(client, token, pid):
+    return client.websocket_connect(f"/ws/{pid}?token={token}")
+
+
+def _drain_until(ws, pred, tries=14):
+    """Read events until `pred(event)` is truthy; return that event (or None)."""
+    for _ in range(tries):
+        m = ws.receive_json()
+        if pred(m):
+            return m
+    return None
+
+
+# ---------- world-level resolution ----------
+def test_transition_for_tile_mapping(db_session):
+    world.load()
+    n = world.transition_for_tile(1, 4, 0)        # Foyer north door
+    assert n and n["direction"] == "north" and n["to_room_id"] == 2
+    d = world.transition_for_tile(1, 6, 3)        # Foyer down stairs
+    assert d and d["direction"] == "down" and d["is_locked"] is True and d["to_room_id"] == 3
+    assert world.transition_for_tile(1, 2, 2) is None   # interior floor → not a transition
+    s = world.transition_for_tile(2, 2, 4)        # Hall south door
+    assert s and s["direction"] == "south" and s["to_room_id"] == 1
+    u = world.transition_for_tile(3, 3, 2)        # Cellar up stairs
+    assert u and u["direction"] == "up" and u["to_room_id"] == 1
+
+
+def test_arrival_tile_lands_inside_return_exit(db_session):
+    world.load()
+    assert world.arrival_tile(2, "north") == (2, 3)   # into Hall → just inside its south door (2,4)
+    assert world.arrival_tile(3, "down") == (3, 3)    # into Cellar → just below its up stairs (3,2)
+
+
+def test_world_map_graph(db_session):
+    world.load()
+    wm = world.world_map()
+    assert {r["name"] for r in wm["rooms"]} >= {"Foyer", "Great Hall", "Cellar"}
+    assert any(e["dir"] == "north" and e["locked"] is False for e in wm["exits"])
+    assert any(e["dir"] == "down" and e["locked"] is True for e in wm["exits"])
+
+
+# ---------- over the socket ----------
+def test_walk_through_door_changes_zone(client, token):
+    with _ws(client, token, 1) as ws:
+        ws.receive_json()  # zone_state (Foyer), spawn (2,2)
+        for dx, dy in [(0,-1),(1,0),(1,0),(0,-1)]:   # N,E,E,N onto the north door (4,0)
+            ws.send_json({"cmd": "move", "dx": dx, "dy": dy})
+        zs = _drain_until(ws, lambda m: m["event"] == "zone_state" and m["room"]["name"] == "Great Hall")
+        assert zs is not None
+        assert (zs["you"]["x"], zs["you"]["y"]) == (2, 3)   # arrival just inside the south door
+
+
+def test_other_players_see_you_leave_and_arrive(client, token):
+    aria = client.post("/characters", json={"name": "Aria"}).json()["id"]
+    with _ws(client, token, 1) as bryan:
+        bryan.receive_json()
+        with _ws(client, token, aria) as a:
+            a.receive_json()                 # zone_state
+            bryan.receive_json()             # entity_spawned (Aria) in Foyer
+            # Bryan walks out through the north door.
+            for dx, dy in [(0,-1),(1,0),(1,0),(0,-1)]:
+                bryan.send_json({"cmd": "move", "dx": dx, "dy": dy})
+            left = _drain_until(a, lambda m: m["event"] == "entity_left" and m["id"] == 1)
+            assert left is not None           # Aria (still in the Foyer) sees Bryan leave
+
+
+def test_locked_stairs_block_without_key(client, token):
+    with _ws(client, token, 1) as ws:
+        ws.receive_json()
+        for dx, dy in [(0,1),(1,0),(1,0),(1,0),(1,0)]:   # S then E×4 onto down stairs (6,3)
+            ws.send_json({"cmd": "move", "dx": dx, "dy": dy})
+        err = _drain_until(ws, lambda m: m["event"] == "error" and "locked" in m["detail"])
+        assert err is not None
+        ws.send_json({"cmd": "look"})       # still in the Foyer
+        assert _drain_until(ws, lambda m: m["event"] == "zone_state")["room"]["name"] == "Foyer"
+
+
+def test_locked_stairs_pass_with_key(client, token, db_session):
+    key = db_session.query(models.Item).filter_by(name="Rusty Key").first()
+    key.room_id, key.player_id = None, 1     # give Bryan the Rusty Key
+    db_session.commit()
+    with _ws(client, token, 1) as ws:
+        ws.receive_json()
+        for dx, dy in [(0,1),(1,0),(1,0),(1,0),(1,0)]:   # onto the down stairs
+            ws.send_json({"cmd": "move", "dx": dx, "dy": dy})
+        zs = _drain_until(ws, lambda m: m["event"] == "zone_state" and m["room"]["name"] == "Cellar")
+        assert zs is not None
+        assert (zs["you"]["x"], zs["you"]["y"]) == (3, 3)   # just below the up stairs
+
+
+def test_map_command_returns_graph(client, token):
+    with _ws(client, token, 1) as ws:
+        ws.receive_json()
+        ws.send_json({"cmd": "map"})
+        m = ws.receive_json()
+        assert m["event"] == "world_map"
+        assert {r["name"] for r in m["rooms"]} >= {"Foyer", "Great Hall", "Cellar"}

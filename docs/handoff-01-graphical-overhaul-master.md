@@ -137,9 +137,12 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
   Tile protocol + config knobs documented in `ARCHITECTURE.md` / `.env.example`;
   full test suite green (`test_tiles.py` + rewritten `test_realtime.py`).
   → `handoff-02-phase1-tiled-combat-slice.md`.
-- **Phase 2 — Zones & the map.** Room→room tile transitions via doors; multi-zone
-  world; map + minimap (zone graph + explored tiles). Migrate the seeded world to
-  tiled zones.
+- **Phase 2 — Zones & the map.** ✅ **Done.** Tile-to-tile zone transitions via
+  border doors (cardinal) and stairs (`>`/`<`, up/down), riding the existing
+  room-graph exits with lock/key enforcement; all seeded rooms tiled; per-zone
+  explored memory + current-zone minimap; on-demand overview map (zone graph,
+  visited rooms, locked exits) via the `map` command / **M**. New tile glyphs
+  `>`/`<`; new WS: `world_map`. → `handoff-03-phase2-zones-and-map.md`.
 - **Phase 3 — Inventory & equipment.** Effectively-infinite inventory; equipment
   slots (weapon, armor, ring ×2, amulet, …); item stats feeding combat; pickup/drop
   on tiles; quickslot buttons.

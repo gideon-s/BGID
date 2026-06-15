@@ -140,6 +140,40 @@ def _player_spawn_fields(player_id: int, room_id: int) -> dict:
     return {"glyph": glyph, "x": pos[0], "y": pos[1]}
 
 
+async def _try_transition(player_id: int, player_name: str, from_room: int, ex: dict) -> None:
+    """Move a player to an adjacent zone via a door/stairs (Phase 2). Enforces
+    locks, re-places at the destination's arrival tile, and fixes up presence."""
+    direction = ex["direction"]
+    if ex["is_locked"]:
+        db = SessionLocal()
+        try:
+            has_key = ItemService.is_held_by(db, ex["key_item_id"], player_id)
+        finally:
+            db.close()
+        if not has_key:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": f"The way {direction} is locked."})
+            return
+    to_room = ex["to_room_id"]
+    if not world.move_player(player_id, to_room):     # room-graph + DB write-through
+        await manager.send_personal_message(
+            player_id, {"event": "error", "detail": "That way leads nowhere."})
+        return
+    world.place_player(player_id, to_room, at=world.arrival_tile(to_room, direction))
+    manager.unsubscribe_from_room(player_id, from_room)
+    manager.subscribe_to_room(player_id, to_room)
+    await manager.broadcast_to_room(
+        from_room, {"event": "entity_left", "id": player_id, "name": player_name})
+    await manager.broadcast_to_room(
+        to_room,
+        {"event": "entity_spawned", "id": player_id, "kind": "player", "name": player_name,
+         **_player_spawn_fields(player_id, to_room)},
+        exclude_player=player_id,
+    )
+    await manager.send_personal_message(
+        player_id, {"event": "zone_state", **world.zone_snapshot(to_room, player_id)})
+
+
 @app.websocket("/ws/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, player_id: int,
                              token: Optional[str] = Query(default=None)):
@@ -188,7 +222,8 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
     world.place_player(player_id, room_id)
 
     manager.subscribe_to_room(player_id, room_id)
-    # Initial tiled-zone snapshot to the joining player
+    # Initial tiled-zone snapshot to the joining player (the overview map is
+    # fetched lazily via the `map` command when the player opens it).
     await manager.send_personal_message(
         player_id, {"event": "zone_state", **world.zone_snapshot(room_id, player_id)}
     )
@@ -240,6 +275,12 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
             player_id, {"event": "zone_state", **world.zone_snapshot(room_id, player_id)}
         )
 
+    elif cmd == "map":
+        # Zone-graph for the overview map (fetched when the player opens it).
+        await manager.send_personal_message(
+            player_id, {"event": "world_map", **world.world_map()}
+        )
+
     elif cmd == "say":
         text = (msg.get("text") or "").strip()
         if not text:
@@ -274,6 +315,11 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         if res.kind == "MOVED":
             await manager.broadcast_to_room(
                 room_id, {"event": "entity_moved", "id": player_id, "x": res.x, "y": res.y})
+            # Stepping onto a door/stairs with an exit moves the player to the
+            # adjacent zone (Phase 2).
+            ex = world.transition_for_tile(room_id, res.x, res.y)
+            if ex:
+                await _try_transition(player_id, player_name, room_id, ex)
         elif res.kind == "ATTACK" and res.target_kind == "npc":
             await resolve_player_attack(player_id, room_id, res.target_id)
         # BLOCKED: walls/occupied — no-op (the wall is its own feedback).

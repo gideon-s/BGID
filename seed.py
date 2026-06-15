@@ -9,24 +9,50 @@ Idempotent: safe to run repeatedly (won't duplicate rows). Run directly:
 from database import SessionLocal, engine, Base
 from models import Room, Player, Item, Npc, NpcReaction, RoomExit
 
-# Authored 12x9 tiled Foyer (Phase 1 graphical overhaul). A non-rectangular
-# hall showing off the tile palette: '#' wall, '.' floor, '+' door, 'o' pillar
-# (solid column), '~' water (a corner pool). The top-right and bottom-right
-# corners are chamfered so it isn't a plain box. Players spawn at (3, 4); the
-# Innkeeper (8, 2) and hostile Cellar Rat (9, 6) sit on open floor.
+# Authored tiled zones (Phase 1 palette + Phase 2 transitions). Glyphs: '#' wall,
+# '.' floor, '+' door (on a border → that wall's cardinal exit), 'o' pillar,
+# '~' water, '>'/'<' stairs down/up. Doors/stairs are aligned to the seeded
+# RoomExits so stepping onto them moves you between zones.
+#
+# Foyer (12x9): north door (5,0) → Great Hall; down stairs (9,3) → Cellar
+# (locked, Rusty Key). Spawn (3,4); Innkeeper (8,2), hostile Cellar Rat (9,6).
 FOYER_TILES = "\n".join([
-    "############",
-    "#.........##",
-    "#..o.....o.#",
+    "#####+######",
     "#..........#",
+    "#..o.....o.#",
+    "#........>.#",
     "#..........#",
     "#....oo....#",
-    "#.........+#",
-    "#~~.......##",
-    "#####++#####",
+    "#..........#",
+    "#~~........#",
+    "############",
 ])
 FOYER_W, FOYER_H = 12, 9
 FOYER_SPAWN = (3, 4)
+
+# Great Hall (11x7): south door (5,6) → Foyer.
+HALL_TILES = "\n".join([
+    "###########",
+    "#.........#",
+    "#.........#",
+    "#.........#",
+    "#.........#",
+    "#.........#",
+    "#####+#####",
+])
+HALL_W, HALL_H = 11, 7
+HALL_SPAWN = (5, 3)
+
+# Cellar (8x5): up stairs (4,2) → Foyer.
+CELLAR_TILES = "\n".join([
+    "########",
+    "#......#",
+    "#...<..#",
+    "#......#",
+    "########",
+])
+CELLAR_W, CELLAR_H = 8, 5
+CELLAR_SPAWN = (4, 3)
 
 
 def _get_or_create(db, model, defaults=None, **filters):
@@ -59,10 +85,16 @@ def seed():
             "width": FOYER_W, "height": FOYER_H, "tiles": FOYER_TILES,
             "spawn_x": FOYER_SPAWN[0], "spawn_y": FOYER_SPAWN[1],
         })
-        hall = _get_or_create(db, Room, name="Great Hall",
-                              defaults={"description": "A vast chamber with high ceilings."})
-        cellar = _get_or_create(db, Room, name="Cellar",
-                                defaults={"description": "A cramped, musty cellar below the foyer."})
+        hall = _get_or_create(db, Room, name="Great Hall", defaults={
+            "description": "A vast chamber with high ceilings.",
+            "width": HALL_W, "height": HALL_H, "tiles": HALL_TILES,
+            "spawn_x": HALL_SPAWN[0], "spawn_y": HALL_SPAWN[1],
+        })
+        cellar = _get_or_create(db, Room, name="Cellar", defaults={
+            "description": "A cramped, musty cellar below the foyer.",
+            "width": CELLAR_W, "height": CELLAR_H, "tiles": CELLAR_TILES,
+            "spawn_x": CELLAR_SPAWN[0], "spawn_y": CELLAR_SPAWN[1],
+        })
 
         # No player characters are seeded: every character now belongs to a
         # registered account (POST /characters). The first account to register

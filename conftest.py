@@ -20,17 +20,39 @@ os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production")  # stable 
 os.environ["COMBAT_TICK_SECONDS"] = "3600"
 os.environ["MOVE_COOLDOWN_SECONDS"] = "0"
 
-# Tiled test Foyer (8x6). Players spawn at (2,2); the Caretaker (the hostile
-# test mob) sits adjacent at (3,2), the Innkeeper (non-combatant) at (5,4).
+# Tiled test world. Foyer (8x6): players spawn at (2,2); the Caretaker (hostile
+# test mob) sits at (3,2), the Innkeeper at (5,4). North door (4,0) → Great Hall;
+# down stairs (6,3) → Cellar (locked, Rusty Key). Doors/stairs align to the
+# seeded RoomExits below so zone transitions are exercised.
 FOYER_TILES = "\n".join([
-    "########",
+    "####+###",   # north door (4,0) -> Great Hall
     "#......#",
     "#......#",
-    "#......#",
+    "#.....>#",   # down stairs (6,3) -> Cellar (locked)
     "#......#",
     "########",
 ])
 FOYER_W, FOYER_H, FOYER_SPAWN = 8, 6, (2, 2)
+
+# Great Hall (7x5): south door (2,4) -> Foyer.
+HALL_TILES = "\n".join([
+    "#######",
+    "#.....#",
+    "#.....#",
+    "#.....#",
+    "##+####",
+])
+HALL_W, HALL_H, HALL_SPAWN = 7, 5, (3, 2)
+
+# Cellar (7x5): up stairs (3,2) -> Foyer.
+CELLAR_TILES = "\n".join([
+    "#######",
+    "#.....#",
+    "#..<..#",
+    "#.....#",
+    "#######",
+])
+CELLAR_W, CELLAR_H, CELLAR_SPAWN = 7, 5, (3, 3)
 
 import pathlib
 import pytest
@@ -61,8 +83,12 @@ def _seed(db):
     foyer = models.Room(name="Foyer", description="A grand entrance hall.",
                         width=FOYER_W, height=FOYER_H, tiles=FOYER_TILES,
                         spawn_x=FOYER_SPAWN[0], spawn_y=FOYER_SPAWN[1])
-    hall = models.Room(name="Great Hall", description="A vast chamber.")
-    cellar = models.Room(name="Cellar", description="A musty cellar.")
+    hall = models.Room(name="Great Hall", description="A vast chamber.",
+                       width=HALL_W, height=HALL_H, tiles=HALL_TILES,
+                       spawn_x=HALL_SPAWN[0], spawn_y=HALL_SPAWN[1])
+    cellar = models.Room(name="Cellar", description="A musty cellar.",
+                         width=CELLAR_W, height=CELLAR_H, tiles=CELLAR_TILES,
+                         spawn_x=CELLAR_SPAWN[0], spawn_y=CELLAR_SPAWN[1])
     db.add_all([foyer, hall, cellar])
     db.commit()
 

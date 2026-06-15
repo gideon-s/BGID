@@ -41,6 +41,17 @@
   .ent .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ent button{background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);color:var(--fg);border-radius:3px;cursor:pointer;font-size:.72rem;padding:.1rem .4rem}
   .ent button:hover{border-color:var(--accent);color:var(--accent)}
+  .lnk{color:var(--accent);cursor:pointer;font-size:.7rem;letter-spacing:.04em;text-transform:none}
+  .lnk:hover{text-decoration:underline}
+  #minimap{width:100%;background:#0c0a06;border:1px solid var(--edge);border-radius:2px;margin-top:.15rem}
+  /* Overview map overlay */
+  #mapview{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+           background:rgba(5,4,3,.86)}
+  .mapcard{background:var(--panel);border:1px solid var(--gold-dim);border-radius:4px;padding:1rem 1.1rem;
+           box-shadow:0 0 40px rgba(199,162,74,.12);max-width:92vw;max-height:90vh;display:flex;flex-direction:column;gap:.6rem}
+  .maptitle{color:var(--accent);font-family:var(--serif);letter-spacing:.16em;text-align:center;font-size:1.1rem}
+  #mapcv{background:#0c0a06;border:1px solid var(--edge);border-radius:2px}
+  .maphint{color:var(--dim);font-size:.75rem;text-align:center}
   /* Right: Layer-2 dialogue / emotes */
   #side{width:300px;background:var(--panel);border-left:1px solid var(--edge);padding:1rem;overflow-y:auto;display:flex;flex-direction:column;gap:.15rem}
   #side h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.18em;color:var(--gold-dim);margin:0 0 .5rem;font-family:var(--serif)}
@@ -114,6 +125,15 @@
   </div>
 </div>
 
+<!-- Overview map (zone graph), toggled with M or the panel link -->
+<div id="mapview" class="hidden">
+  <div class="mapcard">
+    <div class="maptitle">The Black Goat — Map</div>
+    <canvas id="mapcv"></canvas>
+    <div class="maphint">press <b>M</b> or <b>Esc</b> to close · gold = where you are · dashed = locked</div>
+  </div>
+</div>
+
 <header><b>BGID</b><span id="who"></span></header>
 <main>
   <div id="world">
@@ -126,6 +146,8 @@
         <div class="hpbar"><i id="hpfill" style="width:100%"></i></div>
         <div class="hptext" id="hptext">—</div>
         <h2>Here</h2><div id="here"></div>
+        <h2>Map <span id="mapbtn" class="lnk">overview ▸</span></h2>
+        <canvas id="minimap"></canvas>
       </div>
     </div>
   </div>
@@ -141,7 +163,8 @@
 <script>
 const FOV_RADIUS = 8;
 const S = {pid:null, name:null, ws:null, user:null,
-           room:null, tiles:null, w:0, h:0, you:null, entities:{}, explored:{}};
+           room:null, tiles:null, w:0, h:0, you:null, entities:{}, explored:{},
+           exploredByRoom:{}, visited:{}, worldMap:null};
 const $ = s => document.querySelector(s);
 const combatEl = $('#combat');
 const sideEl = $('#side');
@@ -299,6 +322,35 @@ function draw(){
     if(visible[e.x+','+e.y]) ctx.fillText(e.glyph || '?', e.x*cell + cell/2, e.y*cell + cell/2 + 1);
   }
   ctx.fillText(S.you.glyph || '🧙', S.you.x*cell + cell/2, S.you.y*cell + cell/2 + 1);
+  drawMinimap();
+}
+
+// Tiny current-zone minimap (explored tiles only — fog memory).
+function drawMinimap(){
+  const c = $('#minimap'); if(!c || !S.tiles || !S.you) return;
+  const m = c.getContext('2d');
+  const panelW = (c.parentElement.clientWidth || 200) - 2;
+  const cs = Math.max(3, Math.floor(Math.min(panelW / S.w, 90 / S.h)));
+  const dpr = window.devicePixelRatio || 1;
+  c.width = S.w*cs*dpr; c.height = S.h*cs*dpr;
+  c.style.width = (S.w*cs)+'px'; c.style.height = (S.h*cs)+'px';
+  m.setTransform(dpr,0,0,dpr,0,0);
+  m.fillStyle = '#0c0a06'; m.fillRect(0,0, S.w*cs, S.h*cs);
+  for(let y=0;y<S.h;y++){ const row = S.tiles[y] || '';
+    for(let x=0;x<row.length;x++){
+      if(!S.explored[x+','+y]) continue;
+      const t = row[x];
+      m.fillStyle = t==='#' ? '#4a4128' : t==='~' ? '#27475a' : t==='o' ? '#6b5d34'
+                  : (t==='+'||t==='>'||t==='<') ? '#c7a24a' : '#1d1810';
+      m.fillRect(x*cs, y*cs, cs, cs);
+    }
+  }
+  for(const id in S.entities){ const e = S.entities[id];
+    if(!S.explored[e.x+','+e.y]) continue;
+    m.fillStyle = e.kind==='player' ? '#8fae5e' : (e.hostile ? '#c1554a' : '#e6bd5e');
+    m.fillRect(e.x*cs, e.y*cs, cs, cs);
+  }
+  m.fillStyle = '#f0d98a'; m.fillRect(S.you.x*cs, S.you.y*cs, cs, cs);
 }
 
 function setHp(hp, max){
@@ -334,12 +386,19 @@ function renderPanel(){
 // ─── Event handling ───
 function onEvent(m){
   switch(m.event){
-    case 'zone_state':
-      S.room=m.room; S.you=m.you; S.entities={}; S.explored={};
+    case 'zone_state': {
+      S.room=m.room; S.you=m.you; S.entities={};
       S.tiles=m.tiles.grid; S.w=m.tiles.w; S.h=m.tiles.h;
+      const rid = m.room.id; S.visited[rid] = true;        // for the overview map
+      S.explored = S.exploredByRoom[rid] = (S.exploredByRoom[rid] || {});  // per-zone fog memory
       (m.entities||[]).forEach(e=> S.entities[e.id]=e);
       rebuildDisplay(); draw(); renderPanel();
+      if(!$('#mapview').classList.contains('hidden')) drawOverview();
       logCombat(`— ${m.room?m.room.name:''} —`, 'l-sys');
+      break; }
+    case 'world_map':
+      S.worldMap = {rooms:m.rooms, exits:m.exits};
+      if(!$('#mapview').classList.contains('hidden')) drawOverview();
       break;
     case 'entity_moved':
       if(S.you && m.id===S.you.id){ S.you.x=m.x; S.you.y=m.y; }
@@ -385,14 +444,87 @@ const MOVE = {
   w:[0,-1], s:[0,1], a:[-1,0], d:[1,0], W:[0,-1], S:[0,1], A:[-1,0], D:[1,0],
 };
 window.addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){ closeMap(); return; }
   // Never hijack keys while typing in a field (login, character name, command
   // box, …) — only move when focus is on the page body.
   const ae = document.activeElement;
   if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+  if(e.key === 'm' || e.key === 'M'){ e.preventDefault(); toggleMap(); return; }
   const m = MOVE[e.key];
   if(m){ e.preventDefault(); send({cmd:'move', dx:m[0], dy:m[1]}); }
 });
 window.addEventListener('resize', ()=>{ rebuildDisplay(); draw(); });
+
+// ─── Overview map (zone graph) ───
+function openMap(){
+  if(!S.worldMap) send({cmd:'map'});      // arrives async → drawOverview re-runs
+  $('#mapview').classList.remove('hidden');
+  drawOverview();
+}
+function closeMap(){ $('#mapview').classList.add('hidden'); }
+function toggleMap(){ $('#mapview').classList.contains('hidden') ? openMap() : closeMap(); }
+$('#mapbtn').onclick = openMap;
+$('#mapview').onclick = e=>{ if(e.target.id === 'mapview') closeMap(); };  // click backdrop to close
+
+function _roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y);
+  c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r);
+  c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+
+function drawOverview(){
+  const c = $('#mapcv'), x = c.getContext('2d'), wm = S.worldMap;
+  if(!wm){ c.width=360; c.height=70; x.clearRect(0,0,360,70);
+           x.fillStyle='#9a8f74'; x.font='15px Georgia,serif'; x.textAlign='center';
+           x.fillText('Mapping…', 180, 40); return; }
+  // Reveal: rooms you've visited + their immediate neighbours (shown as "???").
+  const revealed = {};
+  Object.keys(S.visited).forEach(id => revealed[id] = true);
+  wm.exits.forEach(e=>{ if(S.visited[e.from]) revealed[e.to]=true; if(S.visited[e.to]) revealed[e.from]=true; });
+
+  // Place revealed rooms by exit direction, BFS from the current zone.
+  const dd = {north:[0,-1], south:[0,1], east:[1,0], west:[-1,0], up:[0,-1], down:[0,1]};
+  const adj = {}; wm.exits.forEach(e=> (adj[e.from] = adj[e.from] || []).push(e));
+  const byId = {}; wm.rooms.forEach(r=> byId[r.id]=r);
+  const start = (S.room && S.room.id) || wm.rooms[0].id;
+  const pos = {[start]:[0,0]}, q = [start];
+  const taken = p => Object.values(pos).some(o=> o[0]===p[0] && o[1]===p[1]);
+  while(q.length){ const id = q.shift();
+    (adj[id]||[]).forEach(e=>{
+      if(!revealed[e.to] || pos[e.to] !== undefined) return;
+      const d = dd[e.dir] || [1,0]; let nx = pos[id][0]+d[0], ny = pos[id][1]+d[1];
+      while(taken([nx,ny])){ nx += (d[0]||1); ny += d[1]; }
+      pos[e.to] = [nx,ny]; q.push(e.to);
+    });
+  }
+  const P = Object.values(pos);
+  const minX=Math.min(...P.map(p=>p[0])), maxX=Math.max(...P.map(p=>p[0]));
+  const minY=Math.min(...P.map(p=>p[1])), maxY=Math.max(...P.map(p=>p[1]));
+  const GW=130, GH=82, PAD=46, W=(maxX-minX+1)*GW+PAD*2, H=(maxY-minY+1)*GH+PAD*2;
+  const dpr = window.devicePixelRatio||1;
+  c.width=W*dpr; c.height=H*dpr; c.style.width=W+'px'; c.style.height=H+'px';
+  x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
+  const CX = id=> PAD + (pos[id][0]-minX)*GW + GW/2;
+  const CY = id=> PAD + (pos[id][1]-minY)*GH + GH/2;
+
+  x.lineWidth = 2;
+  wm.exits.forEach(e=>{
+    if(pos[e.from]===undefined || pos[e.to]===undefined) return;
+    x.strokeStyle = e.locked ? '#c1554a' : '#8a7536';
+    x.setLineDash(e.locked ? [5,4] : []);
+    x.beginPath(); x.moveTo(CX(e.from),CY(e.from)); x.lineTo(CX(e.to),CY(e.to)); x.stroke();
+  });
+  x.setLineDash([]);
+  Object.keys(pos).forEach(idStr=>{
+    const id = +idStr, vx = CX(id), vy = CY(id);
+    const here = S.room && id===S.room.id, seen = S.visited[id];
+    x.fillStyle = here ? 'rgba(199,162,74,.18)' : '#15110a';
+    x.strokeStyle = here ? '#c7a24a' : (seen ? '#8a7536' : '#3a3320');
+    x.lineWidth = here ? 2.5 : 1.5;
+    _roundRect(x, vx-48, vy-19, 96, 38, 4); x.fill(); x.stroke();
+    x.fillStyle = here ? '#e6bd5e' : (seen ? '#d8ccab' : '#6b6450');
+    x.font = '13px "Trajan Pro", Georgia, serif'; x.textAlign='center'; x.textBaseline='middle';
+    x.fillText(seen ? (byId[id] ? byId[id].name : '#'+id) : '???', vx, vy);
+  });
+}
 
 // ─── Command box (Layer-2 verbs) ───
 function npcByName(name){
@@ -403,8 +535,9 @@ function handleCommand(raw){
   const text = raw.trim(); if(!text) return;
   const parts = text.split(/\s+/); const verb = parts[0].toLowerCase();
   if(verb==='look' || verb==='l'){ send({cmd:'look'}); return; }
+  if(verb==='map'){ openMap(); return; }
   if(verb==='help' || verb==='?'){
-    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · look', 'l-sys'); return; }
+    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · look · map (or M)', 'l-sys'); return; }
   if(verb==='say'){ send({cmd:'say', text:parts.slice(1).join(' ')}); return; }
   if(verb==='talk'){
     const npc = npcByName(parts[1]||''); if(!npc){ logCombat(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }

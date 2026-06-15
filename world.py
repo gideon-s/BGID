@@ -34,10 +34,15 @@ _LOAD_LIMIT = 100_000
 #   ':' rubble    — open ground, drawn rougher (cosmetic; walkable)
 #   'o' pillar    — solid column, blocks movement + sight (a floor "island")
 #   '~' water     — blocks movement, but see-through (a pool/moat)
+#   '>' '<' stairs— walkable transition tiles (down / up to another zone)
 WALL, FLOOR, DOOR = "#", ".", "+"
 PILLAR, WATER, RUBBLE = "o", "~", ":"
+STAIRS_DOWN, STAIRS_UP = ">", "<"
 # Glyphs that block movement. Anything not listed is walkable ground.
 BLOCKING = {WALL, PILLAR, WATER}
+# Tiles that trigger a zone transition when stepped onto (Phase 2). Border doors
+# map to that wall's cardinal exit; stairs map to up/down.
+TRANSITION_TILES = {DOOR, STAIRS_DOWN, STAIRS_UP}
 # Fallback box dimensions for rooms with no authored layout (legacy room-graph
 # rooms a player might still end up in — Phase 2 tiles the whole world).
 _DEFAULT_W, _DEFAULT_H = 11, 9
@@ -180,13 +185,21 @@ class WorldState:
             return False
         return node.tiles[y][x] not in BLOCKING
 
+    def _is_spawnable(self, node: "RoomNode", x: int, y: int) -> bool:
+        """Open, unoccupied ground a player/mob may be placed on — explicitly
+        NOT a transition tile (a door/stairs), so nobody spawns in a doorway and
+        blocks it (or auto-transitions)."""
+        return (self._is_walkable_grid(node, x, y)
+                and node.tiles[y][x] not in TRANSITION_TILES
+                and self._occupant(node, x, y) is None)
+
     def _first_free_tile(self, node: "RoomNode") -> Tuple[int, int]:
-        """Spawn tile if free, else the first unoccupied walkable tile."""
-        if self._is_walkable_grid(node, *node.spawn) and self._occupant(node, *node.spawn) is None:
+        """Spawn tile if free, else the first free non-transition floor tile."""
+        if self._is_spawnable(node, *node.spawn):
             return node.spawn
         for y in range(node.height):
             for x in range(len(node.tiles[y])):
-                if self._is_walkable_grid(node, x, y) and self._occupant(node, x, y) is None:
+                if self._is_spawnable(node, x, y):
                     return (x, y)
         return node.spawn
 
@@ -217,15 +230,20 @@ class WorldState:
             return None
         return (node.player_pos if kind == "player" else node.npc_pos).get(entity_id)
 
-    def place_player(self, player_id: int, room_id: int) -> Optional[Tuple[int, int]]:
-        """Set a player onto the zone's spawn tile (or nearest free tile).
+    def place_player(self, player_id: int, room_id: int,
+                     at: Optional[Tuple[int, int]] = None) -> Optional[Tuple[int, int]]:
+        """Set a player onto a tile: `at` if given and free (zone-transition
+        arrival), otherwise the zone's spawn/nearest-free tile (fresh connect).
 
         Complements ``enter_world`` (room membership + DB); this is the tile
-        layer. Live (x,y) is not persisted in Phase 1 — re-placed on connect."""
+        layer. Live (x,y) is not persisted — re-placed on connect/transition."""
         node = self.rooms.get(room_id)
         if node is None:
             return None
-        pos = self._first_free_tile(node)
+        if at is not None and self._is_walkable_grid(node, *at) and self._occupant(node, *at) is None:
+            pos = at
+        else:
+            pos = self._first_free_tile(node)
         node.player_pos[player_id] = pos
         return pos
 
@@ -363,6 +381,93 @@ class WorldState:
             "id": npc_id, "kind": "npc", "name": name, "glyph": glyph,
             "x": x, "y": y, "hostile": meta.get("hostile", False),
             "hp": hp, "max_hp": hp}}
+
+    # ---------- zone transitions (Phase 2) ----------
+    def transition_for_tile(self, room_id: int, x: int, y: int) -> Optional[Dict[str, Any]]:
+        """If (x, y) is a transition tile with a matching exit, return that exit
+        dict augmented with its 'direction'; else None. A border door maps to its
+        wall's cardinal; stairs map to up/down. Exits come from the room-graph."""
+        node = self.rooms.get(room_id)
+        if node is None or not self._is_walkable_grid(node, x, y):
+            return None
+        t = node.tiles[y][x]
+        direction = None
+        if t == STAIRS_UP:
+            direction = "up"
+        elif t == STAIRS_DOWN:
+            direction = "down"
+        elif t == DOOR:
+            if y == 0:
+                direction = "north"
+            elif y == node.height - 1:
+                direction = "south"
+            elif x == 0:
+                direction = "west"
+            elif x == node.width - 1:
+                direction = "east"
+        if direction is None:
+            return None
+        ex = node.exits.get(direction)
+        return {"direction": direction, **ex} if ex else None
+
+    def _find_transition_tile(self, node: "RoomNode", direction: str) -> Optional[Tuple[int, int]]:
+        """Locate the tile in a room that triggers `direction` (a stair glyph, or
+        a door on the matching border)."""
+        if direction == "up":
+            glyph = STAIRS_UP
+        elif direction == "down":
+            glyph = STAIRS_DOWN
+        elif direction in ("north", "south", "east", "west"):
+            glyph = DOOR
+        else:
+            return None
+        for y in range(node.height):
+            row = node.tiles[y]
+            for x in range(len(row)):
+                if row[x] != glyph:
+                    continue
+                if glyph == DOOR:
+                    on_border = ((direction == "north" and y == 0) or
+                                 (direction == "south" and y == node.height - 1) or
+                                 (direction == "west" and x == 0) or
+                                 (direction == "east" and x == len(row) - 1))
+                    if not on_border:
+                        continue
+                return (x, y)
+        return None
+
+    def arrival_tile(self, room_id: int, from_direction: str) -> Tuple[int, int]:
+        """Where a player lands after entering `room_id` by travelling
+        `from_direction`: one tile inward from the destination's return exit (so
+        they don't immediately re-trigger it), else that tile, else the spawn."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return (0, 0)
+        rev = directions.reverse(from_direction)  # e.g. arrived going 'north' -> return is 'south'
+        target = self._find_transition_tile(node, rev)
+        if target is None:
+            return node.spawn
+        tx, ty = target
+        # Step one tile clear of the return exit (stairs have no wall side, so
+        # just step south off them if possible).
+        inward = {"north": (0, 1), "south": (0, -1), "west": (1, 0), "east": (-1, 0),
+                  "up": (0, 1), "down": (0, 1)}.get(rev, (0, 0))
+        ix, iy = tx + inward[0], ty + inward[1]
+        if self._is_walkable_grid(node, ix, iy) and self._occupant(node, ix, iy) is None:
+            return (ix, iy)
+        if self._occupant(node, tx, ty) is None:
+            return (tx, ty)
+        return self._first_free_tile(node)
+
+    def world_map(self) -> Dict[str, Any]:
+        """The zone graph for the overview map: rooms + (deduped) exits."""
+        rooms = [{"id": n.id, "name": n.name} for n in self.rooms.values()]
+        exits = []
+        for n in self.rooms.values():
+            for direction, ex in n.exits.items():
+                exits.append({"from": n.id, "to": ex["to_room_id"],
+                              "dir": direction, "locked": bool(ex["is_locked"])})
+        return {"rooms": rooms, "exits": exits}
 
     def zone_snapshot(self, room_id: int, viewer_id: int) -> Optional[Dict[str, Any]]:
         """Serializable tiled-zone view for a `zone_state` event, from one

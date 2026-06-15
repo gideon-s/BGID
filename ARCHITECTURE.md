@@ -130,6 +130,7 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
 {"cmd":"talk","npc_id":1,"text":"…"}// unchanged (Layer 2)
 {"cmd":"say","text":"…"}            // unchanged
 {"cmd":"look"}                      // resends zone_state
+{"cmd":"map"}                       // request the zone-graph (Phase 2)
 
 // server → client
 {"event":"zone_state","room":{...},"tiles":{"w":12,"h":9,"grid":["############", …]},
@@ -144,6 +145,10 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
  "hit":true,"damage":4,"target_hp":4,"target_max_hp":8}
 {"event":"player_defeated","player_id":7,"name":"Bryan","by":"Cellar Rat"}
 {"event":"respawn","room_id":1,"health":10}
+// Phase 2: stepping onto a border door / stairs moves zones — server sends a
+// fresh zone_state to the mover and entity_left/entity_spawned to the two zones.
+{"event":"world_map","rooms":[{"id":1,"name":"Foyer"}],
+ "exits":[{"from":1,"to":2,"dir":"north","locked":false}]}
 ```
 
 ## Graphical overhaul — two-tier tiled world (Phase 1)
@@ -214,6 +219,14 @@ Each step keeps the app runnable.
    combat tick (aggro/path/melee); LLM smack-talk with canned fallback; rot.js
    three-region client. Single room only — zones/doors are Phase 2. See
    `docs/handoff-02-phase1-tiled-combat-slice.md`.
+
+7. ✅ **Zones & the map** (Phase 2) — stepping onto a border door (cardinal) or
+   stairs (`>`/`<`, up/down) transitions between tiled zones, resolved against
+   the existing room-graph exits (`world.transition_for_tile`/`arrival_tile`)
+   with lock/key enforcement; all seeded rooms tiled; per-zone explored memory +
+   a current-zone minimap; an on-demand overview map (`map` command → `world_map`
+   event; zone graph with visited rooms + locked exits). See
+   `docs/handoff-03-phase2-zones-and-map.md`.
 
 ### Future
 - Per-NPC conversation memory across `talk` turns.
