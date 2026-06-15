@@ -141,16 +141,29 @@ def seed():
             "is_movable": True, "is_equippable": True, "equip_slot": "head",
             "defense_bonus": 1,
         })
-        _get_or_create(db, Item, name="Leather Gloves", defaults={
+        # Gloves and boots are now per-hand / per-foot (independent L/R slots).
+        _get_or_create(db, Item, name="Leather Glove (L)", defaults={
             "description": "Worn but supple.", "item_type": "armor",
-            "value": 3, "room_id": foyer.id, "glyph": "🧤", "tile_x": 8, "tile_y": 6,
-            "is_movable": True, "is_equippable": True, "equip_slot": "hands",
+            "value": 2, "room_id": foyer.id, "glyph": "🧤", "tile_x": 8, "tile_y": 6,
+            "is_movable": True, "is_equippable": True, "equip_slot": "left_hand",
             "defense_bonus": 1,
         })
-        _get_or_create(db, Item, name="Worn Boots", defaults={
-            "description": "They've walked some miles.", "item_type": "armor",
-            "value": 3, "room_id": foyer.id, "glyph": "🥾", "tile_x": 4, "tile_y": 6,
-            "is_movable": True, "is_equippable": True, "equip_slot": "feet",
+        _get_or_create(db, Item, name="Leather Glove (R)", defaults={
+            "description": "Worn but supple.", "item_type": "armor",
+            "value": 2, "room_id": foyer.id, "glyph": "🧤", "tile_x": 9, "tile_y": 6,
+            "is_movable": True, "is_equippable": True, "equip_slot": "right_hand",
+            "defense_bonus": 1,
+        })
+        _get_or_create(db, Item, name="Worn Boot (L)", defaults={
+            "description": "It's walked some miles.", "item_type": "armor",
+            "value": 2, "room_id": foyer.id, "glyph": "🥾", "tile_x": 4, "tile_y": 6,
+            "is_movable": True, "is_equippable": True, "equip_slot": "left_foot",
+            "defense_bonus": 1,
+        })
+        _get_or_create(db, Item, name="Worn Boot (R)", defaults={
+            "description": "It's walked some miles.", "item_type": "armor",
+            "value": 2, "room_id": foyer.id, "glyph": "🥾", "tile_x": 5, "tile_y": 6,
+            "is_movable": True, "is_equippable": True, "equip_slot": "right_foot",
             "defense_bonus": 1,
         })
         # A ring in the Cellar — the reward for braving the Rat past the locked door.

@@ -14,6 +14,7 @@ import json
 
 import config
 import classes
+import races
 import skills
 import models
 import auth_schemas as aschemas
@@ -104,7 +105,7 @@ class CharacterService:
     @staticmethod
     def create(db: Session, user: models.User, name: str,
                char_class: str = classes.DEFAULT_CLASS,
-               gender: str = "none") -> models.Player:
+               gender: str = "none", race: str = races.DEFAULT_RACE) -> models.Player:
         count = db.query(models.Player).filter(models.Player.user_id == user.id).count()
         if count >= config.MAX_CHARACTERS_PER_ACCOUNT:
             raise HTTPException(
@@ -122,13 +123,21 @@ class CharacterService:
         # Stamp the chosen class: ability emphasis, glyph, and a full mana pool.
         cdef = classes.get_class(char_class)
         player = models.Player(name=name, user_id=user.id, room_id=room.id,
-                               char_class=char_class, gender=gender,
+                               char_class=char_class, gender=gender, race=race,
                                glyph=cdef.get("glyph", "🧙"),
                                max_mana=cdef.get("max_mana", 0),
                                mana=cdef.get("max_mana", 0),
                                skills=json.dumps(skills.starting_skills(char_class)))
         for ability, score in cdef.get("abilities", {}).items():
             setattr(player, ability, score)
+        # Race nudges ability scores on top of the class baseline. Column
+        # defaults aren't applied until flush, so fall back to the base score
+        # for any ability the class didn't explicitly set.
+        for ability, delta in races.get_race(race).get("abilities", {}).items():
+            cur = getattr(player, ability)
+            if cur is None:
+                cur = config.DEFAULT_ABILITY_SCORE
+            setattr(player, ability, cur + delta)
         db.add(player)
         try:
             db.commit()

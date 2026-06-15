@@ -38,11 +38,44 @@ def test_gender_defaults_to_none_and_keeps_custom():
     assert c.gender == "Enby"             # custom value preserved (trimmed)
 
 
-# ---------- body slots ----------
+# ---------- race ----------
+def test_create_stamps_race_and_applies_bonus(db_session):
+    import auth_service, races
+    intruder = db_session.query(models.User).filter_by(username="intruder").first()
+    # Dwarf warrior: warrior STR 15 + dwarf +1 = 16; CON 14 + dwarf +2 = 16.
+    p = auth_service.CharacterService.create(db_session, intruder, "Thrain",
+                                             "warrior", "male", "dwarf")
+    assert p.race == "dwarf" and p.str == 16 and p.con == 16
+    assert races.is_valid("elf") and not races.is_valid("dragon")
+
+
+def test_race_rejects_unknown():
+    import auth_schemas, pytest
+    with pytest.raises(Exception):
+        auth_schemas.CharacterCreate(name="X", char_class="mage", race="dragon")
+
+
+# ---------- body slots (independent left/right limbs) ----------
 def test_body_slots_in_limits():
-    for slot in ["head", "torso", "upper_arms", "lower_arms", "hands",
-                 "pelvis", "upper_legs", "lower_legs", "feet"]:
+    for slot in ["head", "torso", "pelvis",
+                 "left_upper_arm", "right_upper_arm", "left_lower_arm", "right_lower_arm",
+                 "left_hand", "right_hand", "left_upper_leg", "right_upper_leg",
+                 "left_lower_leg", "right_lower_leg", "left_foot", "right_foot"]:
         assert services.SLOT_LIMITS[slot] == 1
+    assert len(services.BODY_SLOTS) == 15
+
+
+def test_left_and_right_equip_independently(db_session):
+    lg = models.Item(name="L Glove", item_type="armor", player_id=1,
+                     is_equippable=True, equip_slot="left_hand", defense_bonus=1)
+    rg = models.Item(name="R Glove", item_type="armor", player_id=1,
+                     is_equippable=True, equip_slot="right_hand", defense_bonus=1)
+    db_session.add_all([lg, rg]); db_session.commit()
+    services.ItemService.equip(db_session, 1, lg.id)
+    services.ItemService.equip(db_session, 1, rg.id)   # different slot → both stay on
+    db_session.refresh(lg); db_session.refresh(rg)
+    assert lg.equipped and rg.equipped
+    assert services.ItemService.equipment_bonuses(db_session, 1)["defense"] == 2
 
 
 def test_equip_body_slot(db_session):
@@ -71,7 +104,8 @@ def test_sheet_command_shape(client, token, db_session):
         sh = _drain_until(ws, lambda m: m["event"] == "character_sheet")
         assert sh is not None
         assert sh["gender"] == "male" and sh["char_class"] == "warrior"
+        assert sh["race"] and sh["race_name"]      # race surfaced on the sheet
         assert set(sh["abilities"]) == {"str", "dex", "con", "intel", "wis", "cha"}
         assert sh["skills"]["Melee"] == 3          # warrior signature
         assert "head" in sh["equipment"] and sh["equipment"]["head"][0]["name"] == "Steel Helm"
-        assert "feet" in sh["slots"]               # body-slot list for the paperdoll
+        assert "left_foot" in sh["slots"] and "right_foot" in sh["slots"]   # paperdoll slots

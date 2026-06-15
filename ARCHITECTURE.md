@@ -178,10 +178,13 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
  "slots":["head","torso","upper_arms","lower_arms","hands","pelvis","upper_legs","lower_legs","feet"]}
 ```
 
-Equipment slots: `weapon`, `ring`×2, `amulet`, and the nine **body slots** above
-(`classes.py`-stamped, paperdoll on the character sheet). `Player` carries
-`char_class`/`mana`/`gender`/`skills` (a JSON `{skill: rank}` dict from
-`skills.py`); the legacy `armor` slot maps to `torso`.
+Equipment slots: `weapon`, `ring`×2, `amulet`, and the **15 body slots** —
+`head`/`torso`/`pelvis` plus independent left/right for each limb
+(`{left,right}_upper_arm`/`_lower_arm`/`_hand`/`_upper_leg`/`_lower_leg`/`_foot`)
+— driving the character-sheet paperdoll. `Player` carries `char_class`/`mana`/
+`race` (`races.py`, a small ability nudge)/`gender`/`skills` (a JSON `{skill:
+rank}` dict from `skills.py`). Character **creation is its own gate screen** (not
+the character-select list). Legacy single limb slots migrate to their left side.
 
 ## Graphical overhaul — two-tier tiled world (Phase 1)
 

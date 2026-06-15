@@ -7,6 +7,7 @@ from pydantic import BaseModel, field_validator
 
 import config
 import classes
+import races
 
 
 def _validate_password(v: str) -> str:
@@ -67,6 +68,7 @@ class UserResponse(BaseModel):
 class CharacterCreate(BaseModel):
     name: str
     char_class: str = classes.DEFAULT_CLASS   # validated against classes.py below
+    race: str = races.DEFAULT_RACE             # validated against races.py below
     gender: str = "none"                       # female/male/none or a custom value
 
     @field_validator("name")
@@ -83,6 +85,14 @@ class CharacterCreate(BaseModel):
         v = (v or classes.DEFAULT_CLASS).strip().lower()
         if v not in classes.SELECTABLE:
             raise ValueError(f"Pick a class: {', '.join(classes.SELECTABLE)}")
+        return v
+
+    @field_validator("race")
+    @classmethod
+    def race_valid(cls, v: str) -> str:
+        v = (v or races.DEFAULT_RACE).strip().lower()
+        if v not in races.SELECTABLE:
+            raise ValueError(f"Pick a race: {', '.join(races.SELECTABLE)}")
         return v
 
     @field_validator("gender")
@@ -103,6 +113,7 @@ class CharacterOut(BaseModel):
     health: int
     max_health: int
     char_class: str = "wanderer"
+    race: str = "human"
     gender: str = ""
     mana: int = 0
     max_mana: int = 0

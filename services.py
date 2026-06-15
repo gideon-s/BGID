@@ -15,8 +15,17 @@ from utils import dict_from_model, log_action, validate_ability_scores
 # armour slots (head…feet) drive the character-sheet paperdoll; 'armor' is kept
 # as a back-compat alias for 'torso'. equip() falls back to a limit of 1 for any
 # slot not listed, so unknown/legacy slots still work.
-BODY_SLOTS = ["head", "torso", "upper_arms", "lower_arms", "hands",
-              "pelvis", "upper_legs", "lower_legs", "feet"]
+# Body armour slots — independent left/right for each limb (head/torso/pelvis
+# are single). These drive the character-sheet paperdoll.
+BODY_SLOTS = [
+    "head", "torso", "pelvis",
+    "left_upper_arm", "right_upper_arm",
+    "left_lower_arm", "right_lower_arm",
+    "left_hand", "right_hand",
+    "left_upper_leg", "right_upper_leg",
+    "left_lower_leg", "right_lower_leg",
+    "left_foot", "right_foot",
+]
 SLOT_LIMITS = {"weapon": 1, "ring": 2, "amulet": 1, "armor": 1,
                **{slot: 1 for slot in BODY_SLOTS}}
 

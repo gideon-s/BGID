@@ -37,27 +37,37 @@
   .cmdrow code{color:var(--accent);font-family:var(--mono);white-space:nowrap;min-width:11rem}
   .cmdrow .cd{color:var(--dim)}
   .cmdsec{color:var(--gold-dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.16em;margin:.5rem 0 .15rem;font-family:var(--serif)}
-  /* Character sheet */
-  #sheetbody{display:flex;gap:1.4rem;min-width:520px;max-width:88vw;max-height:70vh;overflow-y:auto}
+  /* Character sheet — styled like a tabletop RPG sheet on aged parchment */
+  #sheetview .mapcard{background:
+      radial-gradient(circle at 30% 18%, rgba(199,162,74,.06), transparent 60%),
+      linear-gradient(160deg, #211b10 0%, #1a160d 55%, #120e08 100%);
+      border:2px solid var(--gold-dim);box-shadow:0 0 0 1px #000 inset,0 0 50px rgba(199,162,74,.12)}
+  #sheetview .maptitle{border-bottom:1px solid var(--gold-dim);padding-bottom:.4rem;margin-bottom:.2rem}
+  #sheetbody{display:flex;gap:1.6rem;min-width:560px;max-width:90vw;max-height:72vh;overflow-y:auto;padding:.2rem .1rem}
   #sheetbody .col{display:flex;flex-direction:column;gap:.15rem;min-width:0}
   #sheetbody .col.left{flex:1}
-  .shname{color:var(--accent);font-family:var(--serif);font-size:1.15rem;letter-spacing:.06em}
-  .shsub{color:var(--dim);font-size:.82rem;margin-bottom:.3rem}
-  .shsec{color:var(--gold-dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.16em;margin:.55rem 0 .2rem;font-family:var(--serif)}
-  .statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:.3rem}
-  .stat{background:#0c0a06;border:1px solid var(--edge);border-radius:3px;padding:.25rem .4rem;text-align:center}
-  .stat .sn{color:var(--dim);font-size:.62rem;text-transform:uppercase;letter-spacing:.1em}
-  .stat .sv{color:var(--fg);font-size:1.05rem}
-  .stat .sm{color:var(--accent);font-size:.72rem}
-  .skill{display:flex;justify-content:space-between;font-size:.84rem;padding:.12rem .1rem;border-bottom:1px solid #1a1610}
-  .skill .sr{color:var(--accent)}
-  /* Paperdoll: rough humanoid grid of equipment boxes */
-  .doll{display:grid;grid-template-columns:repeat(3, 4.6rem);grid-auto-rows:3.2rem;gap:.3rem;justify-content:center}
-  .pslot{border:1px solid var(--gold-dim);border-radius:4px;background:#0c0a06;display:flex;flex-direction:column;
+  .shname{color:var(--accent);font-family:var(--serif);font-size:1.5rem;letter-spacing:.06em}
+  .shsub{color:var(--fg);font-size:.86rem;margin-bottom:.4rem;font-family:var(--serif);letter-spacing:.04em;text-transform:capitalize}
+  .shsec{color:var(--gold-dim);font-size:.68rem;text-transform:uppercase;letter-spacing:.2em;margin:.7rem 0 .25rem;
+         font-family:var(--serif);border-bottom:1px solid var(--edge);padding-bottom:.15rem}
+  .statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:.35rem}
+  .statgrid.vitals{grid-template-columns:repeat(3,1fr)}
+  .stat{background:rgba(12,10,6,.7);border:1px solid var(--gold-dim);border-radius:4px;padding:.3rem .4rem;text-align:center;
+        box-shadow:0 1px 0 rgba(0,0,0,.4)}
+  .stat .sn{color:var(--gold-dim);font-size:.6rem;text-transform:uppercase;letter-spacing:.12em;font-family:var(--serif)}
+  .stat .sv{color:var(--fg);font-size:1.25rem;font-family:var(--serif)}
+  .stat .sm{color:var(--accent);font-size:.74rem}
+  .skill{display:flex;justify-content:space-between;font-size:.85rem;padding:.16rem .2rem;border-bottom:1px dotted #2c2516}
+  .skill .sr{color:var(--accent);font-family:var(--serif)}
+  /* Paperdoll: anatomical grid of equipment boxes */
+  .doll{display:grid;grid-template-columns:repeat(3, 4.7rem);grid-auto-rows:3.3rem;gap:.35rem;justify-content:center}
+  .doll.trinkets{grid-auto-rows:3rem}
+  .pslot{border:1px solid var(--gold-dim);border-radius:4px;background:rgba(12,10,6,.7);display:flex;flex-direction:column;
          align-items:center;justify-content:center;text-align:center;padding:.15rem}
-  .pslot.empty{border-color:var(--edge);opacity:.6}
-  .pslot .pg{font-size:1.3rem;line-height:1}
-  .pslot .pl{color:var(--dim);font-size:.56rem;text-transform:uppercase;letter-spacing:.04em;margin-top:.1rem}
+  .pslot.empty{border-style:dashed;border-color:var(--edge);opacity:.55}
+  .pslot .pg{font-size:1.35rem;line-height:1}
+  .pslot .pl{color:var(--dim);font-size:.55rem;text-transform:uppercase;letter-spacing:.03em;margin-top:.12rem;font-family:var(--serif)}
+  .pslot.filled{border-color:var(--accent);box-shadow:0 0 8px rgba(199,162,74,.18)}
   .pslot.filled .pl{color:var(--accent)}
   main{flex:1;display:flex;min-height:0}
   /* Left: tile map (top) + combat/stats/actions strip (bottom) */
@@ -183,21 +193,33 @@
     </div>
   </div>
 
-  <!-- Screen 2: character select -->
+  <!-- Screen 2: character select (list only — creation is its own screen) -->
   <div id="screen-chars" class="hidden">
     <div class="sub" id="char-greet"></div>
     <div class="charlist" id="charlist"></div>
-    <div class="sub" style="margin-top:.4rem">Choose a class for your new character:</div>
+    <div class="gerr" id="char-err"></div>
+    <div class="row" style="justify-content:center;gap:.6rem">
+      <button class="primary" id="newchar-open">New Character</button>
+      <button class="ghost" id="char-logout">Log out</button>
+    </div>
+  </div>
+
+  <!-- Screen 3: character creation -->
+  <div id="screen-create" class="hidden">
+    <div class="sub">Create a new character</div>
+    <input id="newchar" placeholder="character name" maxlength="100" style="width:280px">
+    <div class="sub" style="margin-top:.3rem">Race:</div>
+    <div class="classpick" id="racepick"></div>
+    <div class="sub" style="margin-top:.3rem">Class:</div>
     <div class="classpick" id="classpick"></div>
-    <div class="sub" style="margin-top:.4rem">Gender:</div>
+    <div class="sub" style="margin-top:.3rem">Gender:</div>
     <div class="classpick" id="genderpick"></div>
     <input id="gender-other" class="hidden" placeholder="enter gender" maxlength="50" style="width:280px">
-    <div class="row">
-      <input id="newchar" placeholder="new character name" maxlength="100">
+    <div class="gerr" id="create-err"></div>
+    <div class="row" style="justify-content:center;gap:.6rem">
       <button class="primary" id="newchar-btn">Create</button>
+      <button class="ghost" id="create-back">Back</button>
     </div>
-    <div class="gerr" id="char-err"></div>
-    <button class="ghost" id="char-logout">Log out</button>
   </div>
 </div>
 
@@ -968,18 +990,29 @@ $('#helpview').onclick = e=>{ if(e.target.id==='helpview') closeHelp(); };
 
 // ─── Character sheet overlay ───
 const ABIL = [['str','STR'],['dex','DEX'],['con','CON'],['intel','INT'],['wis','WIS'],['cha','CHA']];
-const SLOT_LABEL = {head:'Head', torso:'Torso', upper_arms:'Up.Arms', lower_arms:'Lo.Arms',
-  hands:'Hands', pelvis:'Pelvis', upper_legs:'Up.Legs', lower_legs:'Lo.Legs', feet:'Feet',
-  weapon:'Weapon', amulet:'Amulet', ring:'Ring'};
-// Rough humanoid paperdoll layout (3 columns; null = spacer).
+const SLOT_LABEL = {
+  head:'Head', torso:'Torso', pelvis:'Pelvis',
+  left_upper_arm:'L Up Arm', right_upper_arm:'R Up Arm',
+  left_lower_arm:'L Lo Arm', right_lower_arm:'R Lo Arm',
+  left_hand:'L Hand', right_hand:'R Hand',
+  left_upper_leg:'L Up Leg', right_upper_leg:'R Up Leg',
+  left_lower_leg:'L Lo Leg', right_lower_leg:'R Lo Leg',
+  left_foot:'L Foot', right_foot:'R Foot',
+  weapon:'Weapon', amulet:'Amulet', ring:'Ring',
+};
+// Anatomical paperdoll: left column = left limbs, centre = head/torso/pelvis,
+// right column = right limbs (null = spacer).
 const DOLL = [
-  [null,         'head',       null],
-  ['upper_arms', 'torso',      'weapon'],
-  ['lower_arms', 'pelvis',     'amulet'],
-  ['hands',      'upper_legs', 'ring'],
-  [null,         'lower_legs', null],
-  [null,         'feet',       null],
+  [null,             'head',   null],
+  ['left_upper_arm', 'torso',  'right_upper_arm'],
+  ['left_lower_arm', 'pelvis', 'right_lower_arm'],
+  ['left_hand',      null,     'right_hand'],
+  ['left_upper_leg', null,     'right_upper_leg'],
+  ['left_lower_leg', null,     'right_lower_leg'],
+  ['left_foot',      null,     'right_foot'],
 ];
+// Accessory slots shown as a small list under the paperdoll.
+const TRINKETS = ['weapon', 'amulet', 'ring'];
 function renderSheet(){
   const body = $('#sheetbody'); if(!body) return;
   const s = S.sheet;
@@ -996,29 +1029,31 @@ function renderSheet(){
   Object.entries(s.skills||{}).forEach(([name,rank])=>{
     skl += `<div class="skill"><span>${name}</span><span class="sr">${rank}</span></div>`;
   });
-  const mana = s.max_mana>0 ? ` · <span style="color:#5b8fd6">${s.mana}/${s.max_mana} MP</span>` : '';
+  const vitals = `<div class="statgrid vitals">
+      <div class="stat"><div class="sn">HP</div><div class="sv">${s.hp}/${s.max_hp}</div></div>`
+    + (s.max_mana>0 ? `<div class="stat"><div class="sn">MP</div><div class="sv">${s.mana}/${s.max_mana}</div></div>` : '')
+    + `<div class="stat"><div class="sn">Level</div><div class="sv">${s.level}</div><div class="sm">${s.experience} xp</div></div></div>`;
   const left = `<div class="col left">
       <div class="shname">${s.name}</div>
-      <div class="shsub">${s.class_name} · ${s.gender} · Level ${s.level} <span style="opacity:.7">(${s.experience} xp)</span></div>
-      <div class="shsub">${s.hp}/${s.max_hp} HP${mana}</div>
+      <div class="shsub">${s.race_name||''} ${s.class_name} · ${s.gender}</div>
+      ${vitals}
       <div class="shsec">Abilities</div>${abil}
       <div class="shsec">Skills</div>${skl || '<div style="color:var(--dim);font-size:.82rem">none</div>'}
     </div>`;
-  // Right column: equipment paperdoll.
+  // Right column: equipment paperdoll + trinket slots.
+  const slotBox = slot=>{
+    const items = equip[slot] || [], lbl = SLOT_LABEL[slot] || slot;
+    if(items.length) return `<div class="pslot filled" title="${items.map(i=>i.name).join(', ')}">
+        <div class="pg">${items.map(i=>i.glyph).join('')}</div><div class="pl">${lbl}</div></div>`;
+    return `<div class="pslot empty"><div class="pg">·</div><div class="pl">${lbl}</div></div>`;
+  };
   let doll = '<div class="doll">';
-  DOLL.forEach(rowSlots=> rowSlots.forEach(slot=>{
-    if(!slot){ doll += '<div></div>'; return; }
-    const items = equip[slot] || [];
-    const lbl = SLOT_LABEL[slot] || slot;
-    if(items.length){
-      doll += `<div class="pslot filled" title="${items.map(i=>i.name).join(', ')}">
-                 <div class="pg">${items.map(i=>i.glyph).join('')}</div><div class="pl">${lbl}</div></div>`;
-    }else{
-      doll += `<div class="pslot empty"><div class="pg">·</div><div class="pl">${lbl}</div></div>`;
-    }
-  }));
+  DOLL.forEach(rowSlots=> rowSlots.forEach(slot=>{ doll += slot ? slotBox(slot) : '<div></div>'; }));
   doll += '</div>';
-  body.innerHTML = left + `<div class="col"><div class="shsec">Equipment</div>${doll}</div>`;
+  const trinkets = '<div class="doll trinkets">' + TRINKETS.map(slotBox).join('') + '</div>';
+  body.innerHTML = left
+    + `<div class="col"><div class="shsec">Equipment</div>${doll}
+         <div class="shsec">Weapon &amp; Trinkets</div>${trinkets}</div>`;
 }
 function openSheet(){ send({cmd:'sheet'}); $('#sheetview').classList.remove('hidden'); renderSheet(); }
 function closeSheet(){ $('#sheetview').classList.add('hidden'); }
@@ -1249,13 +1284,36 @@ function renderClassPick(){
   });
 }
 
+// Race picker
+const RACE_OPTIONS = [
+  {id:'human', name:'Human', glyph:'🧑'}, {id:'elf', name:'Elf', glyph:'🧝'},
+  {id:'dwarf', name:'Dwarf', glyph:'🧔'}, {id:'halfling', name:'Halfling', glyph:'🧒'},
+  {id:'half-orc', name:'Half-Orc', glyph:'👹'}, {id:'gnome', name:'Gnome', glyph:'🧙'},
+];
+let newRace = 'human';
+function renderRacePick(){
+  const wrap = $('#racepick'); if(!wrap) return; wrap.innerHTML='';
+  RACE_OPTIONS.forEach(c=>{
+    const el = document.createElement('div');
+    el.className = 'cls' + (c.id===newRace?' sel':'');
+    el.innerHTML = `<span class="cg">${c.glyph}</span><span>${c.name}</span>`;
+    el.onclick = ()=>{ newRace = c.id; renderRacePick(); };
+    wrap.appendChild(el);
+  });
+}
+
 async function showCharacters(){
   $('#screen-auth').classList.add('hidden');
+  $('#screen-create').classList.add('hidden');
   $('#screen-chars').classList.remove('hidden');
   $('#char-greet').textContent = `Signed in as ${S.user.username}. Choose a character:`;
-  renderClassPick();
-  renderGenderPick();
   await refreshCharacters();
+}
+function showCreate(){
+  $('#screen-chars').classList.add('hidden');
+  $('#screen-create').classList.remove('hidden');
+  renderRacePick(); renderClassPick(); renderGenderPick();
+  $('#create-err').textContent = '';
   $('#newchar').focus();
 }
 async function refreshCharacters(){
@@ -1263,25 +1321,28 @@ async function refreshCharacters(){
   const list = $('#charlist'); list.innerHTML = '';
   if(!r.ok){ $('#char-err').textContent = 'Could not load characters.'; return; }
   const chars = await r.json();
-  if(!chars.length){ list.innerHTML = '<div class="sub">No characters yet — create one below.</div>'; }
+  if(!chars.length){ list.innerHTML = '<div class="sub">No characters yet — create one with “New Character”.</div>'; }
   chars.forEach(c=>{
     const b = document.createElement('button'); b.className='charbtn';
-    const cls = c.char_class && c.char_class!=='wanderer' ? ` · ${c.char_class}` : '';
-    const g = c.gender && c.gender!=='none' ? ` · ${c.gender}` : '';
-    b.innerHTML = `<span>${c.name}</span><span class="meta">lvl ${c.level}${cls}${g} · ${c.health}/${c.max_health} hp</span>`;
+    const bits = [c.race, c.char_class!=='wanderer'?c.char_class:null, c.gender!=='none'?c.gender:null].filter(Boolean);
+    const meta = bits.length ? ' · ' + bits.join(' ') : '';
+    b.innerHTML = `<span>${c.name}</span><span class="meta">lvl ${c.level}${meta} · ${c.health}/${c.max_health} hp</span>`;
     b.onclick = ()=> playAs(c);
     list.appendChild(b);
   });
 }
 async function createCharacter(){
   const name = $('#newchar').value.trim();
-  if(!name){ $('#char-err').textContent = 'Enter a character name.'; return; }
-  const r = await api('/characters', {method:'POST', body:{name, char_class:newClass, gender:chosenGender()}});
+  if(!name){ $('#create-err').textContent = 'Enter a character name.'; return; }
+  const r = await api('/characters', {method:'POST',
+    body:{name, race:newRace, char_class:newClass, gender:chosenGender()}});
   const data = await r.json().catch(()=>({}));
-  if(!r.ok){ $('#char-err').textContent = humanError(data) || ('Error ' + r.status); return; }
-  $('#newchar').value=''; $('#char-err').textContent='';
+  if(!r.ok){ $('#create-err').textContent = humanError(data) || ('Error ' + r.status); return; }
+  $('#newchar').value=''; $('#create-err').textContent='';
   playAs(data);
 }
+$('#newchar-open').onclick = showCreate;
+$('#create-back').onclick = showCharacters;
 $('#newchar-btn').onclick = createCharacter;
 $('#newchar').addEventListener('keydown', e=>{ if(e.key==='Enter') createCharacter(); });
 

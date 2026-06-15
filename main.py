@@ -19,6 +19,7 @@ from npc_turns import run_npc_turn, build_llm_npc, build_context
 from combat import resolve_player_attack
 from casting import resolve_cast
 import classes
+import races
 import spells as spellbook
 import skills as skillbook
 import services
@@ -206,6 +207,8 @@ def _sheet_payload(player_id: int) -> dict:
             "event": "character_sheet",
             "name": p.name, "char_class": p.char_class,
             "class_name": cdef.get("name", p.char_class.title()),
+            "race": p.race or "human",
+            "race_name": races.get_race(p.race).get("name", (p.race or "human").title()),
             "gender": p.gender or "none", "level": p.level, "experience": p.experience,
             "hp": p.health, "max_hp": p.max_health, "mana": p.mana, "max_mana": p.max_mana,
             "abilities": abilities, "modifiers": mods,

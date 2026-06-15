@@ -107,7 +107,7 @@ def create_character(data: aschemas.CharacterCreate,
                      current_user: models.User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     return auth_service.CharacterService.create(db, current_user, data.name,
-                                                data.char_class, data.gender)
+                                                data.char_class, data.gender, data.race)
 
 
 @char_router.delete("/{player_id}", status_code=status.HTTP_204_NO_CONTENT)
