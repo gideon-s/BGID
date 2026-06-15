@@ -157,10 +157,26 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
   combat death/respawn paths; mana regen on the regen tick; client mana bar,
   quickslots (1–9), click-to-target, cast VFX, class picker. Additive `players`
   column migration. → `handoff-05-phase4-classes-spells-mana.md`.
-- **Phase 5 — Portraits (Novita).** Generated character + mob portraits; portrait
-  panel in the sidebar / combat UI. Generation service mirroring
-  `deepseek_integration.py`; generate-once + aggressive cache. *Independent — can
-  start any time once a Novita key is on the box.* *Spec ready* →
+- **Interlude — character sheet, race & a windowed UI.** ✅ **Done** (shipped
+  2026-06-15, between Phase 4 and Phase 5; not a numbered phase). Adds: **gender**
+  + **race** (`races.py`, ability nudges) + **skills** (`skills.py`, per-class
+  ranks) on characters; a **character sheet** (`sheet` WS cmd → `character_sheet`
+  event) showing race/class/gender, level/XP, abilities+mods, skills, and a
+  body-slot **equipment paperdoll** (equipment expanded to 15 **independent L/R
+  body slots**); **character creation moved to its own gate screen**. Plus a full
+  **windowed client**: Dialogue, Battle, Status (room/You/Here/minimap),
+  Inventory, Character, Room (description), and Map are all **draggable +
+  resizable floating windows** persisted to `localStorage` (the only centered
+  modals left are Settings + Help). Also: **diagonal movement** (Q/E/Z/C, a server
+  change), **T** to lock/cycle a hostile target (reticle; spells auto-fire at it),
+  **Space** to melee the target, and **Settings** (rebindable keymap) + **Help**
+  (command list). Migrations `migrate_charsheet.py` + `migrate_race_slots.py`.
+  See `git log` and handoff-06 §0 for the full blow-by-blow.
+- **Phase 5 — Portraits (Novita).** Generated character + mob portraits, shown in
+  the **Character / Dialogue / Status windows** (the UI is now windowed — see the
+  Interlude). Generation service mirroring `deepseek_integration.py`;
+  generate-once + aggressive cache. *Independent — can start any time once a
+  Novita key is on the box.* *Spec ready (refreshed for the windowed UI)* →
   `handoff-06-phase5-portraits-novita.md`.
 - **Phase 6 — Polish.** HUD overlay, sprite tilesets, procedural room generation,
   sound, animation, balance.
