@@ -51,7 +51,9 @@
   #fw-sheet{width:560px;height:440px;left:calc(50% - 280px);top:11%;right:auto}
   #fw-map{width:560px;height:440px;left:calc(50% - 280px);top:9%;right:auto}
   #fw-room{width:340px;height:230px;left:calc(50% - 170px);top:26%;right:auto}
-  #fw-sheet .fw-body, #fw-room .fw-body, #fw-map .fw-body{overflow:auto;padding:.7rem .9rem}
+  #fw-inv{width:380px;height:400px;left:calc(50% - 190px);top:14%;right:auto}
+  #fw-sheet .fw-body, #fw-room .fw-body, #fw-map .fw-body, #fw-inv .fw-body{overflow:auto;padding:.7rem .9rem}
+  #fw-inv #invlist{min-width:0;max-width:none;max-height:none}
   #fw-sheet #sheetbody{min-width:0;max-width:none;max-height:none}
   #roombody .rname{color:var(--accent);font-family:var(--serif);font-size:1.2rem;letter-spacing:.06em;margin-bottom:.4rem}
   #roombody .rdesc{color:var(--fg);font-size:.9rem;line-height:1.6}
@@ -140,7 +142,7 @@
   /* Modal overlays (map, inventory, sheet, settings, help): centered card over a
      dimmed backdrop. Dismissed only by ✕ or Esc — clicking the backdrop does
      nothing (no close-on-outside-click). */
-  #invview, #settingsview, #helpview{
+  #settingsview, #helpview{
            position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
            background:rgba(5,4,3,.86)}
   .mapcard{position:relative;background:var(--panel);border:1px solid var(--gold-dim);border-radius:4px;padding:1rem 1.1rem;
@@ -277,15 +279,6 @@
   </div>
 </div>
 
-<!-- Inventory (carried + worn), toggled with I or the panel link -->
-<div id="invview" class="hidden">
-  <div class="mapcard"><a class="cardx" title="Close (Esc)">✕</a>
-    <div class="maptitle">Inventory</div>
-    <div id="invlist"></div>
-    <div class="maphint">press <b>✕</b>, <b>I</b>, or <b>Esc</b> to close · <b>G</b> to grab what you stand on</div>
-  </div>
-</div>
-
 
 <header><b>BGID</b>
   <span id="hdr-right"><span id="who"></span><span id="controls"><a id="open-sheet">Character</a><a id="open-room">Room</a><a id="open-help">Help</a><a id="open-settings">Settings</a></span></span>
@@ -328,7 +321,11 @@
   <div class="fw-bar"><span>Battle</span><span class="fw-btns"><a class="fw-dock" title="Dock back">⤡</a></span></div>
   <div class="fw-body" id="fw-combat-body"></div>
 </div>
-<!-- Content windows (character sheet, room description, overhead map) -->
+<!-- Content windows (inventory, character sheet, room description, overhead map) -->
+<div id="fw-inv" class="floatwin hidden">
+  <div class="fw-bar"><span>Inventory</span><span class="fw-btns"><a class="fw-x" title="Close (Esc)">✕</a></span></div>
+  <div class="fw-body"><div id="invlist"></div></div>
+</div>
 <div id="fw-sheet" class="floatwin hidden">
   <div class="fw-bar"><span>Character</span><span class="fw-btns"><a class="fw-x" title="Close (Esc)">✕</a></span></div>
   <div class="fw-body"><div id="sheetbody"></div></div>
@@ -701,7 +698,7 @@ function onEvent(m){
     case 'inventory':
       S.inventory = m.items || [];
       renderWorn();
-      if(!$('#invview').classList.contains('hidden')) renderInventory();
+      if(winOpen('fw-inv')) renderInventory();
       break;
     case 'item_dropped':
       S.groundItems[m.id] = {id:m.id, name:m.name, glyph:m.glyph, x:m.x, y:m.y};
@@ -769,11 +766,10 @@ function grabHint(){
 }
 
 // ─── Inventory overlay ───
-function openInv(){ send({cmd:'inventory'}); $('#invview').classList.remove('hidden'); renderInventory(); }
-function closeInv(){ $('#invview').classList.add('hidden'); }
-function toggleInv(){ $('#invview').classList.contains('hidden') ? openInv() : closeInv(); }
+function openInv(){ showWin('fw-inv'); }
+function closeInv(){ hideWin('fw-inv'); }
+function toggleInv(){ toggleWin('fw-inv'); }
 $('#invbtn').onclick = openInv;
-$('#invview .cardx').onclick = closeInv;
 
 // ─── Spells: quickslot bar, targeting, casting ───
 function spellReady(sp){
@@ -1128,6 +1124,7 @@ function chosenGender(){
 const WIN_DEFS = {
   'fw-side':   {key:'side',   panelId:'side'},
   'fw-combat': {key:'combat', panelId:'combatwrap'},
+  'fw-inv':    {key:'inv',    onShow:()=>{ send({cmd:'inventory'}); renderInventory(); }},
   'fw-sheet':  {key:'sheet',  onShow:()=>{ send({cmd:'sheet'}); renderSheet(); }},
   'fw-room':   {key:'room',   onShow:()=> renderRoom()},
   'fw-map':    {key:'map',    onShow:()=>{ if(!S.worldMap) send({cmd:'map'}); drawOverview(); }},
@@ -1193,6 +1190,7 @@ $('#pop-side').onclick = ()=> showWin('fw-side');
 $('#pop-combat').onclick = ()=> showWin('fw-combat');
 $('#fw-side .fw-dock').onclick = ()=> hideWin('fw-side');
 $('#fw-combat .fw-dock').onclick = ()=> hideWin('fw-combat');
+$('#fw-inv .fw-x').onclick = ()=> hideWin('fw-inv');
 $('#fw-sheet .fw-x').onclick = ()=> hideWin('fw-sheet');
 $('#fw-room .fw-x').onclick = ()=> hideWin('fw-room');
 $('#fw-map .fw-x').onclick = ()=> hideWin('fw-map');
