@@ -70,6 +70,7 @@ class CharacterCreate(BaseModel):
     char_class: str = classes.DEFAULT_CLASS   # validated against classes.py below
     race: str = races.DEFAULT_RACE             # validated against races.py below
     gender: str = "none"                       # female/male/none or a custom value
+    appearance: str = ""                       # free-form looks/bio (feeds portrait)
 
     @field_validator("name")
     @classmethod
@@ -103,6 +104,15 @@ class CharacterCreate(BaseModel):
             raise ValueError("Gender must be at most 50 characters")
         return v or "none"
 
+    @field_validator("appearance")
+    @classmethod
+    def appearance_valid(cls, v: str) -> str:
+        v = (v or "").strip()
+        if len(v) > config.APPEARANCE_MAX_LENGTH:
+            raise ValueError(
+                f"Appearance must be at most {config.APPEARANCE_MAX_LENGTH} characters")
+        return v
+
 
 class CharacterOut(BaseModel):
     id: int
@@ -115,6 +125,7 @@ class CharacterOut(BaseModel):
     char_class: str = "wanderer"
     race: str = "human"
     gender: str = ""
+    appearance: str = ""
     mana: int = 0
     max_mana: int = 0
 

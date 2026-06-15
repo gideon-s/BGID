@@ -12,6 +12,7 @@ import os
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_bgid.db"
 os.environ["DEEPSEEK_API_KEY"] = ""  # force rule-based NPC fallback; no network
+os.environ["NOVITA_API_KEY"] = ""    # portraits disabled in CI; never call out
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production")  # stable tokens
 # Disable the live mob-AI tick during tests so it can't inject nondeterministic
 # combat events into WS streams; the AI is exercised by calling

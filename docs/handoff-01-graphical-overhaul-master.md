@@ -172,12 +172,16 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
   **Space** to melee the target, and **Settings** (rebindable keymap) + **Help**
   (command list). Migrations `migrate_charsheet.py` + `migrate_race_slots.py`.
   See `git log` and handoff-06 §0 for the full blow-by-blow.
-- **Phase 5 — Portraits (Novita).** Generated character + mob portraits, shown in
-  the **Character / Dialogue / Status windows** (the UI is now windowed — see the
-  Interlude). Generation service mirroring `deepseek_integration.py`;
-  generate-once + aggressive cache. *Independent — can start any time once a
-  Novita key is on the box.* *Spec ready (refreshed for the windowed UI)* →
-  `handoff-06-phase5-portraits-novita.md`.
+- **Phase 5 — Portraits (Novita). ✅ SHIPPED 2026-06-15.** Generated character +
+  NPC portraits, shown in the **Character / Dialogue / Status windows** (the UI is
+  now windowed — see the Interlude). Generation service `novita_integration.py`
+  (mirrors `deepseek_integration.py`; httpx async txt2img → poll → download) +
+  a generate-once store `portraits.py` (sha256 prompt hash → `static/portraits/
+  {hash}.png`, in-flight guard, `portrait_url` DB pointer on Player + Npc). New WS
+  `portrait {kind,id,url}` event + `portrait_url` on snapshot/sheet/spawn payloads;
+  triggered on connect / zone entry / first `talk` / first `sheet`. Dark by default
+  (no `NOVITA_API_KEY` → emoji-glyph fallback, exactly like DeepSeek-off). Additive
+  `migrate_phase5.py`. *Independent track.* → `handoff-06-phase5-portraits-novita.md`.
 - **Phase 6 — Polish.** HUD overlay, sprite tilesets, procedural room generation,
   sound, animation, balance.
 

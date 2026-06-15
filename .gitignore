@@ -20,3 +20,7 @@ venv/
 
 # Reference art (not part of the app)
 *.jpg
+
+# Generated character/NPC portraits (Phase 5) — regenerated on demand from the
+# DB pointers, never committed.
+static/portraits/

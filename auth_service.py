@@ -105,7 +105,8 @@ class CharacterService:
     @staticmethod
     def create(db: Session, user: models.User, name: str,
                char_class: str = classes.DEFAULT_CLASS,
-               gender: str = "none", race: str = races.DEFAULT_RACE) -> models.Player:
+               gender: str = "none", race: str = races.DEFAULT_RACE,
+               appearance: str = "") -> models.Player:
         count = db.query(models.Player).filter(models.Player.user_id == user.id).count()
         if count >= config.MAX_CHARACTERS_PER_ACCOUNT:
             raise HTTPException(
@@ -124,6 +125,7 @@ class CharacterService:
         cdef = classes.get_class(char_class)
         player = models.Player(name=name, user_id=user.id, room_id=room.id,
                                char_class=char_class, gender=gender, race=race,
+                               appearance=(appearance or "").strip(),
                                glyph=cdef.get("glyph", "🧙"),
                                max_mana=cdef.get("max_mana", 0),
                                mana=cdef.get("max_mana", 0),
@@ -147,6 +149,24 @@ class CharacterService:
                                 detail="That character name is already taken")
         db.refresh(player)
         return player
+
+    @staticmethod
+    def set_appearance(db: Session, player_id: int, appearance: str) -> bool:
+        """Update a player's free-form appearance. Returns True if it changed.
+
+        On a real change the cached `portrait_url` is cleared so the next portrait
+        trigger regenerates from the new description (the prompt hash changes).
+        """
+        player = db.query(models.Player).filter(models.Player.id == player_id).first()
+        if player is None:
+            return False
+        new_text = (appearance or "").strip()[:config.APPEARANCE_MAX_LENGTH]
+        if new_text == (player.appearance or ""):
+            return False
+        player.appearance = new_text
+        player.portrait_url = None      # re-key the portrait: regenerate on change
+        db.commit()
+        return True
 
     @staticmethod
     def owned_or_404(db: Session, user: models.User, player_id: int) -> models.Player:

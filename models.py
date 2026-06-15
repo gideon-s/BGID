@@ -168,9 +168,16 @@ class Player(Base, AbilityScoresMixin):
     gender = Column(String(50), default="", nullable=False)
     race = Column(String(30), default="human", nullable=False)
     skills = Column(Text, default="{}", nullable=False)
+    # Free-form self-description (looks/bio). Set at creation, editable from the
+    # character sheet; folded into the portrait prompt, so editing it re-keys the
+    # prompt hash and regenerates the portrait (see portraits.build_player_prompt).
+    appearance = Column(Text, default="", nullable=False)
     # Overhead tile rendering glyph. Live (x,y) is not persisted in Phase 1 —
     # players spawn at the zone's spawn tile on connect (master §6).
     glyph = Column(String(8), default="🧙", nullable=False)
+    # Phase 5: generate-once portrait pointer (a /static/portraits/{hash}.png
+    # url). Null until a portrait is generated; falls back to the glyph.
+    portrait_url = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_active = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -229,6 +236,8 @@ class Npc(Base, AbilityScoresMixin):
     glyph = Column(String(8), default="👤", nullable=False)
     home_x = Column(Integer, nullable=True)
     home_y = Column(Integer, nullable=True)
+    # Phase 5: generate-once portrait pointer (see Player.portrait_url).
+    portrait_url = Column(String(255), nullable=True)
     
     # Relationships
     room = relationship("Room", back_populates="npcs")

@@ -481,6 +481,7 @@ class WorldState:
             npc.health = npc.max_health
             db.commit()
             name, glyph, hp = npc.name, npc.glyph or "👤", npc.max_health
+            portrait_url = npc.portrait_url
         finally:
             db.close()
         meta = node.npc_meta.get(npc_id, {})
@@ -494,7 +495,7 @@ class WorldState:
         return {"room_id": room_id, "entity": {
             "id": npc_id, "kind": "npc", "name": name, "glyph": glyph,
             "x": x, "y": y, "hostile": meta.get("hostile", False),
-            "hp": hp, "max_hp": hp}}
+            "hp": hp, "max_hp": hp, "portrait_url": portrait_url}}
 
     # ---------- zone transitions (Phase 2) ----------
     def transition_for_tile(self, room_id: int, x: int, y: int) -> Optional[Dict[str, Any]]:
@@ -600,7 +601,8 @@ class WorldState:
                     continue
                 rec = {"id": pid, "kind": "player", "name": player.name,
                        "glyph": player.glyph or "🧙", "x": pos[0], "y": pos[1],
-                       "hp": player.health, "max_hp": player.max_health}
+                       "hp": player.health, "max_hp": player.max_health,
+                       "portrait_url": player.portrait_url}
                 if pid == viewer_id:
                     rec["mana"] = player.mana
                     rec["max_mana"] = player.max_mana
@@ -617,6 +619,7 @@ class WorldState:
                     "glyph": meta.get("glyph", npc.glyph or "👤"),
                     "x": pos[0], "y": pos[1], "hostile": meta.get("hostile", False),
                     "hp": npc.health, "max_hp": npc.max_health,
+                    "portrait_url": npc.portrait_url,
                 })
         finally:
             db.close()

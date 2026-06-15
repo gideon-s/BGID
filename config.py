@@ -63,6 +63,10 @@ FOV_RADIUS = int(os.getenv("FOV_RADIUS", "8"))  # client view radius
 # the player-`talk` budget — mob chatter is mob-initiated cost).
 MOB_CHATTER_RATE_PER_MIN = int(os.getenv("MOB_CHATTER_RATE_PER_MIN", "8"))
 
+# Free-form character appearance/description (feeds the portrait prompt). Capped
+# so prompts stay bounded and image-gen cost/quality stays predictable.
+APPEARANCE_MAX_LENGTH = int(os.getenv("APPEARANCE_MAX_LENGTH", "400"))
+
 # Game Configuration
 DEFAULT_PLAYER_HEALTH = 10
 DEFAULT_PLAYER_LEVEL = 1
@@ -83,6 +87,43 @@ DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 DEEPSEEK_TEMPERATURE = float(os.getenv("DEEPSEEK_TEMPERATURE", "0.7"))
 DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "500"))
 DEEPSEEK_TIMEOUT = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
+
+# Novita (image generation) Configuration — Phase 5 character/NPC portraits.
+# Novita exposes a text-to-image HTTP API (NOT OpenAI-compatible). Set
+# NOVITA_API_KEY in your environment or .env file. Get a key at
+# https://novita.ai/ — until it's set, portraits are dark by default and the
+# game falls back to emoji glyphs (exactly how DeepSeek-off degrades to canned
+# barbs). Generation is generate-once + hash-cached, so N subjects = N calls
+# ever (see portraits.py).
+NOVITA_API_KEY = os.getenv("NOVITA_API_KEY", "")
+NOVITA_BASE_URL = os.getenv("NOVITA_BASE_URL", "https://api.novita.ai")
+# Per-purpose models (see portraits.STYLES). Both default to Standard SDXL 1.0
+# checkpoints, so they share the sampler params below. Swap either via .env —
+# no code change. Browse Novita's catalog (GET /v3/model) for alternatives.
+#   - Portraits: ZavyChromaXL — painterly fantasy character busts.
+#   - Tokens:    SDXL Unstable Diffusers — versatile "game art" model, good for
+#                top-down overhead RPG map tokens. (Token generation is a future
+#                phase; the model is configured now so the seam is ready.)
+NOVITA_PORTRAIT_MODEL = os.getenv("NOVITA_PORTRAIT_MODEL", "zavychromaxl_v40_253521.safetensors")
+NOVITA_PORTRAIT_WIDTH = int(os.getenv("NOVITA_PORTRAIT_WIDTH", "1024"))
+NOVITA_PORTRAIT_HEIGHT = int(os.getenv("NOVITA_PORTRAIT_HEIGHT", "1024"))
+NOVITA_TOKEN_MODEL = os.getenv("NOVITA_TOKEN_MODEL", "sdxlUnstableDiffusers_v11_216694.safetensors")
+NOVITA_TOKEN_WIDTH = int(os.getenv("NOVITA_TOKEN_WIDTH", "768"))
+NOVITA_TOKEN_HEIGHT = int(os.getenv("NOVITA_TOKEN_HEIGHT", "768"))
+# Shared sampler params (tuned for Standard SDXL; Turbo/Lightning models would
+# need fewer steps + lower guidance, so prefer Standard checkpoints).
+NOVITA_STEPS = int(os.getenv("NOVITA_STEPS", "28"))
+NOVITA_GUIDANCE_SCALE = float(os.getenv("NOVITA_GUIDANCE_SCALE", "7.0"))
+NOVITA_SAMPLER = os.getenv("NOVITA_SAMPLER", "DPM++ 2M Karras")
+# Total seconds to wait for an async txt2img task to finish (POST then poll the
+# task-result endpoint). Caps the poll loop; a slow/stuck job just leaves the
+# glyph in place.
+NOVITA_TIMEOUT = int(os.getenv("NOVITA_TIMEOUT", "120"))
+NOVITA_POLL_INTERVAL = float(os.getenv("NOVITA_POLL_INTERVAL", "2.0"))
+# Cost guard: max portrait generations running concurrently. The hash dedup +
+# in-flight guard already bound *identical* subjects to one call; this bounds a
+# flood of *distinct* new subjects from fanning out unbounded API calls at once.
+PORTRAIT_MAX_CONCURRENT = int(os.getenv("PORTRAIT_MAX_CONCURRENT", "2"))
 
 # Chat Configuration
 MAX_CHAT_MESSAGE_LENGTH = 1000

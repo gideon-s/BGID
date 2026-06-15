@@ -29,6 +29,8 @@ from config import MOVE_COOLDOWN_SECONDS
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
+from novita_integration import initialize_novita, cleanup_novita, portrait_manager
+import portraits
 from services import PlayerService, RoomService, ItemService, NpcService, GameActionService, NpcReactionService, RoomExitService
 from dependencies import get_current_user, get_current_admin, authenticate_ws
 import auth_api
@@ -71,6 +73,15 @@ async def startup_event():
         print(f"⚠️  Warning: Could not initialize DeepSeek NPC system: {e}")
         print("   NPCs will use rule-based responses instead.")
 
+    # Portrait generation (Phase 5). Dark by default until NOVITA_API_KEY is set;
+    # a missing key just leaves the manager disabled (callers fall back to glyphs).
+    portraits.ensure_portrait_dir()
+    try:
+        await initialize_novita()
+    except Exception as e:
+        print(f"⚠️  Warning: Could not initialize Novita portraits: {e}")
+        print("   Portraits will fall back to emoji glyphs.")
+
     # Start the background tick loops (slow regen + fast mob-AI combat tick)
     game_loop.start()
     print(f"⏱️  Game loops started (regen {game_loop.TICK_SECONDS}s, "
@@ -85,6 +96,10 @@ async def shutdown_event():
         print("🧹 DeepSeek NPC system cleaned up successfully!")
     except Exception as e:
         print(f"⚠️  Warning: Error cleaning up DeepSeek NPC system: {e}")
+    try:
+        await cleanup_novita()
+    except Exception as e:
+        print(f"⚠️  Warning: Error cleaning up Novita portraits: {e}")
 
 # ---------- Web Client + Root ----------
 _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -137,15 +152,33 @@ _STEPS = {(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - {(0, 0)}
 
 
 def _player_spawn_fields(player_id: int, room_id: int) -> dict:
-    """glyph + (x, y) for a player's entity_spawned event."""
+    """glyph + portrait + (x, y) for a player's entity_spawned event."""
     pos = world.position_of("player", room_id, player_id) or world.rooms[room_id].spawn
     db = SessionLocal()
     try:
         player = PlayerService.get_player(db, player_id)
         glyph = (player.glyph if player else None) or "🧙"
+        portrait_url = player.portrait_url if player else None
     finally:
         db.close()
-    return {"glyph": glyph, "x": pos[0], "y": pos[1]}
+    return {"glyph": glyph, "portrait_url": portrait_url, "x": pos[0], "y": pos[1]}
+
+
+def _kick_portraits(room_id: int, player_id: Optional[int] = None) -> None:
+    """Fire-and-forget portrait generation for the viewer + NPCs in a room.
+
+    No-op when portraits are disabled (NOVITA_API_KEY unset), so the common
+    case never touches the DB. ensure_portrait itself is generate-once + cached,
+    so repeated calls are cheap and idempotent.
+    """
+    if not portrait_manager.is_enabled():
+        return
+    if player_id is not None:
+        portraits.ensure_portrait("player", player_id, room_id)
+    node = world.rooms.get(room_id)
+    if node:
+        for nid in list(node.npc_ids):
+            portraits.ensure_portrait("npc", nid, room_id)
 
 
 def _inventory_payload(player_id: int) -> dict:
@@ -206,10 +239,12 @@ def _sheet_payload(player_id: int) -> dict:
         return {
             "event": "character_sheet",
             "name": p.name, "char_class": p.char_class,
+            "portrait_url": p.portrait_url,
             "class_name": cdef.get("name", p.char_class.title()),
             "race": p.race or "human",
             "race_name": races.get_race(p.race).get("name", (p.race or "human").title()),
-            "gender": p.gender or "none", "level": p.level, "experience": p.experience,
+            "gender": p.gender or "none", "appearance": p.appearance or "",
+            "level": p.level, "experience": p.experience,
             "hp": p.health, "max_hp": p.max_health, "mana": p.mana, "max_mana": p.max_mana,
             "abilities": abilities, "modifiers": mods,
             "skills": skillbook.normalize(stored_skills),
@@ -251,6 +286,9 @@ async def _try_transition(player_id: int, player_name: str, from_room: int, ex: 
     )
     await manager.send_personal_message(
         player_id, {"event": "zone_state", **world.zone_snapshot(to_room, player_id)})
+    # Generate portraits for the destination zone's NPCs (and the arriving
+    # player, already covered on connect but cheap/idempotent).
+    _kick_portraits(to_room, player_id)
 
 
 @app.websocket("/ws/{player_id}")
@@ -316,6 +354,9 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
          "name": player_name, **_player_spawn_fields(player_id, room_id)},
         exclude_player=player_id,
     )
+    # Phase 5: kick off portrait generation for this player + the NPCs they can
+    # see, so art is ready by the time they open a window. No-op without a key.
+    _kick_portraits(room_id, player_id)
 
     try:
         while True:
@@ -431,6 +472,9 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
                  "retry_after": wait},
             )
             return
+        # Ensure this NPC has a portrait on the way (generate-once; no-op if
+        # disabled or already cached) so the Dialogue window can show it.
+        portraits.ensure_portrait("npc", int(npc_id), room_id)
         # Show the room what was asked, then run the NPC's turn without blocking
         await manager.broadcast_to_room(
             room_id,
@@ -534,6 +578,26 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         await manager.send_personal_message(player_id, _spellbook_payload(player_id))
 
     elif cmd == "sheet":
+        # First sheet open for a player without art kicks off generation.
+        portraits.ensure_portrait("player", player_id, room_id)
+        await manager.send_personal_message(player_id, _sheet_payload(player_id))
+
+    elif cmd == "set_appearance":
+        # Edit the free-form appearance from the character sheet. On a real
+        # change this clears the cached portrait so a fresh one regenerates from
+        # the new description; we kick that generation and resend the sheet.
+        text = msg.get("text", "")
+        if not isinstance(text, str):
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "appearance must be text"})
+            return
+        db = SessionLocal()
+        try:
+            changed = auth_service.CharacterService.set_appearance(db, player_id, text)
+        finally:
+            db.close()
+        if changed:
+            portraits.ensure_portrait("player", player_id, room_id)
         await manager.send_personal_message(player_id, _sheet_payload(player_id))
 
     elif cmd == "cast":

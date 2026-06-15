@@ -81,6 +81,31 @@
   #sheetbody .col.left{flex:1}
   .shname{color:var(--accent);font-family:var(--serif);font-size:1.5rem;letter-spacing:.06em}
   .shsub{color:var(--fg);font-size:.86rem;margin-bottom:.4rem;font-family:var(--serif);letter-spacing:.04em;text-transform:capitalize}
+  .shhead{display:flex;align-items:center;gap:.7rem;margin-bottom:.3rem}
+  .shid{min-width:0}
+  /* Portrait avatars (Phase 5): framed box that holds a generated image or an
+     emoji-glyph fallback. p-sm = dialogue/status thumb; p-lg = character sheet. */
+  .pavatar{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+           overflow:hidden;background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);
+           border-radius:4px;vertical-align:middle}
+  .pavatar img{width:100%;height:100%;object-fit:cover;display:block}
+  .pavatar .pg{line-height:1}
+  .pavatar.p-sm{width:1.7rem;height:1.7rem}
+  .pavatar.p-sm .pg{font-size:1rem}
+  .pavatar.p-lg{width:5.2rem;height:5.2rem;border-color:var(--accent)}
+  .pavatar.p-lg .pg{font-size:2.6rem}
+  .npcline{display:flex;align-items:flex-start;gap:.4rem;margin:.2rem 0}
+  .npcline .nt{flex:1;min-width:0}
+  .npcline.l-think{font-style:italic}
+  /* Character-sheet appearance block (free-form looks/bio, inline-editable). */
+  .shedit{cursor:pointer;color:var(--gold-dim);font-size:.62rem;letter-spacing:.08em;float:right}
+  .shedit:hover{color:var(--accent)}
+  .apprtext{font-size:.84rem;line-height:1.35;white-space:pre-wrap;word-break:break-word;color:var(--fg)}
+  .apprbox{width:100%;box-sizing:border-box;background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);
+           color:var(--fg);border-radius:4px;padding:.35rem;font:inherit;font-size:.82rem;resize:vertical}
+  .apprbtns{display:flex;align-items:center;gap:.4rem;margin-top:.3rem}
+  .apprhint{color:var(--dim);font-size:.7rem;font-style:italic}
+  button.sm{font-size:.72rem;padding:.2rem .6rem}
   .shsec{color:var(--gold-dim);font-size:.68rem;text-transform:uppercase;letter-spacing:.2em;margin:.7rem 0 .25rem;
          font-family:var(--serif);border-bottom:1px solid var(--edge);padding-bottom:.15rem}
   .statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:.35rem}
@@ -251,6 +276,8 @@
     <div class="sub" style="margin-top:.3rem">Gender:</div>
     <div class="classpick" id="genderpick"></div>
     <input id="gender-other" class="hidden" placeholder="enter gender" maxlength="50" style="width:280px">
+    <div class="sub" style="margin-top:.3rem">Appearance <span style="color:var(--dim)">(optional — shapes your portrait)</span>:</div>
+    <textarea id="newappearance" placeholder="e.g. silver hair, emerald eyes, a jagged scar across one cheek, worn travelling cloak" maxlength="400" rows="3" style="width:280px;resize:vertical"></textarea>
     <div class="gerr" id="create-err"></div>
     <div class="row" style="justify-content:center;gap:.6rem">
       <button class="primary" id="newchar-btn">Create</button>
@@ -356,7 +383,9 @@ const S = {pid:null, name:null, ws:null, user:null,
            exploredByRoom:{}, visited:{}, worldMap:null,
            groundItems:{}, inventory:[],
            spellbook:[], charClass:null, cooldownUntil:{}, targeting:null, fx:null,
-           target:null, keys:{}, keyToAction:{}, sheet:null};
+           target:null, keys:{}, keyToAction:{}, sheet:null,
+           portraits:{},    // "kind:id" -> portrait_url (Phase 5; generate-once)
+           editAppr:false, apprDraft:null};   // character-sheet appearance editor
 const $ = s => document.querySelector(s);
 const combatEl = $('#combat');
 const sideEl = $('#side');
@@ -399,7 +428,37 @@ function logSide(msg, cls='l-say'){
   const d = document.createElement('div'); d.className = cls; d.textContent = msg;
   sideEl.appendChild(d); sideEl.scrollTop = sideEl.scrollHeight;
 }
+// NPC dialogue line with the speaker's portrait avatar (glyph until art exists).
+function logSideNpc(npcId, name, text, cls='l-npc'){
+  const ent = S.entities[npcId] || {};
+  const av = portraitHTML('npc', npcId, ent.glyph||'👤', 'p-sm');
+  const d = document.createElement('div'); d.className = 'npcline '+cls;
+  d.innerHTML = `${av}<span class="nt"><b>${esc(name)}:</b> ${esc(text)}</span>`;
+  sideEl.appendChild(d); sideEl.scrollTop = sideEl.scrollHeight;
+}
 function send(obj){ if(S.ws && S.ws.readyState===1) S.ws.send(JSON.stringify(obj)); }
+
+// ─── Portraits (Phase 5) — generate-once art with a glyph fallback ───
+// A central cache keyed by "kind:id" feeds every window. portraitHTML() emits a
+// framed avatar tagged with data-pk; when a `portrait` event (or a snapshot
+// field) supplies the url, setPortrait() swaps every matching placeholder in
+// place — so already-rendered dialogue lines / status rows light up live.
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function pkey(kind,id){ return kind+':'+id; }
+function portraitURL(kind,id){ return S.portraits[pkey(kind,id)] || null; }
+function portraitHTML(kind,id,glyph,size){
+  const url = portraitURL(kind,id);
+  const inner = url ? `<img src="${esc(url)}" alt="">` : `<span class="pg">${esc(glyph||'❔')}</span>`;
+  return `<span class="pavatar ${size||''}" data-pk="${esc(pkey(kind,id))}">${inner}</span>`;
+}
+function setPortrait(kind,id,url){
+  if(!url) return;
+  S.portraits[pkey(kind,id)] = url;
+  document.querySelectorAll(`.pavatar[data-pk="${pkey(kind,id)}"]`).forEach(el=>{
+    if(!el.querySelector('img')) el.innerHTML = `<img src="${esc(url)}" alt="">`;
+  });
+}
 
 // ─── Tile renderer — vector 2D canvas: continuous double-line walls and
 //     single-line doors, traced from the floor boundary (so any room SHAPE
@@ -650,7 +709,8 @@ function renderPanel(){
     const targeted = (e.id===S.target);
     const color = e.kind==='player' ? 'var(--green)' : (e.hostile ? 'var(--red)' : 'var(--accent)');
     const mark = targeted ? '🎯 ' : '';
-    row.innerHTML = `<span class="nm" style="color:${color}${targeted?';font-weight:bold':''}">${mark}${e.glyph||''} ${e.name}</span>`;
+    const av = portraitHTML(e.kind, e.id, e.glyph||'', 'p-sm');
+    row.innerHTML = `${av}<span class="nm" style="color:${color}${targeted?';font-weight:bold':''}">${mark}${esc(e.name)}</span>`;
     if(e.kind==='npc'){
       if(e.hostile){
         const tg = document.createElement('button'); tg.textContent = targeted ? 'targeted' : 'target';
@@ -677,8 +737,9 @@ function onEvent(m){
       S.tiles=m.tiles.grid; S.w=m.tiles.w; S.h=m.tiles.h;
       const rid = m.room.id; S.visited[rid] = true;        // for the overview map
       S.explored = S.exploredByRoom[rid] = (S.exploredByRoom[rid] || {});  // per-zone fog memory
-      (m.entities||[]).forEach(e=> S.entities[e.id]=e);
+      (m.entities||[]).forEach(e=>{ S.entities[e.id]=e; setPortrait(e.kind, e.id, e.portrait_url); });
       (m.items||[]).forEach(it=> S.groundItems[it.id]=it);
+      if(S.you) setPortrait('player', S.you.id, S.you.portrait_url);
       rebuildDisplay(); draw(); renderPanel();
       if(S.you) setMana(S.you.mana, S.you.max_mana);
       if(winOpen('fw-map')) drawOverview();
@@ -692,7 +753,13 @@ function onEvent(m){
       break;
     case 'character_sheet':
       S.sheet = m;
+      if(S.you && m.portrait_url) setPortrait('player', S.you.id, m.portrait_url);
       if(winOpen('fw-sheet')) renderSheet();
+      break;
+    case 'portrait':
+      setPortrait(m.kind, m.id, m.url);
+      if(winOpen('fw-sheet')) renderSheet();
+      if(winOpen('fw-panel')) renderPanel();
       break;
     case 'stats':
       if(S.you && (m.player_id==null || m.player_id===S.you.id)){
@@ -725,7 +792,8 @@ function onEvent(m){
       break;
     case 'entity_spawned':
       if(!(S.you && m.id===S.you.id)){
-        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile};
+        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile, portrait_url:m.portrait_url};
+        setPortrait(m.kind, m.id, m.portrait_url);
         if(m.kind==='player') logSide(`${m.name} arrives.`, 'l-enter');
         else if(m.hostile) logCombat(`${m.name} appears!`, 'l-combat');
         draw(); renderPanel();
@@ -751,8 +819,8 @@ function onEvent(m){
     case 'respawn': logCombat(`You respawn (HP ${m.health}).`, 'l-sys'); break;
     // ─── Layer 2 (dialogue sidebar) ───
     case 'chat': logSide(`${m.from}: ${m.text}`, 'l-say'); break;
-    case 'npc_thinking': logSide(`${m.name} is thinking…`, 'l-think'); break;
-    case 'npc_said': logSide(`${m.name}: ${m.text}`, 'l-npc'); break;
+    case 'npc_thinking': logSideNpc(m.npc_id, m.name, 'is thinking…', 'l-think'); break;
+    case 'npc_said': logSideNpc(m.npc_id, m.name, m.text, 'l-npc'); break;
     case 'error': logCombat(m.detail, 'l-err'); break;
     default: logCombat(JSON.stringify(m), 'l-sys');
   }
@@ -1081,9 +1149,14 @@ function renderSheet(){
       <div class="stat"><div class="sn">HP</div><div class="sv">${s.hp}/${s.max_hp}</div></div>`
     + (s.max_mana>0 ? `<div class="stat"><div class="sn">MP</div><div class="sv">${s.mana}/${s.max_mana}</div></div>` : '')
     + `</div>`;
+  const pglyph = (S.you && S.you.glyph) || '🧙';
+  const portrait = portraitHTML('player', (S.you?S.you.id:s.id), pglyph, 'p-lg');
   const left = `<div class="col left">
-      <div class="shname">${s.name}</div>
-      <div class="shsub">${s.race_name||''} ${s.class_name} · ${s.gender}</div>
+      <div class="shhead">${portrait}<div class="shid">
+        <div class="shname">${esc(s.name)}</div>
+        <div class="shsub">${esc(s.race_name||'')} ${esc(s.class_name)} · ${esc(s.gender)}</div>
+      </div></div>
+      ${renderAppearanceBlock(s)}
       <div class="shsec">Vitals</div>${vitals}
       <div class="shsec">Abilities</div>${abil}
       <div class="shsec">Skills</div>${skl || '<div style="color:var(--dim);font-size:.82rem">none</div>'}
@@ -1102,6 +1175,40 @@ function renderSheet(){
   body.innerHTML = left
     + `<div class="col"><div class="shsec">Equipment</div>${doll}
          <div class="shsec">Weapon &amp; Trinkets</div>${trinkets}</div>`;
+  wireAppearance();
+}
+
+// Appearance: a free-form looks/bio shown on the sheet, editable inline. Saving
+// sends set_appearance; the server re-keys + regenerates the portrait on change.
+function renderAppearanceBlock(s){
+  if(S.editAppr){
+    const val = (S.apprDraft!=null ? S.apprDraft : (s.appearance||''));
+    return `<div class="shsec">Appearance</div>
+      <textarea id="apprEdit" class="apprbox" maxlength="400" rows="3"
+        placeholder="Describe your character's looks…">${esc(val)}</textarea>
+      <div class="apprbtns"><button class="primary sm" id="apprSave">Save</button>
+        <button class="ghost sm" id="apprCancel">Cancel</button>
+        <span class="apprhint">edits regenerate your portrait</span></div>`;
+  }
+  const txt = (s.appearance||'').trim();
+  const bodyHtml = txt ? esc(txt) : '<span style="color:var(--dim)">No description yet.</span>';
+  return `<div class="shsec">Appearance <span class="shedit" id="apprEditBtn">✎ edit</span></div>
+    <div class="apprtext">${bodyHtml}</div>`;
+}
+function wireAppearance(){
+  const eb=$('#apprEditBtn');
+  if(eb) eb.onclick=()=>{ S.editAppr=true; S.apprDraft=null; renderSheet();
+                          const t=$('#apprEdit'); if(t) t.focus(); };
+  const te=$('#apprEdit'); if(te) te.oninput=()=>{ S.apprDraft=te.value; };
+  const sv=$('#apprSave'); if(sv) sv.onclick=saveAppearance;
+  const cn=$('#apprCancel'); if(cn) cn.onclick=()=>{ S.editAppr=false; S.apprDraft=null; renderSheet(); };
+}
+function saveAppearance(){
+  const t=$('#apprEdit'); const text = t ? t.value.trim() : '';
+  S.editAppr=false; S.apprDraft=null;
+  send({cmd:'set_appearance', text});
+  if(S.sheet) S.sheet.appearance = text;   // optimistic; server resends the sheet
+  renderSheet();
 }
 
 // ─── Gender picker (character creation) ───
@@ -1490,11 +1597,12 @@ async function refreshCharacters(){
 async function createCharacter(){
   const name = $('#newchar').value.trim();
   if(!name){ $('#create-err').textContent = 'Enter a character name.'; return; }
+  const appearance = $('#newappearance').value.trim();
   const r = await api('/characters', {method:'POST',
-    body:{name, race:newRace, char_class:newClass, gender:chosenGender()}});
+    body:{name, race:newRace, char_class:newClass, gender:chosenGender(), appearance}});
   const data = await r.json().catch(()=>({}));
   if(!r.ok){ $('#create-err').textContent = humanError(data) || ('Error ' + r.status); return; }
-  $('#newchar').value=''; $('#create-err').textContent='';
+  $('#newchar').value=''; $('#newappearance').value=''; $('#create-err').textContent='';
   playAs(data);
 }
 $('#newchar-open').onclick = showCreate;

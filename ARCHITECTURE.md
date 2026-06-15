@@ -176,14 +176,42 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
  "abilities":{"str":15,…},"modifiers":{"str":2,…},"skills":{"Melee":3,…},
  "equipment":{"head":[{"id":9,"name":"Steel Helm","glyph":"⛑️"}]},
  "slots":["head","torso","upper_arms","lower_arms","hands","pelvis","upper_legs","lower_legs","feet"]}
+// Phase 5: portraits. zone_state.you + each entity + character_sheet carry a
+// nullable portrait_url; a `portrait` event announces a just-generated image so
+// open windows swap the glyph placeholder live.
+{"event":"portrait","kind":"npc","id":3,"url":"/static/portraits/ab12cd34ef567890.png"}
 ```
+
+**Portraits (Phase 5, Layer 2).** `novita_integration.py` mirrors
+`deepseek_integration.py` (config from env, async client, graceful "not
+configured" path) but talks to Novita's text-to-image HTTP API with `httpx`
+(POST `/v3/async/txt2img` → poll `/v3/async/task-result` → download `image_url`).
+Models are **per-purpose** via `portraits.STYLES` (each purpose → model + image
+size + prompt suffix; swap via `.env`, no code change): `portrait` uses
+**ZavyChromaXL** at 1024² (painterly fantasy busts); `token` is wired (SDXL
+Unstable Diffusers at 768², for a future top-down overhead-map token feature).
+`portraits.py` is a **generate-once store**: a prompt is hashed
+(`sha256(prompt)[:16]`), the PNG is written to `static/portraits/{hash}.png`
+(served by the `/static` mount, gitignored), and a nullable `portrait_url` is
+persisted on `Player` + `Npc`. An in-memory in-flight set + a
+`PORTRAIT_MAX_CONCURRENT` semaphore bound calls; identical prompts dedup to one
+file, so **N subjects = N API calls ever**. `ensure_portrait` is fire-and-forget
+(returns the url if known / adopts an existing file / else spawns an async job →
+writes file → sets `portrait_url` → broadcasts `portrait`), triggered on connect,
+zone entry, first `talk`, and first `sheet`. The player prompt folds in the
+free-form `appearance` field, so editing it (`set_appearance`) re-keys the hash
+and a fresh portrait generates. Dark by default: with no
+`NOVITA_API_KEY` the manager is disabled and every subject falls back to its
+emoji glyph (exactly how DeepSeek-off degrades). Additive `migrate_phase5.py`.
 
 Equipment slots: `weapon`, `ring`×2, `amulet`, and the **15 body slots** —
 `head`/`torso`/`pelvis` plus independent left/right for each limb
 (`{left,right}_upper_arm`/`_lower_arm`/`_hand`/`_upper_leg`/`_lower_leg`/`_foot`)
 — driving the character-sheet paperdoll. `Player` carries `char_class`/`mana`/
 `race` (`races.py`, a small ability nudge)/`gender`/`skills` (a JSON `{skill:
-rank}` dict from `skills.py`). Character **creation is its own gate screen** (not
+rank}` dict from `skills.py`)/`appearance` (free-form looks/bio, set at creation
+and editable from the sheet via the `set_appearance` WS cmd; it feeds the
+portrait prompt, so editing it clears `portrait_url` and regenerates). Character **creation is its own gate screen** (not
 the character-select list). Legacy single limb slots migrate to their left side.
 
 ## Graphical overhaul — two-tier tiled world (Phase 1)
