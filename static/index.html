@@ -1122,25 +1122,64 @@ function chosenGender(){
 }
 
 // ─── Pop-out windows (dialogue / battle logs → draggable, resizable) ───
+// Placement (open/position/size) is persisted in localStorage and restored
+// after login (windows live above the gate, so we only show them in-game).
+const WIN_DEFS = {
+  'fw-side':   {key:'side',   panelId:'side'},
+  'fw-combat': {key:'combat', panelId:'combatwrap'},
+};
 const _floatHome = {};   // panelId -> {parent, next} to dock back to
-function floatOut(panelId, winId){
-  const panel = $('#'+panelId), win = $('#'+winId);
+let _winState = {};
+let _winSaveT = null;
+function loadWinState(){ try{ _winState = JSON.parse(localStorage.getItem('bgid_windows')||'{}'); }catch(_){ _winState = {}; } }
+function saveWinState(){ clearTimeout(_winSaveT); _winSaveT = setTimeout(()=>{
+  try{ localStorage.setItem('bgid_windows', JSON.stringify(_winState)); }catch(_){} }, 200); }
+function applyWinGeom(winId){
+  const st = _winState[WIN_DEFS[winId].key]; if(!st) return;
+  const win = $('#'+winId);
+  if(st.w!=null){ win.style.width=st.w+'px'; win.style.height=st.h+'px'; }
+  if(st.left!=null){            // clamp into the viewport in case it shrank since
+    const L = Math.max(0, Math.min(st.left, window.innerWidth-60));
+    const T = Math.max(0, Math.min(st.top, window.innerHeight-40));
+    win.style.left=L+'px'; win.style.top=T+'px'; win.style.right='auto'; win.style.bottom='auto';
+  }
+}
+function recordWinGeom(winId){
+  const def = WIN_DEFS[winId], win = $('#'+winId);
+  if(win.classList.contains('hidden')) return;
+  const r = win.getBoundingClientRect();
+  _winState[def.key] = Object.assign({}, _winState[def.key], {open:true,
+    left:Math.round(r.left), top:Math.round(r.top), w:Math.round(r.width), h:Math.round(r.height)});
+  saveWinState();
+}
+function floatOut(winId){
+  const def = WIN_DEFS[winId], panel = $('#'+def.panelId), win = $('#'+winId);
   if(!panel || !win.classList.contains('hidden')) return;
-  _floatHome[panelId] = {parent: panel.parentNode, next: panel.nextSibling};
+  _floatHome[def.panelId] = {parent: panel.parentNode, next: panel.nextSibling};
   $('#'+winId+'-body').appendChild(panel);
   win.classList.remove('hidden');
-  setTimeout(()=>{ rebuildDisplay(); draw(); }, 0);   // the map area just grew
+  applyWinGeom(winId);
+  _winState[def.key] = Object.assign({}, _winState[def.key], {open:true});
+  saveWinState();
+  setTimeout(()=>{ rebuildDisplay(); draw(); }, 0);   // the docked layout changed
 }
-function dockBack(panelId, winId){
-  const panel = $('#'+panelId), win = $('#'+winId), h = _floatHome[panelId];
+function dockBack(winId){
+  const def = WIN_DEFS[winId], panel = $('#'+def.panelId), win = $('#'+winId), h = _floatHome[def.panelId];
   win.classList.add('hidden');
   if(h && h.parent) h.parent.insertBefore(panel, h.next);
+  _winState[def.key] = Object.assign({}, _winState[def.key], {open:false});
+  saveWinState();
   setTimeout(()=>{ rebuildDisplay(); draw(); }, 0);
 }
-$('#pop-side').onclick = ()=> floatOut('side', 'fw-side');
-$('#pop-combat').onclick = ()=> floatOut('combatwrap', 'fw-combat');
-$('#fw-side .fw-dock').onclick = ()=> dockBack('side', 'fw-side');
-$('#fw-combat .fw-dock').onclick = ()=> dockBack('combatwrap', 'fw-combat');
+// Restore saved placement once the player is in-game (called from playAs).
+function restoreWindows(){
+  loadWinState();
+  Object.keys(WIN_DEFS).forEach(winId=>{ if(_winState[WIN_DEFS[winId].key] && _winState[WIN_DEFS[winId].key].open) floatOut(winId); });
+}
+$('#pop-side').onclick = ()=> floatOut('fw-side');
+$('#pop-combat').onclick = ()=> floatOut('fw-combat');
+$('#fw-side .fw-dock').onclick = ()=> dockBack('fw-side');
+$('#fw-combat .fw-dock').onclick = ()=> dockBack('fw-combat');
 
 // Drag any floating window by its title bar (resize is the native CSS handle).
 document.querySelectorAll('.fw-bar').forEach(bar=>{
@@ -1154,11 +1193,17 @@ document.querySelectorAll('.fw-bar').forEach(bar=>{
       win.style.left = Math.min(window.innerWidth-40, Math.max(0, ev.clientX - ox))+'px';
       win.style.top  = Math.min(window.innerHeight-30, Math.max(0, ev.clientY - oy))+'px';
     };
-    const up = ()=>{ document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    const up = ()=>{ document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+                     recordWinGeom(win.id); };
     document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
     e.preventDefault();
   });
 });
+// Persist size changes from the native resize handle.
+if(window.ResizeObserver){
+  const ro = new ResizeObserver(es=> es.forEach(en=> recordWinGeom(en.target.id)));
+  ['fw-side','fw-combat'].forEach(id=> ro.observe($('#'+id)));
+}
 
 loadKeys();
 
@@ -1429,6 +1474,7 @@ function playAs(ch){
   $('#who').innerHTML = `${ch.name} (#${ch.id}) · ${S.user.username} <a id="logout">log out</a>`;
   $('#logout').onclick = logout;
   $('#gate').style.display = 'none';
+  restoreWindows();   // re-open any popped-out log windows at their saved spot
   connect();
 }
 function logout(){
