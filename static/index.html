@@ -31,7 +31,7 @@
   #combatwrap{flex:1;display:flex;flex-direction:column;min-width:0}
   .logbar{display:flex;justify-content:space-between;align-items:center;padding:.22rem .8rem;background:var(--panel);
           border-bottom:1px solid var(--edge);font-size:.68rem;text-transform:uppercase;letter-spacing:.16em;
-          color:var(--gold-dim);font-family:var(--serif)}
+          color:var(--gold-dim);font-family:var(--serif);position:sticky;top:0;z-index:1}
   .popbtn{color:var(--accent);cursor:pointer;text-decoration:none;font-size:.85rem}
   .popbtn:hover{filter:brightness(1.3)}
   /* Floating, draggable + resizable windows for broken-out logs */
@@ -39,6 +39,7 @@
             background:var(--panel);border:1px solid var(--gold-dim);border-radius:5px;z-index:30;display:flex;
             flex-direction:column;resize:both;overflow:hidden;box-shadow:0 10px 34px rgba(0,0,0,.55)}
   #fw-side{right:1rem;top:4rem} #fw-combat{right:1rem;bottom:5rem}
+  #fw-panel{left:1rem;top:4rem;width:260px;height:440px}
   .fw-bar{cursor:move;background:#1a1610;border-bottom:1px solid var(--edge);padding:.3rem .55rem;display:flex;
           justify-content:space-between;align-items:center;font-family:var(--serif);letter-spacing:.12em;
           color:var(--accent);font-size:.78rem;user-select:none}
@@ -293,6 +294,7 @@
         <div id="combat"></div>
       </div>
       <div id="panel">
+        <div class="logbar">Status <a class="popbtn" id="pop-panel" title="Pop out to a window">⤢</a></div>
         <h1 id="zone">—</h1>
         <h2>You</h2>
         <div class="hpbar"><i id="hpfill" style="width:100%"></i></div>
@@ -320,6 +322,10 @@
 <div id="fw-combat" class="floatwin hidden">
   <div class="fw-bar"><span>Battle</span><span class="fw-btns"><a class="fw-dock" title="Dock back">⤡</a></span></div>
   <div class="fw-body" id="fw-combat-body"></div>
+</div>
+<div id="fw-panel" class="floatwin hidden">
+  <div class="fw-bar"><span>Status</span><span class="fw-btns"><a class="fw-dock" title="Dock back">⤡</a></span></div>
+  <div class="fw-body" id="fw-panel-body"></div>
 </div>
 <!-- Content windows (inventory, character sheet, room description, overhead map) -->
 <div id="fw-inv" class="floatwin hidden">
@@ -1070,13 +1076,15 @@ function renderSheet(){
     skl += `<div class="skill"><span>${name}</span><span class="sr">${rank}</span></div>`;
   });
   const vitals = `<div class="statgrid vitals">
+      <div class="stat"><div class="sn">Level</div><div class="sv">${s.level}</div></div>
+      <div class="stat"><div class="sn">XP</div><div class="sv">${s.experience}</div></div>
       <div class="stat"><div class="sn">HP</div><div class="sv">${s.hp}/${s.max_hp}</div></div>`
     + (s.max_mana>0 ? `<div class="stat"><div class="sn">MP</div><div class="sv">${s.mana}/${s.max_mana}</div></div>` : '')
-    + `<div class="stat"><div class="sn">Level</div><div class="sv">${s.level}</div><div class="sm">${s.experience} xp</div></div></div>`;
+    + `</div>`;
   const left = `<div class="col left">
       <div class="shname">${s.name}</div>
       <div class="shsub">${s.race_name||''} ${s.class_name} · ${s.gender}</div>
-      ${vitals}
+      <div class="shsec">Vitals</div>${vitals}
       <div class="shsec">Abilities</div>${abil}
       <div class="shsec">Skills</div>${skl || '<div style="color:var(--dim);font-size:.82rem">none</div>'}
     </div>`;
@@ -1124,6 +1132,7 @@ function chosenGender(){
 const WIN_DEFS = {
   'fw-side':   {key:'side',   panelId:'side'},
   'fw-combat': {key:'combat', panelId:'combatwrap'},
+  'fw-panel':  {key:'panel',  panelId:'panel'},
   'fw-inv':    {key:'inv',    onShow:()=>{ send({cmd:'inventory'}); renderInventory(); }},
   'fw-sheet':  {key:'sheet',  onShow:()=>{ send({cmd:'sheet'}); renderSheet(); }},
   'fw-room':   {key:'room',   onShow:()=> renderRoom()},
@@ -1188,8 +1197,10 @@ function restoreWindows(){
 }
 $('#pop-side').onclick = ()=> showWin('fw-side');
 $('#pop-combat').onclick = ()=> showWin('fw-combat');
+$('#pop-panel').onclick = ()=> showWin('fw-panel');
 $('#fw-side .fw-dock').onclick = ()=> hideWin('fw-side');
 $('#fw-combat .fw-dock').onclick = ()=> hideWin('fw-combat');
+$('#fw-panel .fw-dock').onclick = ()=> hideWin('fw-panel');
 $('#fw-inv .fw-x').onclick = ()=> hideWin('fw-inv');
 $('#fw-sheet .fw-x').onclick = ()=> hideWin('fw-sheet');
 $('#fw-room .fw-x').onclick = ()=> hideWin('fw-room');
