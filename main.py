@@ -17,6 +17,9 @@ from chat_system import chat_manager, ChatType
 from world import world
 from npc_turns import run_npc_turn, build_llm_npc, build_context
 from combat import resolve_player_attack
+from casting import resolve_cast
+import classes
+import spells as spellbook
 import game_loop
 import time
 from config import MOVE_COOLDOWN_SECONDS
@@ -158,6 +161,19 @@ def _inventory_payload(player_id: int) -> dict:
 
 async def _send_inventory(player_id: int) -> None:
     await manager.send_personal_message(player_id, _inventory_payload(player_id))
+
+
+def _spellbook_payload(player_id: int) -> dict:
+    """The player's known spells (from their class) as a `spellbook` event."""
+    db = SessionLocal()
+    try:
+        player = PlayerService.get_player(db, player_id)
+        class_id = player.char_class if player else classes.DEFAULT_CLASS
+    finally:
+        db.close()
+    known = [spellbook.spell_summary(sid) for sid in classes.spell_ids_for(class_id)]
+    return {"event": "spellbook", "char_class": class_id,
+            "spells": [s for s in known if s]}
 
 
 async def _try_transition(player_id: int, player_name: str, from_room: int, ex: dict) -> None:
@@ -470,6 +486,25 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         finally:
             db.close()
         await _send_inventory(player_id)
+
+    elif cmd == "spells":
+        await manager.send_personal_message(player_id, _spellbook_payload(player_id))
+
+    elif cmd == "cast":
+        spell_id = msg.get("spell_id")
+        if not spell_id:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "cast requires 'spell_id'"})
+            return
+        tx, ty = msg.get("x"), msg.get("y")
+        try:
+            tx = int(tx) if tx is not None else None
+            ty = int(ty) if ty is not None else None
+        except (TypeError, ValueError):
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "cast target x/y must be integers"})
+            return
+        await resolve_cast(player_id, room_id, str(spell_id), tx, ty)
 
     else:
         await manager.send_personal_message(

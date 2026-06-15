@@ -150,9 +150,13 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
   and are picked up (**G**/`get`) / dropped on tiles; inventory overlay (**I**).
   Additive `items` column migration; Cellar re-locked behind the grabbable Rusty
   Key. → `handoff-04-phase3-inventory-equipment.md`.
-- **Phase 4 — Classes, spells, mana.** Character classes; spell list (data-driven);
-  mana pool + costs/cooldowns; quickslot casting; ranged/AoE on the grid. *Spec
-  ready* → `handoff-05-phase4-classes-spells-mana.md`.
+- **Phase 4 — Classes, spells, mana.** ✅ **Done.** Four classes (Warrior/Mage/
+  Cleric/Rogue) + a `wanderer` migration fallback; data-driven spell registry
+  with mana cost + cooldowns; `cast` resolving self/bolt/blast with server-side
+  line-of-sight + radius (first ranged & AoE on the grid), reusing the shared
+  combat death/respawn paths; mana regen on the regen tick; client mana bar,
+  quickslots (1–9), click-to-target, cast VFX, class picker. Additive `players`
+  column migration. → `handoff-05-phase4-classes-spells-mana.md`.
 - **Phase 5 — Portraits (Novita).** Generated character + mob portraits; portrait
   panel in the sidebar / combat UI. Generation service mirroring
   `deepseek_integration.py`; generate-once + aggressive cache. *Independent — can

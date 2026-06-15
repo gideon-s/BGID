@@ -135,6 +135,8 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
 {"cmd":"pickup","item_id":5}        // item_id optional → item on your tile
 {"cmd":"drop","item_id":5}          // onto your tile
 {"cmd":"equip","item_id":5}         // / {"cmd":"unequip","item_id":5}
+{"cmd":"spells"}                    // request the spellbook (Phase 4)
+{"cmd":"cast","spell_id":"firebolt","x":9,"y":6}  // x/y omitted for self spells
 
 // server → client
 {"event":"zone_state","room":{...},"tiles":{"w":12,"h":9,"grid":["############", …]},
@@ -159,6 +161,14 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
  "equip_slot":"weapon","equipped":true,"attack_bonus":1,"defense_bonus":0,"damage_bonus":2}]}
 {"event":"item_dropped","id":5,"name":"Iron Sword","glyph":"⚔️","x":3,"y":3}
 {"event":"item_taken","id":5,"by":"Bryan"}
+// Phase 4: classes/spells/mana. zone_state.you carries mana/max_mana; spellbook
+// + stats are personal; spell_cast is the VFX broadcast; damage rides `combat`.
+{"event":"spellbook","char_class":"mage",
+ "spells":[{"id":"firebolt","name":"Firebolt","glyph":"🔥","cost":3,"cooldown":1.0,
+            "range":6,"shape":"bolt","radius":0}]}
+{"event":"spell_cast","caster_id":7,"spell":"firebolt","glyph":"🔥","fx":"bolt",
+ "x0":3,"y0":4,"x":9,"y":6,"radius":0}
+{"event":"stats","player_id":7,"mana":24,"max_mana":30}   // hp/max_hp too when healed
 ```
 
 ## Graphical overhaul — two-tier tiled world (Phase 1)
@@ -247,6 +257,19 @@ Each step keeps the app runnable.
    inventory overlay (**I**) + worn summary. New `items` columns (additive
    migration, `migrate_phase3.py`); the Cellar is re-locked behind the now-
    grabbable Rusty Key. See `docs/handoff-04-phase3-inventory-equipment.md`.
+
+9. ✅ **Classes, spells & mana** (Phase 4) — characters pick a **class**
+   (Warrior/Mage/Cleric/Rogue + a `wanderer` migration fallback) at creation,
+   stamping abilities/glyph/mana from `classes.py`. A data-driven spell registry
+   (`spells.py`) with mana cost + per-`(player,spell)` cooldown; `cast` resolves
+   `self`/`bolt`/`blast` via new `world.line_of_sight` (Bresenham,
+   `SIGHT_BLOCKING`) + `world.tiles_in_radius` — the first **ranged & AoE** on
+   the grid. Spells auto-hit (range/LOS is the counterplay) and reuse the shared
+   `combat.damage_npc`/`damage_player` death/respawn paths. Mana regenerates on
+   the regen tick per class. New `players` columns (`char_class`/`mana`/
+   `max_mana`, additive `migrate_phase4.py`); client mana bar, quickslot bar
+   (keys 1–9), click-to-target, `spell_cast` VFX, class picker.
+   See `docs/handoff-05-phase4-classes-spells-mana.md`.
 
 ### Future
 - Per-NPC conversation memory across `talk` turns.

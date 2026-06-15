@@ -40,6 +40,9 @@ PILLAR, WATER, RUBBLE = "o", "~", ":"
 STAIRS_DOWN, STAIRS_UP = ">", "<"
 # Glyphs that block movement. Anything not listed is walkable ground.
 BLOCKING = {WALL, PILLAR, WATER}
+# Glyphs that block line of sight (Phase 4 ranged spells). Mirrors the client's
+# `isTransparent` rule: walls and pillars block sight; water/floor/doors don't.
+SIGHT_BLOCKING = {WALL, PILLAR}
 # Tiles that trigger a zone transition when stepped onto (Phase 2). Border doors
 # map to that wall's cardinal exit; stairs map to up/down.
 TRANSITION_TILES = {DOOR, STAIRS_DOWN, STAIRS_UP}
@@ -370,6 +373,56 @@ class WorldState:
     def chebyshev(a: Tuple[int, int], b: Tuple[int, int]) -> int:
         return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
+    # ---------- line of sight & area (Phase 4) ----------
+    def _is_transparent(self, node: "RoomNode", x: int, y: int) -> bool:
+        """A tile sight can pass *through* (in-bounds, not a wall/pillar)."""
+        if not (0 <= y < node.height and 0 <= x < len(node.tiles[y])):
+            return False
+        return node.tiles[y][x] not in SIGHT_BLOCKING
+
+    def line_of_sight(self, room_id: int, a: Tuple[int, int], b: Tuple[int, int]) -> bool:
+        """True if nothing sight-blocking lies strictly between tiles a and b
+        (Bresenham). Endpoints themselves are not tested — you can target a
+        creature standing in a doorway or against a wall."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return False
+        x0, y0 = a
+        x1, y1 = b
+        dx, dy = abs(x1 - x0), abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+        cx, cy = x0, y0
+        while (cx, cy) != (x1, y1):
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                cx += sx
+            if e2 < dx:
+                err += dx
+                cy += sy
+            if (cx, cy) == (x1, y1):
+                break
+            if not self._is_transparent(node, cx, cy):
+                return False
+        return True
+
+    def tiles_in_radius(self, room_id: int, center: Tuple[int, int], radius: int
+                        ) -> List[Tuple[int, int]]:
+        """In-bounds, non-wall tiles within Chebyshev `radius` of center (the
+        center included). Used to gather AoE targets for blast spells."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return []
+        cx, cy = center
+        out = []
+        for y in range(cy - radius, cy + radius + 1):
+            for x in range(cx - radius, cx + radius + 1):
+                if self._is_walkable_grid(node, x, y):
+                    out.append((x, y))
+        return out
+
     def nearest_player_within(self, room_id: int, frm: Tuple[int, int], radius: int
                               ) -> Optional[Tuple[int, Tuple[int, int]]]:
         """The closest online player (id, pos) within `radius` (Chebyshev), or None."""
@@ -549,6 +602,8 @@ class WorldState:
                        "glyph": player.glyph or "🧙", "x": pos[0], "y": pos[1],
                        "hp": player.health, "max_hp": player.max_health}
                 if pid == viewer_id:
+                    rec["mana"] = player.mana
+                    rec["max_mana"] = player.max_mana
                     you = rec
                 else:
                     entities.append(rec)

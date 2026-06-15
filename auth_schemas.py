@@ -6,6 +6,7 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 
 import config
+import classes
 
 
 def _validate_password(v: str) -> str:
@@ -65,6 +66,7 @@ class UserResponse(BaseModel):
 # ---------- Characters ----------
 class CharacterCreate(BaseModel):
     name: str
+    char_class: str = classes.DEFAULT_CLASS   # validated against classes.py below
 
     @field_validator("name")
     @classmethod
@@ -72,6 +74,14 @@ class CharacterCreate(BaseModel):
         v = v.strip()
         if not (2 <= len(v) <= 100):
             raise ValueError("Character name must be between 2 and 100 characters")
+        return v
+
+    @field_validator("char_class")
+    @classmethod
+    def class_valid(cls, v: str) -> str:
+        v = (v or classes.DEFAULT_CLASS).strip().lower()
+        if v not in classes.SELECTABLE:
+            raise ValueError(f"Pick a class: {', '.join(classes.SELECTABLE)}")
         return v
 
 
@@ -82,6 +92,9 @@ class CharacterOut(BaseModel):
     level: int
     health: int
     max_health: int
+    char_class: str = "wanderer"
+    mana: int = 0
+    max_mana: int = 0
 
     model_config = {"from_attributes": True}
 

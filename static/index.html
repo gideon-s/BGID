@@ -37,6 +37,21 @@
   .hpbar{height:.7rem;background:#1a1610;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.1rem 0 .3rem}
   .hpbar > i{display:block;height:100%;background:linear-gradient(90deg,#6f8a48,var(--green))}
   .hptext{color:var(--dim);font-size:.8rem}
+  .manabar{height:.55rem;background:#0f1320;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.1rem 0 .25rem}
+  .manabar > i{display:block;height:100%;background:linear-gradient(90deg,#3a5a8c,#5b8fd6)}
+  /* Quickslot spell bar (under the map) */
+  #quickslots{display:flex;gap:.4rem;padding:.35rem .6rem;background:var(--panel);border-top:1px solid var(--edge);
+              align-items:center;flex-wrap:wrap;min-height:0}
+  .slot{display:flex;flex-direction:column;align-items:center;justify-content:center;
+        min-width:3rem;padding:.2rem .35rem;background:#0c0a06;border:1px solid var(--gold-dim);
+        border-radius:4px;cursor:pointer;line-height:1.1;user-select:none}
+  .slot:hover{border-color:var(--accent)}
+  .slot.disabled{opacity:.4;cursor:default;border-color:var(--edge)}
+  .slot.armed{border-color:var(--accent);box-shadow:0 0 10px rgba(199,162,74,.35)}
+  .slot .sg{font-size:1.15rem}
+  .slot .sk{font-size:.62rem;color:var(--accent)}
+  .slot .sc{font-size:.62rem;color:#5b8fd6}
+  #map.targeting canvas{cursor:crosshair}
   .ent{display:flex;align-items:center;gap:.35rem;margin:.2rem 0;font-size:.85rem}
   .ent .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ent button{background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);color:var(--fg);border-radius:3px;cursor:pointer;font-size:.72rem;padding:.1rem .4rem}
@@ -100,6 +115,12 @@
         border-radius:3px;padding:.5rem .75rem;cursor:pointer;font:inherit}
   .charlist .charbtn:hover{border-color:var(--accent)}
   .charlist .charbtn .meta{color:var(--dim);font-size:.8rem}
+  .classpick{display:flex;gap:.4rem;flex-wrap:wrap;justify-content:center;width:280px}
+  .classpick .cls{flex:1 1 calc(50% - .4rem);display:flex;align-items:center;gap:.4rem;background:rgba(199,162,74,.05);
+        border:1px solid var(--gold-dim);color:var(--fg);border-radius:3px;padding:.4rem .5rem;cursor:pointer;font:inherit}
+  .classpick .cls:hover{border-color:var(--accent)}
+  .classpick .cls.sel{border-color:var(--accent);background:rgba(199,162,74,.16);color:var(--accent)}
+  .classpick .cls .cg{font-size:1.2rem}
   .hidden{display:none !important}
 </style>
 </head>
@@ -128,6 +149,8 @@
   <div id="screen-chars" class="hidden">
     <div class="sub" id="char-greet"></div>
     <div class="charlist" id="charlist"></div>
+    <div class="sub" style="margin-top:.4rem">Choose a class for your new character:</div>
+    <div class="classpick" id="classpick"></div>
     <div class="row">
       <input id="newchar" placeholder="new character name" maxlength="100">
       <button class="primary" id="newchar-btn">Create</button>
@@ -159,6 +182,7 @@
 <main>
   <div id="world">
     <div id="map"></div>
+    <div id="quickslots" class="hidden"></div>
     <div id="under">
       <div id="combat"></div>
       <div id="panel">
@@ -166,6 +190,8 @@
         <h2>You</h2>
         <div class="hpbar"><i id="hpfill" style="width:100%"></i></div>
         <div class="hptext" id="hptext">—</div>
+        <div class="manabar hidden" id="manawrap"><i id="manafill" style="width:100%"></i></div>
+        <div class="hptext hidden" id="manatext"></div>
         <h2>Worn <span id="invbtn" class="lnk">inventory ▸</span></h2>
         <div id="worn"></div>
         <h2>Here</h2><div id="here"></div>
@@ -180,7 +206,7 @@
 </main>
 <footer>
   <input id="cmd" placeholder="say hi · talk innkeeper hello · look · help  (move with WASD / arrows)" autocomplete="off">
-  <div class="hint">Move: WASD or arrows · Bump a foe to attack · G grab · I inventory · M map</div>
+  <div class="hint">Move: WASD/arrows · Bump to attack · 1–9 cast (then click) · G grab · I inventory · M map</div>
 </footer>
 
 <script>
@@ -188,7 +214,8 @@ const FOV_RADIUS = 8;
 const S = {pid:null, name:null, ws:null, user:null,
            room:null, tiles:null, w:0, h:0, you:null, entities:{}, explored:{},
            exploredByRoom:{}, visited:{}, worldMap:null,
-           groundItems:{}, inventory:[]};
+           groundItems:{}, inventory:[],
+           spellbook:[], charClass:null, cooldownUntil:{}, targeting:null, fx:null};
 const $ = s => document.querySelector(s);
 const combatEl = $('#combat');
 const sideEl = $('#side');
@@ -255,7 +282,8 @@ function isRubble(x,y){ return tileAt(x,y) === ':'; }
 function isTransparent(x,y){ const t=tileAt(x,y); return t!=='#' && t!=='o'; } // walls+pillars block sight
 
 function rebuildDisplay(){
-  if(!cv){ cv = document.createElement('canvas'); $('#map').appendChild(cv); ctx = cv.getContext('2d'); }
+  if(!cv){ cv = document.createElement('canvas'); $('#map').appendChild(cv); ctx = cv.getContext('2d');
+           cv.addEventListener('click', handleMapClick); }
   if(!S.w || !S.h) return;
   const area = $('#map').getBoundingClientRect();
   cell = Math.max(14, Math.floor(Math.min((area.width - 24) / S.w, (area.height - 24) / S.h)));
@@ -353,6 +381,7 @@ function draw(){
     if(visible[e.x+','+e.y]) ctx.fillText(e.glyph || '?', e.x*cell + cell/2, e.y*cell + cell/2 + 1);
   }
   ctx.fillText(S.you.glyph || '🧙', S.you.x*cell + cell/2, S.you.y*cell + cell/2 + 1);
+  drawFx();
   drawMinimap();
 }
 
@@ -392,6 +421,16 @@ function setHp(hp, max){
   if(hp==null || max==null) return;
   $('#hpfill').style.width = Math.max(0, Math.round(100*hp/max)) + '%';
   $('#hptext').textContent = `${hp} / ${max} HP`;
+}
+function setMana(mana, max){
+  // Casters only: hide the bar entirely for classes with no mana pool.
+  const show = (max||0) > 0;
+  $('#manawrap').classList.toggle('hidden', !show);
+  $('#manatext').classList.toggle('hidden', !show);
+  if(!show) return;
+  $('#manafill').style.width = Math.max(0, Math.round(100*(mana||0)/max)) + '%';
+  $('#manatext').textContent = `${mana||0} / ${max} MP`;
+  renderQuickslots();   // affordability may have changed
 }
 
 // Item stat bonuses → a compact "+1 atk · +2 dmg" string (or '' if none).
@@ -476,10 +515,22 @@ function onEvent(m){
       (m.entities||[]).forEach(e=> S.entities[e.id]=e);
       (m.items||[]).forEach(it=> S.groundItems[it.id]=it);
       rebuildDisplay(); draw(); renderPanel();
+      if(S.you) setMana(S.you.mana, S.you.max_mana);
       if(!$('#mapview').classList.contains('hidden')) drawOverview();
       logCombat(`— ${m.room?m.room.name:''} —`, 'l-sys');
       grabHint();
       break; }
+    case 'spellbook':
+      S.spellbook = m.spells || []; S.charClass = m.char_class;
+      renderQuickslots();
+      break;
+    case 'stats':
+      if(S.you && (m.player_id==null || m.player_id===S.you.id)){
+        if(m.mana!=null){ S.you.mana=m.mana; S.you.max_mana=m.max_mana; setMana(m.mana, m.max_mana); }
+        if(m.hp!=null){ S.you.hp=m.hp; setHp(m.hp, m.max_hp); }
+      }
+      break;
+    case 'spell_cast': playFx(m); break;
     case 'inventory':
       S.inventory = m.items || [];
       renderWorn();
@@ -555,13 +606,88 @@ function toggleInv(){ $('#invview').classList.contains('hidden') ? openInv() : c
 $('#invbtn').onclick = openInv;
 $('#invview').onclick = e=>{ if(e.target.id === 'invview') closeInv(); };
 
+// ─── Spells: quickslot bar, targeting, casting ───
+function spellReady(sp){
+  const manaOk = !S.you || (S.you.mana||0) >= sp.cost;
+  const cdOk = (Date.now()/1000) >= (S.cooldownUntil[sp.id] || 0);
+  return manaOk && cdOk;
+}
+function renderQuickslots(){
+  const bar = $('#quickslots'); if(!bar) return;
+  bar.classList.toggle('hidden', !S.spellbook.length);
+  bar.innerHTML = '';
+  S.spellbook.forEach((sp, i)=>{
+    const el = document.createElement('div');
+    const ready = spellReady(sp), armed = S.targeting && S.targeting.id===sp.id;
+    el.className = 'slot' + (ready?'':' disabled') + (armed?' armed':'');
+    el.title = `${sp.name} — ${sp.cost} MP${sp.shape!=='self'?` · range ${sp.range}`:''}`;
+    el.innerHTML = `<span class="sg">${sp.glyph}</span><span class="sk">${i+1}</span><span class="sc">${sp.cost}</span>`;
+    el.onclick = ()=> tryCast(sp);
+    bar.appendChild(el);
+  });
+}
+function tryCast(sp){
+  if(!sp || !spellReady(sp)){ if(sp) logCombat(`${sp.name} isn't ready.`, 'l-err'); return; }
+  if(sp.shape === 'self'){ sendCast(sp); return; }
+  // Targeted: arm the spell; the next map click picks the tile.
+  S.targeting = sp;
+  $('#map').classList.add('targeting');
+  logCombat(`${sp.name}: click a target tile (Esc to cancel).`, 'l-sys');
+  renderQuickslots();
+}
+function sendCast(sp, x, y){
+  send(x==null ? {cmd:'cast', spell_id:sp.id} : {cmd:'cast', spell_id:sp.id, x, y});
+  S.cooldownUntil[sp.id] = (Date.now()/1000) + (sp.cooldown||0);  // optimistic grey-out
+  renderQuickslots();
+}
+function cancelTargeting(){
+  if(!S.targeting) return;
+  S.targeting = null; $('#map').classList.remove('targeting'); renderQuickslots();
+}
+function castByIndex(i){ const sp = S.spellbook[i]; if(sp) tryCast(sp); }
+function handleMapClick(e){
+  if(!S.targeting || !cv) return;
+  const r = cv.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / cell);
+  const y = Math.floor((e.clientY - r.top) / cell);
+  if(x<0 || y<0 || x>=S.w || y>=S.h){ cancelTargeting(); return; }
+  sendCast(S.targeting, x, y);
+  cancelTargeting();
+}
+// Periodically refresh slots so cooldowns un-grey on time.
+setInterval(()=>{ if(S.spellbook.length) renderQuickslots(); }, 500);
+
+// ─── Spell VFX (transient canvas overlay) ───
+function playFx(m){
+  S.fx = {kind:m.fx, x0:m.x0, y0:m.y0, x:m.x, y:m.y, radius:m.radius||0,
+          glyph:m.glyph, until: performance.now() + 420};
+  draw();
+  setTimeout(()=>{ if(S.fx && performance.now() >= S.fx.until){ S.fx = null; draw(); } }, 460);
+}
+function drawFx(){
+  if(!S.fx || !ctx) return;
+  const cx = x=> x*cell + cell/2, cy = y=> y*cell + cell/2;
+  ctx.save();
+  if(S.fx.kind === 'bolt'){
+    ctx.strokeStyle = '#e6bd5e'; ctx.lineWidth = Math.max(2, cell*0.12); ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(cx(S.fx.x0), cy(S.fx.y0)); ctx.lineTo(cx(S.fx.x), cy(S.fx.y)); ctx.stroke();
+  } else if(S.fx.kind === 'blast'){
+    ctx.strokeStyle = '#5b8fd6'; ctx.lineWidth = Math.max(2, cell*0.1);
+    ctx.beginPath(); ctx.arc(cx(S.fx.x), cy(S.fx.y), (S.fx.radius+0.5)*cell, 0, 7); ctx.stroke();
+  } else { // self / glow
+    ctx.fillStyle = 'rgba(199,162,74,.25)';
+    ctx.beginPath(); ctx.arc(cx(S.fx.x), cy(S.fx.y), cell*0.7, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
 // ─── Movement input (WASD / arrows) ───
 const MOVE = {
   ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
   w:[0,-1], s:[0,1], a:[-1,0], d:[1,0], W:[0,-1], S:[0,1], A:[-1,0], D:[1,0],
 };
 window.addEventListener('keydown', e=>{
-  if(e.key === 'Escape'){ closeMap(); closeInv(); return; }
+  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); return; }
   // Never hijack keys while typing in a field (login, character name, command
   // box, …) — only move when focus is on the page body.
   const ae = document.activeElement;
@@ -569,6 +695,7 @@ window.addEventListener('keydown', e=>{
   if(e.key === 'm' || e.key === 'M'){ e.preventDefault(); toggleMap(); return; }
   if(e.key === 'i' || e.key === 'I'){ e.preventDefault(); toggleInv(); return; }
   if(e.key === 'g' || e.key === 'G'){ e.preventDefault(); send({cmd:'pickup'}); return; }
+  if(e.key >= '1' && e.key <= '9'){ e.preventDefault(); castByIndex(+e.key - 1); return; }
   const m = MOVE[e.key];
   if(m){ e.preventDefault(); send({cmd:'move', dx:m[0], dy:m[1]}); }
 });
@@ -664,8 +791,13 @@ function handleCommand(raw){
   if(verb==='look' || verb==='l'){ send({cmd:'look'}); return; }
   if(verb==='map'){ openMap(); return; }
   if(verb==='inventory' || verb==='inv' || verb==='i'){ openInv(); return; }
+  if(verb==='cast' || verb==='c'){
+    const q = (parts[1]||'').toLowerCase();
+    const sp = S.spellbook.find(s => s.name.toLowerCase().startsWith(q) || s.id.startsWith(q));
+    if(!sp){ logCombat(`You don't know a spell like "${parts[1]||''}".`,'l-err'); return; }
+    tryCast(sp); return; }
   if(verb==='help' || verb==='?'){
-    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · look · map (or M)', 'l-sys'); return; }
+    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · cast <spell> (or 1–9, then click a target) · look · map (or M)', 'l-sys'); return; }
   if(verb==='get' || verb==='pickup' || verb==='take' || verb==='grab'){
     const it = itemByName(parts.slice(1).join(' '));
     send(it ? {cmd:'pickup', item_id:it.id} : {cmd:'pickup'}); return; }
@@ -694,7 +826,8 @@ let _wsRetried = false;
 function connect(){
   const proto = location.protocol==='https:' ? 'wss' : 'ws';
   S.ws = new WebSocket(`${proto}://${location.host}/ws/${S.pid}?token=${encodeURIComponent(TOK.access)}`);
-  S.ws.onopen = ()=> { _wsRetried = false; logCombat('Connected.', 'l-enter'); send({cmd:'inventory'}); };
+  S.ws.onopen = ()=> { _wsRetried = false; logCombat('Connected.', 'l-enter');
+                       send({cmd:'inventory'}); send({cmd:'spells'}); };
   S.ws.onmessage = ev => { try{ onEvent(JSON.parse(ev.data)); }catch(_){ logCombat(ev.data,'l-sys'); } };
   S.ws.onclose = async (ev)=>{
     // 4401 = token expired/invalid: refresh once and reconnect transparently.
@@ -749,10 +882,30 @@ $('#au-submit').onclick = submitAuth;
 $('#au-pass').addEventListener('keydown', e=>{ if(e.key==='Enter') submitAuth(); });
 $('#au-user').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#au-pass').focus(); });
 
+// ─── Class picker (new-character creation) ───
+const CLASS_OPTIONS = [
+  {id:'warrior', name:'Warrior', glyph:'🛡️'},
+  {id:'mage',    name:'Mage',    glyph:'🧙'},
+  {id:'cleric',  name:'Cleric',  glyph:'⛪'},
+  {id:'rogue',   name:'Rogue',   glyph:'🗡️'},
+];
+let newClass = 'warrior';
+function renderClassPick(){
+  const wrap = $('#classpick'); if(!wrap) return; wrap.innerHTML='';
+  CLASS_OPTIONS.forEach(c=>{
+    const el = document.createElement('div');
+    el.className = 'cls' + (c.id===newClass?' sel':'');
+    el.innerHTML = `<span class="cg">${c.glyph}</span><span>${c.name}</span>`;
+    el.onclick = ()=>{ newClass = c.id; renderClassPick(); };
+    wrap.appendChild(el);
+  });
+}
+
 async function showCharacters(){
   $('#screen-auth').classList.add('hidden');
   $('#screen-chars').classList.remove('hidden');
   $('#char-greet').textContent = `Signed in as ${S.user.username}. Choose a character:`;
+  renderClassPick();
   await refreshCharacters();
   $('#newchar').focus();
 }
@@ -764,7 +917,8 @@ async function refreshCharacters(){
   if(!chars.length){ list.innerHTML = '<div class="sub">No characters yet — create one below.</div>'; }
   chars.forEach(c=>{
     const b = document.createElement('button'); b.className='charbtn';
-    b.innerHTML = `<span>${c.name}</span><span class="meta">lvl ${c.level} · ${c.health}/${c.max_health} hp</span>`;
+    const cls = c.char_class && c.char_class!=='wanderer' ? ` · ${c.char_class}` : '';
+    b.innerHTML = `<span>${c.name}</span><span class="meta">lvl ${c.level}${cls} · ${c.health}/${c.max_health} hp</span>`;
     b.onclick = ()=> playAs(c);
     list.appendChild(b);
   });
@@ -772,7 +926,7 @@ async function refreshCharacters(){
 async function createCharacter(){
   const name = $('#newchar').value.trim();
   if(!name){ $('#char-err').textContent = 'Enter a character name.'; return; }
-  const r = await api('/characters', {method:'POST', body:{name}});
+  const r = await api('/characters', {method:'POST', body:{name, char_class:newClass}});
   const data = await r.json().catch(()=>({}));
   if(!r.ok){ $('#char-err').textContent = humanError(data) || ('Error ' + r.status); return; }
   $('#newchar').value=''; $('#char-err').textContent='';

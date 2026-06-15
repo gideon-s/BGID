@@ -157,10 +157,12 @@ def _reset_mob_clocks():
     import game_loop
     import smack_talk
     import combat
+    import casting
     game_loop._aggroed.clear()
     game_loop._last_move_at.clear()
     game_loop._last_attack_at.clear()
     combat._respawn_grace.clear()
+    casting.reset()
     smack_talk.reset()
     yield
 
@@ -198,6 +200,8 @@ def _reset_singletons():
     game_loop._last_attack_at.clear()
     import combat
     combat._respawn_grace.clear()   # clear post-respawn invulnerability windows
+    import casting
+    casting.reset()                 # clear per-(player,spell) cast cooldowns
 
 
 @pytest.fixture

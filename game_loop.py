@@ -24,6 +24,7 @@ from typing import Optional, Set
 from database import SessionLocal
 import services
 import combat
+import classes
 import smack_talk
 from websocket_manager import manager
 from world import world
@@ -51,8 +52,10 @@ def _ready(table: dict, npc_id: int, cooldown: float, now: float) -> bool:
 
 
 async def _tick_once() -> None:
-    """One world tick: regenerate damaged, living, in-room NPCs."""
+    """One world tick: regenerate damaged, living, in-room NPCs, and restore
+    online players' mana per their class's regen rate (Phase 4)."""
     db = SessionLocal()
+    mana_updates = []   # (player_id, mana, max_mana) to broadcast after commit
     try:
         npc_ids = {npc_id for room in world.rooms.values() for npc_id in room.npc_ids}
         changed = False
@@ -61,10 +64,22 @@ async def _tick_once() -> None:
             if npc and 0 < npc.health < npc.max_health:
                 npc.health = min(npc.max_health, npc.health + NPC_REGEN_PER_TICK)
                 changed = True
+        for player_id in world.online_players():
+            player = services.PlayerService.get_player(db, player_id)
+            if player is None or player.health <= 0 or player.mana >= player.max_mana:
+                continue
+            regen = classes.get_class(player.char_class).get("mana_regen", 0)
+            if regen and player.restore_mana(regen):
+                changed = True
+                mana_updates.append((player_id, player.mana, player.max_mana))
         if changed:
             db.commit()
     finally:
         db.close()
+    for player_id, mana, max_mana in mana_updates:
+        await manager.send_personal_message(
+            player_id, {"event": "stats", "player_id": player_id,
+                        "mana": mana, "max_mana": max_mana})
 
 
 async def _combat_tick_once() -> None:

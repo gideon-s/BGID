@@ -155,6 +155,13 @@ class Player(Base, AbilityScoresMixin):
     max_health = Column(Integer, default=DEFAULT_PLAYER_HEALTH, nullable=False)
     level = Column(Integer, default=DEFAULT_PLAYER_LEVEL, nullable=False)
     experience = Column(Integer, default=DEFAULT_PLAYER_EXP, nullable=False)
+    # Class & spellcasting (Phase 4). char_class keys into classes.py; it sets
+    # starting abilities/glyph/mana at creation. 'wanderer' is the migration
+    # default for pre-Phase-4 characters (melee, no mana). mana is the spell
+    # resource, regenerated on the slow regen tick per the class's mana_regen.
+    char_class = Column(String(20), default="wanderer", nullable=False)
+    mana = Column(Integer, default=0, nullable=False)
+    max_mana = Column(Integer, default=0, nullable=False)
     # Overhead tile rendering glyph. Live (x,y) is not persisted in Phase 1 —
     # players spawn at the zone's spawn tile on connect (master §6).
     glyph = Column(String(8), default="🧙", nullable=False)
@@ -182,6 +189,12 @@ class Player(Base, AbilityScoresMixin):
         old_health = self.health
         self.health = max(0, self.health - amount)
         return old_health - self.health
+
+    def restore_mana(self, amount: int) -> int:
+        """Restore mana up to max_mana, return the actual amount restored."""
+        old = self.mana
+        self.mana = min(self.max_mana, self.mana + amount)
+        return self.mana - old
 
 class Npc(Base, AbilityScoresMixin):
     """NPC model representing non-player characters"""

@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
 import config
+import classes
 import models
 import auth_schemas as aschemas
 from security import (
@@ -98,7 +99,8 @@ class CharacterService:
                 .all())
 
     @staticmethod
-    def create(db: Session, user: models.User, name: str) -> models.Player:
+    def create(db: Session, user: models.User, name: str,
+               char_class: str = classes.DEFAULT_CLASS) -> models.Player:
         count = db.query(models.Player).filter(models.Player.user_id == user.id).count()
         if count >= config.MAX_CHARACTERS_PER_ACCOUNT:
             raise HTTPException(
@@ -113,7 +115,15 @@ class CharacterService:
         if not room:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="No rooms exist yet; seed the world first")
-        player = models.Player(name=name, user_id=user.id, room_id=room.id)
+        # Stamp the chosen class: ability emphasis, glyph, and a full mana pool.
+        cdef = classes.get_class(char_class)
+        player = models.Player(name=name, user_id=user.id, room_id=room.id,
+                               char_class=char_class,
+                               glyph=cdef.get("glyph", "🧙"),
+                               max_mana=cdef.get("max_mana", 0),
+                               mana=cdef.get("max_mana", 0))
+        for ability, score in cdef.get("abilities", {}).items():
+            setattr(player, ability, score)
         db.add(player)
         try:
             db.commit()

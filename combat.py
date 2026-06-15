@@ -70,6 +70,67 @@ def _adjacent(room_id: int, player_id: int, npc_id: int) -> bool:
     return world.chebyshev(p, n) <= 1
 
 
+async def damage_npc(room_id: int, npc_id: int, amount: int,
+                     by_name: str, by_id: int, by_type: str = "player") -> bool:
+    """Apply `amount` damage to an NPC, broadcast the combat hit, and on death
+    remove it + broadcast `entity_died` (scheduling a respawn if hostile).
+    Shared by melee and spell resolvers. Returns True if the NPC died."""
+    db = SessionLocal()
+    try:
+        npc = services.NpcService.get_npc(db, npc_id)
+        if npc is None or npc.health <= 0:
+            return False
+        npc_name, npc_max = npc.name, npc.max_health
+        npc.health = max(0, npc.health - amount)
+        db.commit()
+        npc_hp = npc.health
+    finally:
+        db.close()
+    dead = npc_hp <= 0
+    await manager.broadcast_to_room(room_id, _combat_event(
+        by_name, by_id, by_type, npc_name, npc_id, "npc",
+        {"hit": True, "damage": amount}, npc_hp, npc_max))
+    if dead:
+        world.kill_npc(room_id, npc_id)
+        await manager.broadcast_to_room(
+            room_id, {"event": "entity_died", "id": npc_id, "kind": "npc",
+                      "name": npc_name, "by": by_name})
+    return dead
+
+
+async def damage_player(room_id: int, player_id: int, amount: int,
+                        by_name: str, by_id: int, by_type: str = "npc") -> bool:
+    """Apply `amount` damage to a player, broadcast the hit, and on death
+    broadcast `player_defeated` + respawn them. Respects the post-respawn grace
+    window. Shared by mob melee and (AoE/PvP) spells. Returns True if defeated."""
+    if time.monotonic() < _respawn_grace.get(player_id, 0.0):
+        return False
+    db = SessionLocal()
+    try:
+        player = services.PlayerService.get_player(db, player_id)
+        if player is None or player.health <= 0:
+            return False
+        player_name, player_max = player.name, player.max_health
+        player.health = max(0, player.health - amount)
+        db.commit()
+        player_hp = player.health
+        dead = player_hp <= 0
+        if dead:
+            player.health = player.max_health   # heal on respawn
+            db.commit()
+    finally:
+        db.close()
+    await manager.broadcast_to_room(room_id, _combat_event(
+        by_name, by_id, by_type, player_name, player_id, "player",
+        {"hit": True, "damage": amount}, player_hp, player_max))
+    if dead:
+        await manager.broadcast_to_room(
+            room_id, {"event": "player_defeated", "player_id": player_id,
+                      "name": player_name, "by": by_name})
+        await _respawn(player_id, room_id, player_name, player_max)
+    return dead
+
+
 async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> None:
     """Player strikes an adjacent NPC once (bump-to-attack or explicit attack)."""
     db = SessionLocal()
