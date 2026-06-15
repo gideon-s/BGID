@@ -206,7 +206,7 @@
 </main>
 <footer>
   <input id="cmd" placeholder="say hi · talk innkeeper hello · look · help  (move with WASD / arrows)" autocomplete="off">
-  <div class="hint">Move: WASD/arrows · Bump to attack · 1–9 cast (then click) · G grab · I inventory · M map</div>
+  <div class="hint">Move: WASD/arrows · Bump to attack · T target foe · 1–9 cast · G grab · I inventory · M map</div>
 </footer>
 
 <script>
@@ -215,7 +215,8 @@ const S = {pid:null, name:null, ws:null, user:null,
            room:null, tiles:null, w:0, h:0, you:null, entities:{}, explored:{},
            exploredByRoom:{}, visited:{}, worldMap:null,
            groundItems:{}, inventory:[],
-           spellbook:[], charClass:null, cooldownUntil:{}, targeting:null, fx:null};
+           spellbook:[], charClass:null, cooldownUntil:{}, targeting:null, fx:null,
+           target:null};
 const $ = s => document.querySelector(s);
 const combatEl = $('#combat');
 const sideEl = $('#side');
@@ -264,6 +265,7 @@ function send(obj){ if(S.ws && S.ws.readyState===1) S.ws.send(JSON.stringify(obj
 //     single-line doors, traced from the floor boundary (so any room SHAPE
 //     works, not just rectangles). rot.js is kept only for FOV math. ───
 let cv = null, ctx = null, cell = 16;
+let lastVisible = {};   // set of "x,y" tiles in FOV on the last draw (target-cycling)
 const MAP_BG    = '#100c07';                          // aged dark vellum
 const WALL_VIS  = '#d8ccab', WALL_MEM = '#574b2c';    // double-line walls / pillars (ink)
 const DOOR_VIS  = '#e6bd5e', DOOR_MEM = '#6e5a2c';    // single-line doorways (gold)
@@ -320,6 +322,7 @@ function draw(){
     const fov = new ROT.FOV.PreciseShadowcasting(isTransparent);
     fov.compute(S.you.x, S.you.y, FOV_RADIUS, (x,y)=>{ visible[x+','+y]=true; S.explored[x+','+y]=true; });
   }catch(_){ /* player off-grid mid-update; skip this frame */ }
+  lastVisible = visible;   // shared with target-cycling + the reticle
 
   const lw = Math.max(1.5, cell * 0.07);   // line weight
   const d  = Math.max(2, cell * 0.11);     // half-gap between the two wall lines
@@ -381,8 +384,23 @@ function draw(){
     if(visible[e.x+','+e.y]) ctx.fillText(e.glyph || '?', e.x*cell + cell/2, e.y*cell + cell/2 + 1);
   }
   ctx.fillText(S.you.glyph || '🧙', S.you.x*cell + cell/2, S.you.y*cell + cell/2 + 1);
+  drawReticle(visible);
   drawFx();
   drawMinimap();
+}
+
+// Targeting reticle: gold corner-brackets around the current target's tile.
+function drawReticle(visible){
+  const e = S.target!=null ? S.entities[S.target] : null;
+  if(!e || !visible[e.x+','+e.y]) return;
+  const px = e.x*cell, py = e.y*cell, m = Math.max(2, cell*0.12), L = Math.max(4, cell*0.3);
+  ctx.strokeStyle = '#e6bd5e'; ctx.lineWidth = Math.max(1.5, cell*0.07); ctx.lineCap='round';
+  const corner = (cx, cy, dx, dy)=>{ ctx.beginPath();
+    ctx.moveTo(cx, cy+dy*L); ctx.lineTo(cx, cy); ctx.lineTo(cx+dx*L, cy); ctx.stroke(); };
+  corner(px+m,        py+m,        1,  1);   // top-left
+  corner(px+cell-m,   py+m,       -1,  1);   // top-right
+  corner(px+m,        py+cell-m,   1, -1);   // bottom-left
+  corner(px+cell-m,   py+cell-m,  -1, -1);   // bottom-right
 }
 
 // Tiny current-zone minimap (explored tiles only — fog memory).
@@ -489,9 +507,16 @@ function renderPanel(){
   ids.forEach(id=>{
     const e = S.entities[id];
     const row = document.createElement('div'); row.className='ent';
+    const targeted = (e.id===S.target);
     const color = e.kind==='player' ? 'var(--green)' : (e.hostile ? 'var(--red)' : 'var(--accent)');
-    row.innerHTML = `<span class="nm" style="color:${color}">${e.glyph||''} ${e.name}</span>`;
+    const mark = targeted ? '🎯 ' : '';
+    row.innerHTML = `<span class="nm" style="color:${color}${targeted?';font-weight:bold':''}">${mark}${e.glyph||''} ${e.name}</span>`;
     if(e.kind==='npc'){
+      if(e.hostile){
+        const tg = document.createElement('button'); tg.textContent = targeted ? 'targeted' : 'target';
+        tg.onclick=()=>{ S.target = targeted ? null : e.id; draw(); renderPanel(); };
+        row.appendChild(tg);
+      }
       const t = document.createElement('button'); t.textContent='talk';
       t.onclick=()=>{ $('#cmd').value = `talk ${e.name} `; $('#cmd').focus(); };
       row.appendChild(t);
@@ -508,7 +533,7 @@ function renderPanel(){
 function onEvent(m){
   switch(m.event){
     case 'zone_state': {
-      S.room=m.room; S.you=m.you; S.entities={}; S.groundItems={};
+      S.room=m.room; S.you=m.you; S.entities={}; S.groundItems={}; S.target=null;
       S.tiles=m.tiles.grid; S.w=m.tiles.w; S.h=m.tiles.h;
       const rid = m.room.id; S.visited[rid] = true;        // for the overview map
       S.explored = S.exploredByRoom[rid] = (S.exploredByRoom[rid] || {});  // per-zone fog memory
@@ -562,10 +587,12 @@ function onEvent(m){
       }
       break;
     case 'entity_died':
+      clearTargetIfGone(m.id);
       if(S.entities[m.id]){ delete S.entities[m.id]; draw(); renderPanel(); }
       logCombat(`${m.name} is slain${m.by?(' by '+m.by):''}!`, 'l-win');
       break;
     case 'entity_left':
+      clearTargetIfGone(m.id);
       if(S.entities[m.id]){ delete S.entities[m.id]; draw(); renderPanel(); }
       logSide(`${m.name||'Someone'} leaves.`, 'l-leave');
       break;
@@ -629,10 +656,13 @@ function renderQuickslots(){
 function tryCast(sp){
   if(!sp || !spellReady(sp)){ if(sp) logCombat(`${sp.name} isn't ready.`, 'l-err'); return; }
   if(sp.shape === 'self'){ sendCast(sp); return; }
-  // Targeted: arm the spell; the next map click picks the tile.
+  // Targeted: if a hostile is locked (T), fire at it straight away; otherwise
+  // arm the spell and let the next map click pick the tile.
+  const tgt = S.target!=null ? S.entities[S.target] : null;
+  if(tgt){ sendCast(sp, tgt.x, tgt.y); return; }
   S.targeting = sp;
   $('#map').classList.add('targeting');
-  logCombat(`${sp.name}: click a target tile (Esc to cancel).`, 'l-sys');
+  logCombat(`${sp.name}: press T to target, or click a tile (Esc to cancel).`, 'l-sys');
   renderQuickslots();
 }
 function sendCast(sp, x, y){
@@ -656,6 +686,28 @@ function handleMapClick(e){
 }
 // Periodically refresh slots so cooldowns un-grey on time.
 setInterval(()=>{ if(S.spellbook.length) renderQuickslots(); }, 500);
+
+// ─── Target cycling (T): pick / cycle the current hostile target ───
+function visibleHostiles(){
+  if(!S.you) return [];
+  return Object.values(S.entities)
+    .filter(e => e.kind==='npc' && e.hostile && lastVisible[e.x+','+e.y])
+    .sort((a,b)=>{
+      const da = Math.max(Math.abs(a.x-S.you.x), Math.abs(a.y-S.you.y));
+      const db = Math.max(Math.abs(b.x-S.you.x), Math.abs(b.y-S.you.y));
+      return da - db || a.id - b.id;
+    });
+}
+function cycleTarget(){
+  const foes = visibleHostiles();
+  if(!foes.length){ S.target=null; logCombat('No hostiles in sight.', 'l-sys'); draw(); renderPanel(); return; }
+  const i = foes.findIndex(e => e.id===S.target);
+  const next = foes[(i + 1) % foes.length];   // i<0 → starts at 0
+  S.target = next.id;
+  logCombat(`Targeting ${next.name}.`, 'l-combat');
+  draw(); renderPanel();
+}
+function clearTargetIfGone(id){ if(S.target===id){ S.target=null; renderPanel(); } }
 
 // ─── Spell VFX (transient canvas overlay) ───
 function playFx(m){
@@ -695,6 +747,7 @@ window.addEventListener('keydown', e=>{
   if(e.key === 'm' || e.key === 'M'){ e.preventDefault(); toggleMap(); return; }
   if(e.key === 'i' || e.key === 'I'){ e.preventDefault(); toggleInv(); return; }
   if(e.key === 'g' || e.key === 'G'){ e.preventDefault(); send({cmd:'pickup'}); return; }
+  if(e.key === 't' || e.key === 'T'){ e.preventDefault(); cycleTarget(); return; }
   if(e.key >= '1' && e.key <= '9'){ e.preventDefault(); castByIndex(+e.key - 1); return; }
   const m = MOVE[e.key];
   if(m){ e.preventDefault(); send({cmd:'move', dx:m[0], dy:m[1]}); }
@@ -797,7 +850,7 @@ function handleCommand(raw){
     if(!sp){ logCombat(`You don't know a spell like "${parts[1]||''}".`,'l-err'); return; }
     tryCast(sp); return; }
   if(verb==='help' || verb==='?'){
-    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · cast <spell> (or 1–9, then click a target) · look · map (or M)', 'l-sys'); return; }
+    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · T to target/cycle foes · cast <spell> (or 1–9 — fires at your target) · look · map (or M)', 'l-sys'); return; }
   if(verb==='get' || verb==='pickup' || verb==='take' || verb==='grab'){
     const it = itemByName(parts.slice(1).join(' '));
     send(it ? {cmd:'pickup', item_id:it.id} : {cmd:'pickup'}); return; }
