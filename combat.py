@@ -20,6 +20,7 @@ See ARCHITECTURE.md and docs/handoff-02-phase1-tiled-combat-slice.md.
 """
 import asyncio
 import random
+import time
 from typing import Dict, Optional
 
 from database import SessionLocal
@@ -27,10 +28,12 @@ import services
 from websocket_manager import manager
 from world import world
 import smack_talk
-from config import STARTING_ROOM_ID
+from config import STARTING_ROOM_ID, RESPAWN_GRACE_SECONDS
 
 _DAMAGE_DIE = 6        # 1dN base weapon damage
 _LOW_HP_FRACTION = 0.3  # threshold for "wounded" smack-talk
+# Player respawn invulnerability: player_id -> monotonic time the grace ends.
+_respawn_grace: Dict[int, float] = {}
 
 
 def _attack_roll(attacker, defender) -> Dict:
@@ -117,6 +120,8 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
 
 async def resolve_mob_attack(npc_id: int, room_id: int, player_id: int) -> None:
     """A hostile mob strikes an adjacent player once (driven by the combat tick)."""
+    if time.monotonic() < _respawn_grace.get(player_id, 0.0):
+        return  # post-respawn grace — mobs can't land a hit yet (escape window)
     db = SessionLocal()
     try:
         player = services.PlayerService.get_player(db, player_id)
@@ -157,6 +162,7 @@ async def _respawn(player_id: int, from_room: int, player_name: str, player_max:
     and send them a fresh zone snapshot."""
     world.move_player(player_id, STARTING_ROOM_ID)
     pos = world.place_player(player_id, STARTING_ROOM_ID)
+    _respawn_grace[player_id] = time.monotonic() + RESPAWN_GRACE_SECONDS  # escape window
     if from_room != STARTING_ROOM_ID:
         manager.unsubscribe_from_room(player_id, from_room)
         manager.subscribe_to_room(player_id, STARTING_ROOM_ID)

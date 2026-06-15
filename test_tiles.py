@@ -152,6 +152,25 @@ def test_dead_npc_revived_on_load(db_session):
     assert db_session.query(models.Npc).get(care).health == 8  # healed
 
 
+def test_respawn_grace_blocks_immediate_rehit(db_session, monkeypatch):
+    """After a player is killed and respawns, a hostile can't land a hit during
+    the grace window — preventing the chain-kill / endless-respawn loop."""
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(smack_talk, "maybe_smack", _noop)
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 50})
+    care = _npc_id(db_session, "Caretaker")
+    world.load()
+    world.place_player(1, 1)
+    asyncio.run(combat.resolve_mob_attack(care, 1, 1))   # kills → respawn (full hp, grace set)
+    db_session.expire_all()
+    full = db_session.query(models.Player).get(1).max_health
+    assert db_session.query(models.Player).get(1).health == full
+    asyncio.run(combat.resolve_mob_attack(care, 1, 1))   # immediate re-hit suppressed by grace
+    db_session.expire_all()
+    assert db_session.query(models.Player).get(1).health == full   # unharmed
+
+
 # ---------- zone snapshot ----------
 def test_zone_snapshot_shape(db_session):
     care = _npc_id(db_session, "Caretaker")

@@ -146,9 +146,11 @@ def _reset_mob_clocks():
     clocks (the client fixture also clears these via _reset_singletons)."""
     import game_loop
     import smack_talk
+    import combat
     game_loop._aggroed.clear()
     game_loop._last_move_at.clear()
     game_loop._last_attack_at.clear()
+    combat._respawn_grace.clear()
     smack_talk.reset()
     yield
 
@@ -184,6 +186,8 @@ def _reset_singletons():
     game_loop._aggroed.clear()      # clear mob aggro state
     game_loop._last_move_at.clear()    # clear mob move/attack cooldown clocks
     game_loop._last_attack_at.clear()
+    import combat
+    combat._respawn_grace.clear()   # clear post-respawn invulnerability windows
 
 
 @pytest.fixture

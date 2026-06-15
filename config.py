@@ -54,6 +54,9 @@ MOB_ATTACK_COOLDOWN_SECONDS = float(os.getenv("MOB_ATTACK_COOLDOWN_SECONDS", "1.
 # Seconds after a hostile mob is slain before it respawns at its home tile with
 # full health (so a one-mob zone stays fightable).
 MOB_RESPAWN_SECONDS = float(os.getenv("MOB_RESPAWN_SECONDS", "15"))
+# Brief invulnerability after a player respawns, so an adjacent hostile can't
+# chain-kill them before they get a chance to move away.
+RESPAWN_GRACE_SECONDS = float(os.getenv("RESPAWN_GRACE_SECONDS", "3"))
 MOB_CHATTER_COOLDOWN_SECONDS = float(os.getenv("MOB_CHATTER_COOLDOWN_SECONDS", "8"))  # per-mob smack-talk cooldown
 FOV_RADIUS = int(os.getenv("FOV_RADIUS", "8"))  # client view radius
 # Global cap on mob smack-talk LLM calls, per room, per minute (distinct from
