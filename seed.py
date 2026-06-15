@@ -119,12 +119,13 @@ def seed():
             "glyph": "🧑", "home_x": 8, "home_y": 2, "cha": 14, "wis": 12,
         })
 
-        # The Phase 1 hostile mob: aggros, paths toward players, talks smack.
+        # The hostile mob lives in the Cellar, so the Foyer stays a safe
+        # arrival/respawn hub. It aggros, paths toward players, and talks smack.
         _get_or_create(db, Npc, name="Cellar Rat", defaults={
             "description": "A mangy, snarling rat the size of a dog.",
-            "npc_type": "combat_mob", "room_id": foyer.id,
+            "npc_type": "combat_mob", "room_id": cellar.id,
             "combat_enabled": True, "is_hostile": True, "aggro_radius": 6,
-            "glyph": "🐀", "home_x": 9, "home_y": 6,
+            "glyph": "🐀", "home_x": 6, "home_y": 1,
             "str": 12, "dex": 12, "con": 10, "health": 8, "max_health": 8,
         })
         _get_or_create(db, Item, name="Sturdy Stool", defaults={
@@ -134,13 +135,13 @@ def seed():
 
         # Room connections:
         #   Foyer <-> Great Hall (open, north/south)
-        #   Foyer  -> Cellar via a locked door (down), needs the Rusty Key
-        #   Cellar -> Foyer (up, open)
-        key = db.query(Item).filter_by(name="Rusty Key").first()
+        #   Foyer <-> Cellar (open, down/up stairs) — the Cellar holds the Rat.
+        # The down stairs are unlocked for now: there's no in-game item pickup
+        # yet (Phase 3), so a locked Cellar would seal the Rat away unfightable.
+        # Re-lock behind the Rusty Key once inventory lands.
         _ensure_exit(db, foyer.id, "north", hall.id, description="an archway")
         _ensure_exit(db, hall.id, "south", foyer.id, description="an archway")
-        _ensure_exit(db, foyer.id, "down", cellar.id, description="a heavy cellar door",
-                     is_locked=True, key_item_id=key.id if key else None)
+        _ensure_exit(db, foyer.id, "down", cellar.id, description="stairs down to the cellar")
         _ensure_exit(db, cellar.id, "up", foyer.id, description="stairs up to the foyer")
 
         print("Seeded.")
