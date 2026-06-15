@@ -151,7 +151,8 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
   Additive `items` column migration; Cellar re-locked behind the grabbable Rusty
   Key. → `handoff-04-phase3-inventory-equipment.md`.
 - **Phase 4 — Classes, spells, mana.** Character classes; spell list (data-driven);
-  mana pool + costs/cooldowns; quickslot casting; ranged/AoE on the grid.
+  mana pool + costs/cooldowns; quickslot casting; ranged/AoE on the grid. *Spec
+  ready* → `handoff-05-phase4-classes-spells-mana.md`.
 - **Phase 5 — Portraits (Novita).** Generated character + mob portraits; portrait
   panel in the sidebar / combat UI. Generation service mirroring
   `deepseek_integration.py`; generate-once + aggressive cache. *Independent — can
