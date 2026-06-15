@@ -106,9 +106,38 @@ def seed():
             "is_hostile": False, "glyph": "🧹", "home_x": 2, "home_y": 2,
             "cha": 8, "wis": 12,
         })
-        _get_or_create(db, Item, name="Rusty Key", defaults={
+        rusty = _get_or_create(db, Item, name="Rusty Key", defaults={
             "description": "Pitted iron, still turns.", "item_type": "key",
             "value": 1, "room_id": foyer.id, "is_movable": True, "is_usable": True,
+            "glyph": "🔑", "tile_x": 3, "tile_y": 6,
+        })
+        # Phase 3: the key now sits on the Foyer floor as a grabbable ground item.
+        # On an existing DB (pre-Phase-3) the row predates the glyph/tile columns,
+        # so set them in place (idempotent — _get_or_create won't rewrite a hit).
+        if rusty.room_id == foyer.id and rusty.tile_x is None:
+            rusty.glyph, rusty.tile_x, rusty.tile_y = "🔑", 3, 6
+            db.commit()
+
+        # Starter gear on the Foyer floor (Phase 3). Walk onto a tile + grab.
+        _get_or_create(db, Item, name="Iron Sword", defaults={
+            "description": "A plain but honest blade.", "item_type": "weapon",
+            "value": 10, "room_id": foyer.id, "glyph": "⚔️", "tile_x": 2, "tile_y": 1,
+            "is_movable": True, "is_equippable": True, "equip_slot": "weapon",
+            "attack_bonus": 1, "damage_bonus": 2,
+        })
+        _get_or_create(db, Item, name="Leather Armor", defaults={
+            "description": "Boiled hide; better than nothing.", "item_type": "armor",
+            "value": 8, "room_id": foyer.id, "glyph": "🛡️", "tile_x": 7, "tile_y": 1,
+            "is_movable": True, "is_equippable": True, "equip_slot": "armor",
+            "defense_bonus": 2,
+        })
+        # A ring in the Cellar — the reward for braving the Rat past the locked door.
+        _get_or_create(db, Item, name="Ring of Vigor", defaults={
+            "description": "A warm iron band that steadies the hand.",
+            "item_type": "ring", "value": 25, "room_id": cellar.id,
+            "glyph": "💍", "tile_x": 2, "tile_y": 1,
+            "is_movable": True, "is_equippable": True, "equip_slot": "ring",
+            "attack_bonus": 1, "defense_bonus": 1,
         })
 
         # Non-combatant & furniture
@@ -131,18 +160,26 @@ def seed():
         _get_or_create(db, Item, name="Sturdy Stool", defaults={
             "description": "It wobbles but holds.", "item_type": "furniture",
             "room_id": foyer.id, "is_movable": False, "is_usable": True,
+            "glyph": "🪑", "tile_x": 10, "tile_y": 1,
         })
 
         # Room connections:
         #   Foyer <-> Great Hall (open, north/south)
-        #   Foyer <-> Cellar (open, down/up stairs) — the Cellar holds the Rat.
-        # The down stairs are unlocked for now: there's no in-game item pickup
-        # yet (Phase 3), so a locked Cellar would seal the Rat away unfightable.
-        # Re-lock behind the Rusty Key once inventory lands.
+        #   Foyer  -> Cellar (down stairs, LOCKED behind the Rusty Key) — the
+        #            Cellar holds the Rat and the ring; Cellar -> Foyer (open up).
+        # Phase 3 re-locks the down stairs now that the Rusty Key can be grabbed
+        # off the Foyer floor (Phase 2 had left it open for lack of pickup).
         _ensure_exit(db, foyer.id, "north", hall.id, description="an archway")
         _ensure_exit(db, hall.id, "south", foyer.id, description="an archway")
-        _ensure_exit(db, foyer.id, "down", cellar.id, description="stairs down to the cellar")
+        _ensure_exit(db, foyer.id, "down", cellar.id, description="stairs down to the cellar",
+                     is_locked=True, key_item_id=rusty.id)
         _ensure_exit(db, cellar.id, "up", foyer.id, description="stairs up to the foyer")
+        # In-place re-lock for an existing DB (the Phase-2 row exists unlocked, so
+        # _ensure_exit above is a no-op there — update the row directly).
+        down = db.query(RoomExit).filter_by(from_room_id=foyer.id, direction="down").first()
+        if down is not None and not down.is_locked:
+            down.is_locked, down.key_item_id = True, rusty.id
+            db.commit()
 
         print("Seeded.")
     finally:

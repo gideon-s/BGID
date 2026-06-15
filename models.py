@@ -257,16 +257,33 @@ class Item(Base):
     description = Column(Text, default="", nullable=False)
     item_type = Column(String(50), default="generic", nullable=False, index=True)
     value = Column(Integer, default=0, nullable=False)
+    # Overhead map glyph drawn when the item lies on the ground (Phase 3).
+    glyph = Column(String(8), default="📦", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Location tracking
+
+    # Location tracking. An item is in exactly one of three states:
+    #   on the ground  -> room_id + tile_x/tile_y set, player_id null
+    #   carried        -> player_id set, equipped false, room/tile null
+    #   equipped (worn) -> player_id set, equipped true
     room_id = Column(Integer, ForeignKey("rooms.id"), nullable=True, index=True)
     player_id = Column(Integer, ForeignKey("players.id"), nullable=True, index=True)
-    
+    # Ground tile within room_id's grid (Phase 3). Null while carried/equipped.
+    tile_x = Column(Integer, nullable=True)
+    tile_y = Column(Integer, nullable=True)
+
     # Item properties
     is_movable = Column(Boolean, default=True, nullable=False)
     is_usable = Column(Boolean, default=False, nullable=False)
     is_equippable = Column(Boolean, default=False, nullable=False)
+    # Equipment (Phase 3). equip_slot names the slot this item occupies
+    # ('weapon'|'armor'|'ring'|'amulet'); null = not equippable. `equipped` is
+    # whether its owning player currently wears it. The *_bonus columns feed the
+    # D20 combat resolver when equipped (see combat.py / ItemService).
+    equip_slot = Column(String(20), nullable=True)
+    equipped = Column(Boolean, default=False, nullable=False)
+    attack_bonus = Column(Integer, default=0, nullable=False)   # + to-hit
+    defense_bonus = Column(Integer, default=0, nullable=False)  # + AC
+    damage_bonus = Column(Integer, default=0, nullable=False)   # + damage
     
     # Relationships
     room = relationship("Room", back_populates="items")

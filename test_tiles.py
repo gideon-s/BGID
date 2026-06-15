@@ -109,7 +109,7 @@ def test_mob_melee_on_adjacency_damages_player(db_session, monkeypatch):
     async def _noop(*a, **k):
         return None
     monkeypatch.setattr(smack_talk, "maybe_smack", _noop)
-    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 3})
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d, **k: {"hit": True, "damage": 3})
     care = _npc_id(db_session, "Caretaker")
     world.load()
     world.place_player(1, 1)                        # (2,2), adjacent to mob (3,2)
@@ -122,7 +122,7 @@ def test_hostile_mob_respawns_after_death(db_session, monkeypatch):
     async def _noop(*a, **k):
         return None
     monkeypatch.setattr(smack_talk, "maybe_smack", _noop)
-    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 50})
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d, **k: {"hit": True, "damage": 50})
     care = _npc_id(db_session, "Caretaker")  # hostile in the test world
     world.load()
     world.place_player(1, 1)                       # (2,2), adjacent to mob (3,2)
@@ -158,7 +158,7 @@ def test_respawn_grace_blocks_immediate_rehit(db_session, monkeypatch):
     async def _noop(*a, **k):
         return None
     monkeypatch.setattr(smack_talk, "maybe_smack", _noop)
-    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 50})
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d, **k: {"hit": True, "damage": 50})
     care = _npc_id(db_session, "Caretaker")
     world.load()
     world.place_player(1, 1)

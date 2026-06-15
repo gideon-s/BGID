@@ -131,6 +131,10 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
 {"cmd":"say","text":"…"}            // unchanged
 {"cmd":"look"}                      // resends zone_state
 {"cmd":"map"}                       // request the zone-graph (Phase 2)
+{"cmd":"inventory"}                 // request the inventory (Phase 3)
+{"cmd":"pickup","item_id":5}        // item_id optional → item on your tile
+{"cmd":"drop","item_id":5}          // onto your tile
+{"cmd":"equip","item_id":5}         // / {"cmd":"unequip","item_id":5}
 
 // server → client
 {"event":"zone_state","room":{...},"tiles":{"w":12,"h":9,"grid":["############", …]},
@@ -149,6 +153,12 @@ back-compat). `room_state` → `zone_state`; `move {dir}` → `move {dx,dy}`:
 // fresh zone_state to the mover and entity_left/entity_spawned to the two zones.
 {"event":"world_map","rooms":[{"id":1,"name":"Foyer"}],
  "exits":[{"from":1,"to":2,"dir":"north","locked":false}]}
+// Phase 3: ground items ride zone_state ("items":[…]); inventory is personal.
+{"event":"zone_state", …, "items":[{"id":5,"name":"Iron Sword","glyph":"⚔️","x":2,"y":1}]}
+{"event":"inventory","items":[{"id":5,"name":"Iron Sword","glyph":"⚔️","type":"weapon",
+ "equip_slot":"weapon","equipped":true,"attack_bonus":1,"defense_bonus":0,"damage_bonus":2}]}
+{"event":"item_dropped","id":5,"name":"Iron Sword","glyph":"⚔️","x":3,"y":3}
+{"event":"item_taken","id":5,"by":"Bryan"}
 ```
 
 ## Graphical overhaul — two-tier tiled world (Phase 1)
@@ -227,6 +237,16 @@ Each step keeps the app runnable.
    a current-zone minimap; an on-demand overview map (`map` command → `world_map`
    event; zone graph with visited rooms + locked exits). See
    `docs/handoff-03-phase2-zones-and-map.md`.
+
+8. ✅ **Inventory & equipment** (Phase 3) — items gained tile positions (ground
+   items ride `zone_state.items` and render on the map); pickup (**G** / `get`)
+   and drop onto tiles; equip slots (weapon, armor, ring ×2, amulet) with
+   per-slot limits (`services.SLOT_LIMITS`, equipping a full slot swaps the
+   oldest); item `attack_bonus`/`defense_bonus`/`damage_bonus` feed the D20
+   resolver via `ItemService.equipment_bonuses` (the single seam combat reads);
+   inventory overlay (**I**) + worn summary. New `items` columns (additive
+   migration, `migrate_phase3.py`); the Cellar is re-locked behind the now-
+   grabbable Rusty Key. See `docs/handoff-04-phase3-inventory-equipment.md`.
 
 ### Future
 - Per-NPC conversation memory across `talk` turns.

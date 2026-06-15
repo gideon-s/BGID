@@ -141,11 +141,18 @@ class ItemBase(BaseModel):
 
 class ItemCreate(ItemBase):
     """Schema for creating a new item"""
+    glyph: str = Field(default="📦", max_length=8)
     room_id: Optional[int] = Field(None, gt=0)
     player_id: Optional[int] = Field(None, gt=0)
+    tile_x: Optional[int] = Field(None, ge=0)
+    tile_y: Optional[int] = Field(None, ge=0)
     is_movable: bool = True
     is_usable: bool = False
     is_equippable: bool = False
+    equip_slot: Optional[str] = Field(None, max_length=20)
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    damage_bonus: int = 0
 
 class ItemUpdate(BaseModel):
     """Schema for updating an item"""
@@ -162,11 +169,19 @@ class ItemUpdate(BaseModel):
 class ItemOut(ItemBase):
     """Schema for item output"""
     id: int
+    glyph: str = "📦"
     room_id: Optional[int] = None
     player_id: Optional[int] = None
+    tile_x: Optional[int] = None
+    tile_y: Optional[int] = None
     is_movable: bool
     is_usable: bool
     is_equippable: bool
+    equip_slot: Optional[str] = None
+    equipped: bool = False
+    attack_bonus: int = 0
+    defense_bonus: int = 0
+    damage_bonus: int = 0
     created_at: Optional[datetime] = None
 
     class Config:

@@ -90,6 +90,11 @@ class RoomNode:
     spawn: Tuple[int, int] = (1, 1)
     npc_pos: Dict[int, Tuple[int, int]] = field(default_factory=dict)
     player_pos: Dict[int, Tuple[int, int]] = field(default_factory=dict)
+    # Ground items: their tile + static render metadata (name/glyph). Items do
+    # NOT participate in occupancy (you walk over them to pick them up), so they
+    # live apart from npc_pos/player_pos (Phase 3).
+    item_pos: Dict[int, Tuple[int, int]] = field(default_factory=dict)
+    item_meta: Dict[int, dict] = field(default_factory=dict)
     # Static per-NPC metadata cached at load (glyph/hostile/aggro/combat/name),
     # so the combat tick can reason about mobs without touching the DB. Live HP
     # is read from the DB only when an attack actually resolves.
@@ -129,7 +134,7 @@ class WorldState:
                 self._place_npc(node, npc)
             for item in services.ItemService.get_items(db, limit=_LOAD_LIMIT):
                 if item.room_id and item.room_id in rooms:
-                    rooms[item.room_id].item_ids.add(item.id)
+                    self._place_item(rooms[item.room_id], item)
             for ex in db.query(models.RoomExit).all():
                 node = rooms.get(ex.from_room_id)
                 if node:
@@ -179,6 +184,17 @@ class WorldState:
             "home": (x, y),   # anchor tile, used to respawn the mob
         }
 
+    def _place_item(self, node: "RoomNode", item) -> None:
+        """Cache a ground item's tile + render metadata. Uses its stored
+        tile_x/tile_y if walkable, else the first free floor tile (items don't
+        block, so 'free' here just means walkable ground)."""
+        x, y = item.tile_x, item.tile_y
+        if x is None or y is None or not self._is_walkable_grid(node, x, y):
+            x, y = self._first_free_tile(node)
+        node.item_ids.add(item.id)
+        node.item_pos[item.id] = (x, y)
+        node.item_meta[item.id] = {"name": item.name, "glyph": item.glyph or "📦"}
+
     @staticmethod
     def _is_walkable_grid(node: "RoomNode", x: int, y: int) -> bool:
         if not (0 <= y < node.height and 0 <= x < len(node.tiles[y])):
@@ -223,6 +239,46 @@ class WorldState:
         """(kind, id) of the entity on a tile, or None."""
         node = self.rooms.get(room_id)
         return self._occupant(node, x, y) if node else None
+
+    # ---------- ground items (Phase 3) ----------
+    def ground_items(self, room_id: int) -> List[Dict[str, Any]]:
+        """Serializable ground items in a room: [{id,name,glyph,x,y}]."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return []
+        out = []
+        for iid, (x, y) in node.item_pos.items():
+            meta = node.item_meta.get(iid, {})
+            out.append({"id": iid, "name": meta.get("name", "item"),
+                        "glyph": meta.get("glyph", "📦"), "x": x, "y": y})
+        return out
+
+    def item_at(self, room_id: int, x: int, y: int) -> Optional[int]:
+        """The (topmost) ground item id on a tile, or None."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        for iid, pos in node.item_pos.items():
+            if pos == (x, y):
+                return iid
+        return None
+
+    def add_ground_item(self, room_id: int, item_id: int, x: int, y: int,
+                        name: str, glyph: str) -> None:
+        """Place an item onto a tile in the live world (a drop)."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return
+        node.item_ids.add(item_id)
+        node.item_pos[item_id] = (x, y)
+        node.item_meta[item_id] = {"name": name, "glyph": glyph or "📦"}
+
+    def remove_ground_item(self, item_id: int) -> None:
+        """Drop an item from whatever room's ground holds it (a pickup)."""
+        for node in self.rooms.values():
+            node.item_ids.discard(item_id)
+            node.item_pos.pop(item_id, None)
+            node.item_meta.pop(item_id, None)
 
     def position_of(self, kind: str, room_id: int, entity_id: int) -> Optional[Tuple[int, int]]:
         node = self.rooms.get(room_id)
@@ -517,6 +573,7 @@ class WorldState:
             "tiles": {"w": node.width, "h": node.height, "grid": node.tiles},
             "you": you,
             "entities": entities,
+            "items": self.ground_items(room_id),
         }
 
     def reload(self) -> None:

@@ -7,9 +7,10 @@ def test_load_populates_rooms_npcs_items(db_session):
     world.load()
     assert set(world.rooms) == {1, 2, 3}
     foyer = world.rooms[1]
-    # Caretaker + Innkeeper resident in the Foyer; Rusty Key on the ground
+    # Caretaker + Innkeeper resident in the Foyer; Rusty Key + Iron Sword +
+    # Leather Armor on the ground (Phase 3 gear).
     assert len(foyer.npc_ids) == 2
-    assert len(foyer.item_ids) == 1
+    assert len(foyer.item_ids) == 3
     assert world.rooms[2].npc_ids == set()
 
 
@@ -45,7 +46,7 @@ def test_snapshot_shape(db_session):
     snap = world.room_snapshot(1)
     assert snap["room"]["name"] == "Foyer"
     assert {n["name"] for n in snap["npcs"]} == {"Caretaker", "Innkeeper"}
-    assert {i["name"] for i in snap["items"]} == {"Rusty Key"}
+    assert {i["name"] for i in snap["items"]} == {"Rusty Key", "Iron Sword", "Leather Armor"}
     assert snap["players"] == []
 
 

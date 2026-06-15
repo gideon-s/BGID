@@ -140,6 +140,26 @@ def _player_spawn_fields(player_id: int, room_id: int) -> dict:
     return {"glyph": glyph, "x": pos[0], "y": pos[1]}
 
 
+def _inventory_payload(player_id: int) -> dict:
+    """The player's carried items as an `inventory` event payload (Phase 3)."""
+    db = SessionLocal()
+    try:
+        items = [
+            {"id": i.id, "name": i.name, "glyph": i.glyph or "📦",
+             "type": i.item_type, "equip_slot": i.equip_slot, "equipped": i.equipped,
+             "attack_bonus": i.attack_bonus, "defense_bonus": i.defense_bonus,
+             "damage_bonus": i.damage_bonus}
+            for i in ItemService.inventory_of(db, player_id)
+        ]
+    finally:
+        db.close()
+    return {"event": "inventory", "items": items}
+
+
+async def _send_inventory(player_id: int) -> None:
+    await manager.send_personal_message(player_id, _inventory_payload(player_id))
+
+
 async def _try_transition(player_id: int, player_name: str, from_room: int, ex: dict) -> None:
     """Move a player to an adjacent zone via a door/stairs (Phase 2). Enforces
     locks, re-places at the destination's arrival tile, and fixes up presence."""
@@ -227,6 +247,9 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
     await manager.send_personal_message(
         player_id, {"event": "zone_state", **world.zone_snapshot(room_id, player_id)}
     )
+    # The inventory is fetched lazily by the client (an `inventory` command on
+    # connect), mirroring `world_map` — so the server-side connect sequence stays
+    # stable for tests and reconnection logic.
     # Announce the new arrival to everyone else in the zone (with their tile)
     await manager.broadcast_to_room(
         room_id,
@@ -372,6 +395,81 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
             )
             return
         await resolve_player_attack(player_id, room_id, int(target_id))
+
+    elif cmd == "inventory":
+        await _send_inventory(player_id)
+
+    elif cmd == "pickup":
+        # Pick up the named item, or (default) whatever lies on the player's tile.
+        item_id = msg.get("item_id")
+        if item_id is None:
+            pos = world.position_of("player", room_id, player_id)
+            item_id = world.item_at(room_id, *pos) if pos else None
+        if item_id is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "Nothing here to pick up."})
+            return
+        db = SessionLocal()
+        try:
+            item = ItemService.pickup(db, player_id, int(item_id))
+            name = item.name
+        except HTTPException as exc:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": exc.detail})
+            return
+        finally:
+            db.close()
+        world.remove_ground_item(int(item_id))
+        await manager.broadcast_to_room(
+            room_id, {"event": "item_taken", "id": int(item_id), "by": player_name})
+        await _send_inventory(player_id)
+        await manager.send_personal_message(
+            player_id, {"event": "info", "detail": f"You pick up the {name}."})
+
+    elif cmd == "drop":
+        item_id = msg.get("item_id")
+        if item_id is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "drop requires 'item_id'"})
+            return
+        pos = world.position_of("player", room_id, player_id)
+        if pos is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "You have nowhere to drop it."})
+            return
+        db = SessionLocal()
+        try:
+            item = ItemService.drop(db, player_id, int(item_id), pos[0], pos[1])
+            name, glyph = item.name, item.glyph or "📦"
+        except HTTPException as exc:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": exc.detail})
+            return
+        finally:
+            db.close()
+        world.add_ground_item(room_id, int(item_id), pos[0], pos[1], name, glyph)
+        await manager.broadcast_to_room(
+            room_id, {"event": "item_dropped", "id": int(item_id), "name": name,
+                      "glyph": glyph, "x": pos[0], "y": pos[1]})
+        await _send_inventory(player_id)
+
+    elif cmd in ("equip", "unequip"):
+        item_id = msg.get("item_id")
+        if item_id is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": f"{cmd} requires 'item_id'"})
+            return
+        db = SessionLocal()
+        try:
+            fn = ItemService.equip if cmd == "equip" else ItemService.unequip
+            fn(db, player_id, int(item_id))
+        except HTTPException as exc:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": exc.detail})
+            return
+        finally:
+            db.close()
+        await _send_inventory(player_id)
 
     else:
         await manager.send_personal_message(

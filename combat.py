@@ -36,14 +36,17 @@ _LOW_HP_FRACTION = 0.3  # threshold for "wounded" smack-talk
 _respawn_grace: Dict[int, float] = {}
 
 
-def _attack_roll(attacker, defender) -> Dict:
-    """Resolve one attack: d20 + STR mod vs AC (10 + DEX mod). On hit, deal
-    1d6 + STR mod damage (minimum 1)."""
-    to_hit = random.randint(1, 20) + attacker.ability_mod("str")
-    armor_class = 10 + defender.ability_mod("dex")
+def _attack_roll(attacker, defender, atk_bonus: int = 0, dmg_bonus: int = 0,
+                 def_bonus: int = 0) -> Dict:
+    """Resolve one attack: d20 + STR mod (+ equipped attack_bonus) vs AC
+    (10 + DEX mod + the defender's equipped defense_bonus). On hit, deal
+    1d6 + STR mod (+ equipped damage_bonus) damage (minimum 1). The *_bonus args
+    are the equipment contributions plumbed in by the resolvers below."""
+    to_hit = random.randint(1, 20) + attacker.ability_mod("str") + atk_bonus
+    armor_class = 10 + defender.ability_mod("dex") + def_bonus
     if to_hit < armor_class:
         return {"hit": False, "damage": 0}
-    damage = max(1, random.randint(1, _DAMAGE_DIE) + attacker.ability_mod("str"))
+    damage = max(1, random.randint(1, _DAMAGE_DIE) + attacker.ability_mod("str") + dmg_bonus)
     return {"hit": True, "damage": damage}
 
 
@@ -92,7 +95,9 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
 
         player_name, npc_name = player.name, npc.name
         npc_max = npc.max_health
-        roll = _attack_roll(player, npc)
+        # The player's equipped weapon/rings sharpen the attack (mobs are bare).
+        gear = services.ItemService.equipment_bonuses(db, player_id)
+        roll = _attack_roll(player, npc, atk_bonus=gear["attack"], dmg_bonus=gear["damage"])
         npc.health = max(0, npc.health - roll["damage"])
         db.commit()
         npc_hp = npc.health
@@ -131,7 +136,9 @@ async def resolve_mob_attack(npc_id: int, room_id: int, player_id: int) -> None:
         player_name, npc_name = player.name, npc.name
         player_max = player.max_health
         npc_glyph = npc.glyph
-        roll = _attack_roll(npc, player)
+        # The player's equipped armor/rings soften the blow (mob attacks bare).
+        gear = services.ItemService.equipment_bonuses(db, player_id)
+        roll = _attack_roll(npc, player, def_bonus=gear["defense"])
         player.health = max(0, player.health - roll["damage"])
         db.commit()
         player_hp = player.health

@@ -93,8 +93,18 @@ def _seed(db):
     db.commit()
 
     rusty = models.Item(name="Rusty Key", description="Pitted iron.",
-                        item_type="key", value=1, room_id=foyer.id)
-    db.add(rusty)
+                        item_type="key", value=1, room_id=foyer.id,
+                        glyph="🔑", tile_x=1, tile_y=4)
+    # Phase 3 gear on the Foyer floor (for inventory/equipment tests).
+    sword = models.Item(name="Iron Sword", description="A plain blade.",
+                        item_type="weapon", room_id=foyer.id, glyph="⚔️",
+                        tile_x=1, tile_y=1, is_movable=True, is_equippable=True,
+                        equip_slot="weapon", attack_bonus=1, damage_bonus=2)
+    armor = models.Item(name="Leather Armor", description="Boiled hide.",
+                        item_type="armor", room_id=foyer.id, glyph="🛡️",
+                        tile_x=4, tile_y=1, is_movable=True, is_equippable=True,
+                        equip_slot="armor", defense_bonus=2)
+    db.add_all([rusty, sword, armor])
     db.commit()
 
     # Foyer <-> Great Hall (open); Foyer -> Cellar (locked, Rusty Key); Cellar -> Foyer (open)

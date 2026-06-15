@@ -113,7 +113,7 @@ def test_player_state_shape(client):
     assert s["player"]["name"] == "Bryan"
     assert s["current_room"]["name"] == "Foyer"
     assert {n["name"] for n in s["npcs_in_room"]} == {"Caretaker", "Innkeeper"}
-    assert {i["name"] for i in s["items_in_room"]} == {"Rusty Key"}
+    assert {i["name"] for i in s["items_in_room"]} == {"Rusty Key", "Iron Sword", "Leather Armor"}
     assert s["other_players_in_room"] == []
     assert s["inventory"] == []
 

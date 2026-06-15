@@ -10,6 +10,10 @@ import schemas
 import directions
 from utils import dict_from_model, log_action, validate_ability_scores
 
+# How many items may be worn in each equipment slot at once (Phase 3). Equipping
+# into a full slot swaps out the oldest item there rather than erroring.
+SLOT_LIMITS = {"weapon": 1, "armor": 1, "amulet": 1, "ring": 2}
+
 # ---------- Player Services ----------
 class PlayerService:
     """Service for player-related operations"""
@@ -293,6 +297,103 @@ class ItemService:
         
         log_action("move_item", 0, f"Moved item '{item.name}' to room {new_room_id} or player {new_player_id}")
         return item
+
+    # ---------- inventory & equipment (Phase 3) ----------
+    @staticmethod
+    def inventory_of(db: Session, player_id: int) -> List[models.Item]:
+        """Every item a player carries (worn or stowed)."""
+        return (db.query(models.Item)
+                .filter(models.Item.player_id == player_id)
+                .order_by(models.Item.id)
+                .all())
+
+    @staticmethod
+    def pickup(db: Session, player_id: int, item_id: int) -> models.Item:
+        """Move a ground item in the player's room into their inventory.
+        Returns the item; raises HTTPException on a bad pickup."""
+        player = PlayerService.get_player(db, player_id)
+        item = ItemService.get_item(db, item_id)
+        if player is None or item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        if item.player_id is not None:
+            raise HTTPException(status_code=400, detail="That item is already carried")
+        if item.room_id != player.room_id:
+            raise HTTPException(status_code=400, detail="That item isn't here")
+        if not item.is_movable:
+            raise HTTPException(status_code=400, detail=f"{item.name} can't be taken")
+        item.room_id = None
+        item.tile_x = item.tile_y = None
+        item.player_id = player_id
+        item.equipped = False
+        db.commit()
+        db.refresh(item)
+        log_action("pickup", player_id, f"Picked up '{item.name}'")
+        return item
+
+    @staticmethod
+    def drop(db: Session, player_id: int, item_id: int, x: int, y: int) -> models.Item:
+        """Move a carried/equipped item onto a tile in the player's room."""
+        player = PlayerService.get_player(db, player_id)
+        item = ItemService.get_item(db, item_id)
+        if player is None or item is None or item.player_id != player_id:
+            raise HTTPException(status_code=400, detail="You aren't carrying that")
+        item.player_id = None
+        item.equipped = False
+        item.room_id = player.room_id
+        item.tile_x, item.tile_y = x, y
+        db.commit()
+        db.refresh(item)
+        log_action("drop", player_id, f"Dropped '{item.name}'")
+        return item
+
+    @staticmethod
+    def equip(db: Session, player_id: int, item_id: int) -> models.Item:
+        """Wear a carried item. Enforces SLOT_LIMITS by swapping out the oldest
+        item already in that slot when it's full (equip never errors on a full
+        slot — it replaces)."""
+        item = ItemService.get_item(db, item_id)
+        if item is None or item.player_id != player_id:
+            raise HTTPException(status_code=400, detail="You aren't carrying that")
+        slot = item.equip_slot
+        if not slot:
+            raise HTTPException(status_code=400, detail=f"{item.name} can't be equipped")
+        if item.equipped:
+            return item
+        worn = (db.query(models.Item)
+                .filter_by(player_id=player_id, equipped=True, equip_slot=slot)
+                .order_by(models.Item.id)
+                .all())
+        limit = SLOT_LIMITS.get(slot, 1)
+        # Free space if the slot is already full (oldest-first).
+        for old in worn[: max(0, len(worn) - limit + 1)]:
+            old.equipped = False
+        item.equipped = True
+        db.commit()
+        db.refresh(item)
+        log_action("equip", player_id, f"Equipped '{item.name}' ({slot})")
+        return item
+
+    @staticmethod
+    def unequip(db: Session, player_id: int, item_id: int) -> models.Item:
+        """Stop wearing an item (it stays in the inventory)."""
+        item = ItemService.get_item(db, item_id)
+        if item is None or item.player_id != player_id:
+            raise HTTPException(status_code=400, detail="You aren't carrying that")
+        item.equipped = False
+        db.commit()
+        db.refresh(item)
+        log_action("unequip", player_id, f"Unequipped '{item.name}'")
+        return item
+
+    @staticmethod
+    def equipment_bonuses(db: Session, player_id: int) -> Dict[str, int]:
+        """Sum of equipped gear's stat bonuses — the single seam combat reads."""
+        worn = db.query(models.Item).filter_by(player_id=player_id, equipped=True).all()
+        return {
+            "attack": sum(i.attack_bonus for i in worn),
+            "defense": sum(i.defense_bonus for i in worn),
+            "damage": sum(i.damage_bonus for i in worn),
+        }
 
 # ---------- NPC Services ----------
 class NpcService:

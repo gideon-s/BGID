@@ -104,7 +104,7 @@ def test_move_cooldown_enforced(client, token, monkeypatch):
 
 
 def test_bump_to_attack(client, token, monkeypatch):
-    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 3})
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d, **k: {"hit": True, "damage": 3})
     with _ws(client, token, 1) as ws:
         ws.receive_json()  # zone_state, player at (2,2), Caretaker at (3,2)
         ws.send_json({"cmd": "move", "dx": 1, "dy": 0})  # bump east into the Caretaker
@@ -115,7 +115,7 @@ def test_bump_to_attack(client, token, monkeypatch):
 
 
 def test_explicit_attack_defeats_npc(client, token, monkeypatch):
-    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 50})
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d, **k: {"hit": True, "damage": 50})
     cid = npc_id_by_name(client, "Caretaker")
     with _ws(client, token, 1) as ws:
         ws.receive_json()  # zone_state (player adjacent to the Caretaker)
@@ -170,7 +170,7 @@ def test_talk_triggers_async_npc_turn(client, token):
 
 def test_player_defeat_and_respawn(client, token, db_session, monkeypatch):
     """A mob's strike (via the combat tick) can defeat and respawn the player."""
-    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 50})
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d, **k: {"hit": True, "damage": 50})
     player = db_session.query(models.Player).get(1)
     player.health, player.max_health = 1, 10
     db_session.commit()

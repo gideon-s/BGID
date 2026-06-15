@@ -143,9 +143,13 @@ Accurate as of 2026-06-14. A fresh session should read these files before changi
   explored memory + current-zone minimap; on-demand overview map (zone graph,
   visited rooms, locked exits) via the `map` command / **M**. New tile glyphs
   `>`/`<`; new WS: `world_map`. → `handoff-03-phase2-zones-and-map.md`.
-- **Phase 3 — Inventory & equipment.** Effectively-infinite inventory; equipment
-  slots (weapon, armor, ring ×2, amulet, …); item stats feeding combat; pickup/drop
-  on tiles; quickslot buttons.
+- **Phase 3 — Inventory & equipment.** ✅ **Done.** Effectively-infinite
+  inventory; equipment slots (weapon, armor, ring ×2, amulet) with per-slot
+  limits (full slot swaps oldest); item `attack_bonus`/`defense_bonus`/
+  `damage_bonus` feeding the D20 combat resolver; ground items render on the map
+  and are picked up (**G**/`get`) / dropped on tiles; inventory overlay (**I**).
+  Additive `items` column migration; Cellar re-locked behind the grabbable Rusty
+  Key. → `handoff-04-phase3-inventory-equipment.md`.
 - **Phase 4 — Classes, spells, mana.** Character classes; spell list (data-driven);
   mana pool + costs/cooldowns; quickslot casting; ranged/AoE on the grid.
 - **Phase 5 — Portraits (Novita).** Generated character + mob portraits; portrait

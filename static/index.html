@@ -52,6 +52,18 @@
   .maptitle{color:var(--accent);font-family:var(--serif);letter-spacing:.16em;text-align:center;font-size:1.1rem}
   #mapcv{background:#0c0a06;border:1px solid var(--edge);border-radius:2px}
   .maphint{color:var(--dim);font-size:.75rem;text-align:center}
+  /* Inventory overlay + panel "worn" list */
+  #invlist{min-width:320px;max-width:80vw;max-height:64vh;overflow-y:auto;display:flex;flex-direction:column;gap:.25rem}
+  .invsec{color:var(--gold-dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.16em;margin:.5rem 0 .15rem;font-family:var(--serif)}
+  .invrow{display:flex;align-items:center;gap:.5rem;padding:.3rem .4rem;border:1px solid var(--edge);border-radius:3px;background:#0c0a06}
+  .invrow .ig{font-size:1.1rem;width:1.4rem;text-align:center}
+  .invrow .inm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .invrow .ist{color:var(--dim);font-size:.72rem;white-space:nowrap}
+  .invrow button{background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);color:var(--fg);border-radius:3px;cursor:pointer;font-size:.72rem;padding:.12rem .45rem}
+  .invrow button:hover{border-color:var(--accent);color:var(--accent)}
+  .invrow.worn{border-color:var(--gold-dim)}
+  #worn{display:flex;flex-direction:column;gap:.1rem;font-size:.82rem;color:var(--dim)}
+  #worn .w{color:var(--fg)}
   /* Right: Layer-2 dialogue / emotes */
   #side{width:300px;background:var(--panel);border-left:1px solid var(--edge);padding:1rem;overflow-y:auto;display:flex;flex-direction:column;gap:.15rem}
   #side h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.18em;color:var(--gold-dim);margin:0 0 .5rem;font-family:var(--serif)}
@@ -125,6 +137,15 @@
   </div>
 </div>
 
+<!-- Inventory (carried + worn), toggled with I or the panel link -->
+<div id="invview" class="hidden">
+  <div class="mapcard">
+    <div class="maptitle">Inventory</div>
+    <div id="invlist"></div>
+    <div class="maphint">press <b>I</b> or <b>Esc</b> to close · <b>G</b> to grab what you stand on</div>
+  </div>
+</div>
+
 <!-- Overview map (zone graph), toggled with M or the panel link -->
 <div id="mapview" class="hidden">
   <div class="mapcard">
@@ -145,6 +166,8 @@
         <h2>You</h2>
         <div class="hpbar"><i id="hpfill" style="width:100%"></i></div>
         <div class="hptext" id="hptext">—</div>
+        <h2>Worn <span id="invbtn" class="lnk">inventory ▸</span></h2>
+        <div id="worn"></div>
         <h2>Here</h2><div id="here"></div>
         <h2>Map <span id="mapbtn" class="lnk">overview ▸</span></h2>
         <canvas id="minimap"></canvas>
@@ -157,14 +180,15 @@
 </main>
 <footer>
   <input id="cmd" placeholder="say hi · talk innkeeper hello · look · help  (move with WASD / arrows)" autocomplete="off">
-  <div class="hint">Move: WASD or arrow keys · Bump a foe to attack</div>
+  <div class="hint">Move: WASD or arrows · Bump a foe to attack · G grab · I inventory · M map</div>
 </footer>
 
 <script>
 const FOV_RADIUS = 8;
 const S = {pid:null, name:null, ws:null, user:null,
            room:null, tiles:null, w:0, h:0, you:null, entities:{}, explored:{},
-           exploredByRoom:{}, visited:{}, worldMap:null};
+           exploredByRoom:{}, visited:{}, worldMap:null,
+           groundItems:{}, inventory:[]};
 const $ = s => document.querySelector(s);
 const combatEl = $('#combat');
 const sideEl = $('#side');
@@ -314,8 +338,15 @@ function draw(){
     }
   }
 
-  // Entities (emoji), in view only; the player is always drawn (FOV origin).
+  // Ground items (emoji), drawn beneath living entities, in view only.
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = Math.floor(cell * 0.6) + 'px ui-monospace, Menlo, monospace';
+  for(const id in S.groundItems){
+    const it = S.groundItems[id];
+    if(visible[it.x+','+it.y]) ctx.fillText(it.glyph || '📦', it.x*cell + cell/2, it.y*cell + cell/2 + 1);
+  }
+
+  // Entities (emoji), in view only; the player is always drawn (FOV origin).
   ctx.font = Math.floor(cell * 0.72) + 'px ui-monospace, Menlo, monospace';
   for(const id in S.entities){
     const e = S.entities[id];
@@ -345,6 +376,10 @@ function drawMinimap(){
       m.fillRect(x*cs, y*cs, cs, cs);
     }
   }
+  for(const id in S.groundItems){ const it = S.groundItems[id];
+    if(!S.explored[it.x+','+it.y]) continue;
+    m.fillStyle = '#b48a6a'; m.fillRect(it.x*cs+cs*0.25, it.y*cs+cs*0.25, Math.max(1,cs*0.5), Math.max(1,cs*0.5));
+  }
   for(const id in S.entities){ const e = S.entities[id];
     if(!S.explored[e.x+','+e.y]) continue;
     m.fillStyle = e.kind==='player' ? '#8fae5e' : (e.hostile ? '#c1554a' : '#e6bd5e');
@@ -357,6 +392,53 @@ function setHp(hp, max){
   if(hp==null || max==null) return;
   $('#hpfill').style.width = Math.max(0, Math.round(100*hp/max)) + '%';
   $('#hptext').textContent = `${hp} / ${max} HP`;
+}
+
+// Item stat bonuses → a compact "+1 atk · +2 dmg" string (or '' if none).
+function bonusText(it){
+  const p = [];
+  if(it.attack_bonus) p.push(`+${it.attack_bonus} atk`);
+  if(it.defense_bonus) p.push(`+${it.defense_bonus} def`);
+  if(it.damage_bonus) p.push(`+${it.damage_bonus} dmg`);
+  return p.join(' · ');
+}
+
+function renderWorn(){
+  const w = $('#worn'); w.innerHTML='';
+  const worn = S.inventory.filter(i=>i.equipped);
+  if(!worn.length){ w.innerHTML='<span style="color:var(--dim)">nothing equipped</span>'; return; }
+  worn.forEach(it=>{
+    const d = document.createElement('div');
+    d.innerHTML = `<span class="w">${it.glyph||''} ${it.name}</span>` + (bonusText(it)?` <span style="font-size:.72rem">(${bonusText(it)})</span>`:'');
+    w.appendChild(d);
+  });
+}
+
+// Inventory overlay: Equipped + Carried sections with equip/unequip/drop.
+function renderInventory(){
+  const list = $('#invlist'); list.innerHTML='';
+  if(!S.inventory.length){ list.innerHTML='<div style="color:var(--dim);padding:.4rem">Your pack is empty.</div>'; return; }
+  const mkRow = it=>{
+    const row = document.createElement('div'); row.className = 'invrow' + (it.equipped?' worn':'');
+    const st = [it.equip_slot ? it.equip_slot : it.type, bonusText(it)].filter(Boolean).join(' · ');
+    row.innerHTML = `<span class="ig">${it.glyph||'📦'}</span><span class="inm">${it.name}</span><span class="ist">${st}</span>`;
+    if(it.equip_slot){
+      const b = document.createElement('button');
+      b.textContent = it.equipped ? 'unequip' : 'equip';
+      b.onclick = ()=> send({cmd: it.equipped?'unequip':'equip', item_id: it.id});
+      row.appendChild(b);
+    }
+    const dr = document.createElement('button'); dr.textContent='drop';
+    dr.onclick = ()=> send({cmd:'drop', item_id: it.id});
+    row.appendChild(dr);
+    return row;
+  };
+  const worn = S.inventory.filter(i=>i.equipped), carried = S.inventory.filter(i=>!i.equipped);
+  if(worn.length){ const h=document.createElement('div'); h.className='invsec'; h.textContent='Equipped'; list.appendChild(h);
+    worn.forEach(it=>list.appendChild(mkRow(it))); }
+  const ch=document.createElement('div'); ch.className='invsec'; ch.textContent='Carried'; list.appendChild(ch);
+  if(carried.length) carried.forEach(it=>list.appendChild(mkRow(it)));
+  else { const e=document.createElement('div'); e.style.cssText='color:var(--dim);padding:.3rem'; e.textContent='(nothing stowed)'; list.appendChild(e); }
 }
 
 function renderPanel(){
@@ -387,23 +469,38 @@ function renderPanel(){
 function onEvent(m){
   switch(m.event){
     case 'zone_state': {
-      S.room=m.room; S.you=m.you; S.entities={};
+      S.room=m.room; S.you=m.you; S.entities={}; S.groundItems={};
       S.tiles=m.tiles.grid; S.w=m.tiles.w; S.h=m.tiles.h;
       const rid = m.room.id; S.visited[rid] = true;        // for the overview map
       S.explored = S.exploredByRoom[rid] = (S.exploredByRoom[rid] || {});  // per-zone fog memory
       (m.entities||[]).forEach(e=> S.entities[e.id]=e);
+      (m.items||[]).forEach(it=> S.groundItems[it.id]=it);
       rebuildDisplay(); draw(); renderPanel();
       if(!$('#mapview').classList.contains('hidden')) drawOverview();
       logCombat(`— ${m.room?m.room.name:''} —`, 'l-sys');
+      grabHint();
       break; }
+    case 'inventory':
+      S.inventory = m.items || [];
+      renderWorn();
+      if(!$('#invview').classList.contains('hidden')) renderInventory();
+      break;
+    case 'item_dropped':
+      S.groundItems[m.id] = {id:m.id, name:m.name, glyph:m.glyph, x:m.x, y:m.y};
+      draw(); grabHint();
+      break;
+    case 'item_taken':
+      if(S.groundItems[m.id]) delete S.groundItems[m.id];
+      draw(); grabHint();
+      break;
+    case 'info': logCombat(m.detail, 'l-sys'); break;
     case 'world_map':
       S.worldMap = {rooms:m.rooms, exits:m.exits};
       if(!$('#mapview').classList.contains('hidden')) drawOverview();
       break;
     case 'entity_moved':
-      if(S.you && m.id===S.you.id){ S.you.x=m.x; S.you.y=m.y; }
-      else if(S.entities[m.id]){ S.entities[m.id].x=m.x; S.entities[m.id].y=m.y; }
-      draw();
+      if(S.you && m.id===S.you.id){ S.you.x=m.x; S.you.y=m.y; draw(); grabHint(); }
+      else if(S.entities[m.id]){ S.entities[m.id].x=m.x; S.entities[m.id].y=m.y; draw(); }
       break;
     case 'entity_spawned':
       if(!(S.you && m.id===S.you.id)){
@@ -438,18 +535,40 @@ function onEvent(m){
   }
 }
 
+// ─── Ground items: grab affordance ───
+function itemUnderfoot(){
+  if(!S.you) return null;
+  return Object.values(S.groundItems).find(it=> it.x===S.you.x && it.y===S.you.y) || null;
+}
+let _lastHinted = null;
+function grabHint(){
+  const it = itemUnderfoot();
+  // Only announce when newly standing on something (avoid log spam on every step).
+  if(it && it.id !== _lastHinted){ logCombat(`You see ${it.name} here — press G to grab.`, 'l-sys'); }
+  _lastHinted = it ? it.id : null;
+}
+
+// ─── Inventory overlay ───
+function openInv(){ send({cmd:'inventory'}); $('#invview').classList.remove('hidden'); renderInventory(); }
+function closeInv(){ $('#invview').classList.add('hidden'); }
+function toggleInv(){ $('#invview').classList.contains('hidden') ? openInv() : closeInv(); }
+$('#invbtn').onclick = openInv;
+$('#invview').onclick = e=>{ if(e.target.id === 'invview') closeInv(); };
+
 // ─── Movement input (WASD / arrows) ───
 const MOVE = {
   ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
   w:[0,-1], s:[0,1], a:[-1,0], d:[1,0], W:[0,-1], S:[0,1], A:[-1,0], D:[1,0],
 };
 window.addEventListener('keydown', e=>{
-  if(e.key === 'Escape'){ closeMap(); return; }
+  if(e.key === 'Escape'){ closeMap(); closeInv(); return; }
   // Never hijack keys while typing in a field (login, character name, command
   // box, …) — only move when focus is on the page body.
   const ae = document.activeElement;
   if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
   if(e.key === 'm' || e.key === 'M'){ e.preventDefault(); toggleMap(); return; }
+  if(e.key === 'i' || e.key === 'I'){ e.preventDefault(); toggleInv(); return; }
+  if(e.key === 'g' || e.key === 'G'){ e.preventDefault(); send({cmd:'pickup'}); return; }
   const m = MOVE[e.key];
   if(m){ e.preventDefault(); send({cmd:'move', dx:m[0], dy:m[1]}); }
 });
@@ -531,13 +650,34 @@ function npcByName(name){
   const q = (name||'').toLowerCase();
   return Object.values(S.entities).find(e => e.kind==='npc' && e.name.toLowerCase().startsWith(q));
 }
+function itemByName(name){           // a ground item in the zone (for `get`)
+  const q = (name||'').toLowerCase(); if(!q) return null;
+  return Object.values(S.groundItems).find(it => it.name.toLowerCase().includes(q)) || null;
+}
+function invByName(name){            // a carried item (for drop/equip/unequip)
+  const q = (name||'').toLowerCase(); if(!q) return null;
+  return S.inventory.find(it => it.name.toLowerCase().includes(q)) || null;
+}
 function handleCommand(raw){
   const text = raw.trim(); if(!text) return;
   const parts = text.split(/\s+/); const verb = parts[0].toLowerCase();
   if(verb==='look' || verb==='l'){ send({cmd:'look'}); return; }
   if(verb==='map'){ openMap(); return; }
+  if(verb==='inventory' || verb==='inv' || verb==='i'){ openInv(); return; }
   if(verb==='help' || verb==='?'){
-    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · look · map (or M)', 'l-sys'); return; }
+    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · look · map (or M)', 'l-sys'); return; }
+  if(verb==='get' || verb==='pickup' || verb==='take' || verb==='grab'){
+    const it = itemByName(parts.slice(1).join(' '));
+    send(it ? {cmd:'pickup', item_id:it.id} : {cmd:'pickup'}); return; }
+  if(verb==='drop'){
+    const it = invByName(parts.slice(1).join(' ')); if(!it){ logCombat(`You aren't carrying "${parts.slice(1).join(' ')}".`,'l-err'); return; }
+    send({cmd:'drop', item_id:it.id}); return; }
+  if(verb==='equip' || verb==='wear' || verb==='wield'){
+    const it = invByName(parts.slice(1).join(' ')); if(!it){ logCombat(`You aren't carrying "${parts.slice(1).join(' ')}".`,'l-err'); return; }
+    send({cmd:'equip', item_id:it.id}); return; }
+  if(verb==='unequip' || verb==='remove'){
+    const it = invByName(parts.slice(1).join(' ')); if(!it){ logCombat(`You aren't wearing "${parts.slice(1).join(' ')}".`,'l-err'); return; }
+    send({cmd:'unequip', item_id:it.id}); return; }
   if(verb==='say'){ send({cmd:'say', text:parts.slice(1).join(' ')}); return; }
   if(verb==='talk'){
     const npc = npcByName(parts[1]||''); if(!npc){ logCombat(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }
@@ -554,7 +694,7 @@ let _wsRetried = false;
 function connect(){
   const proto = location.protocol==='https:' ? 'wss' : 'ws';
   S.ws = new WebSocket(`${proto}://${location.host}/ws/${S.pid}?token=${encodeURIComponent(TOK.access)}`);
-  S.ws.onopen = ()=> { _wsRetried = false; logCombat('Connected.', 'l-enter'); };
+  S.ws.onopen = ()=> { _wsRetried = false; logCombat('Connected.', 'l-enter'); send({cmd:'inventory'}); };
   S.ws.onmessage = ev => { try{ onEvent(JSON.parse(ev.data)); }catch(_){ logCombat(ev.data,'l-sys'); } };
   S.ws.onclose = async (ev)=>{
     // 4401 = token expired/invalid: refresh once and reconnect transparently.

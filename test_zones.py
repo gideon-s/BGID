@@ -60,7 +60,7 @@ def test_transition_leaves_no_ghost_in_old_zone(db_session, monkeypatch):
     async def _noop(*a, **k):
         return None
     monkeypatch.setattr(smack_talk, "maybe_smack", _noop)
-    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 5})
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d, **k: {"hit": True, "damage": 5})
     world.load()
     world.place_player(1, 1)                       # in the Foyer
     # Transition to the Great Hall (as the WS handler does).
