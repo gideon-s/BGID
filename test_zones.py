@@ -4,7 +4,12 @@ Test world (conftest): Foyer (1) has a north door (4,0) → Great Hall (2) and
 down stairs (6,3) → Cellar (3, locked w/ Rusty Key); Great Hall has a south door
 (2,4) → Foyer; Cellar has up stairs (3,2) → Foyer.
 """
+import asyncio
+
 import models
+import combat
+import game_loop
+import smack_talk
 from world import world
 
 
@@ -47,6 +52,27 @@ def test_world_map_graph(db_session):
     assert {r["name"] for r in wm["rooms"]} >= {"Foyer", "Great Hall", "Cellar"}
     assert any(e["dir"] == "north" and e["locked"] is False for e in wm["exits"])
     assert any(e["dir"] == "down" and e["locked"] is True for e in wm["exits"])
+
+
+def test_transition_leaves_no_ghost_in_old_zone(db_session, monkeypatch):
+    """After moving zones, the player has a tile position in exactly one room —
+    so the old zone's hostiles can't keep attacking a doorway 'ghost'."""
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(smack_talk, "maybe_smack", _noop)
+    monkeypatch.setattr(combat, "_attack_roll", lambda a, d: {"hit": True, "damage": 5})
+    world.load()
+    world.place_player(1, 1)                       # in the Foyer
+    # Transition to the Great Hall (as the WS handler does).
+    world.move_player(1, 2)
+    world.place_player(1, 2, at=world.arrival_tile(2, "north"))
+    assert world.position_of("player", 1, 1) is None      # no Foyer ghost
+    assert world.position_of("player", 2, 1) is not None   # present in the Hall
+    # The Foyer's hostile Caretaker now finds no target there → player unharmed.
+    full = db_session.query(models.Player).get(1).max_health
+    asyncio.run(game_loop._combat_tick_once())
+    db_session.expire_all()
+    assert db_session.query(models.Player).get(1).health == full
 
 
 # ---------- over the socket ----------

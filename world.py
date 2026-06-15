@@ -240,6 +240,11 @@ class WorldState:
         node = self.rooms.get(room_id)
         if node is None:
             return None
+        # A player occupies exactly one zone's tile grid — clear any prior tile
+        # position (e.g. the doorway in the zone they just left) so stale ghosts
+        # can't be targeted by the old zone's mobs after a transition.
+        for n in self.rooms.values():
+            n.player_pos.pop(player_id, None)
         if at is not None and self._is_walkable_grid(node, *at) and self._occupant(node, *at) is None:
             pos = at
         else:
