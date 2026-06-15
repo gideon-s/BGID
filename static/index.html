@@ -206,7 +206,7 @@
 </main>
 <footer>
   <input id="cmd" placeholder="say hi · talk innkeeper hello · look · help  (move with WASD / arrows)" autocomplete="off">
-  <div class="hint">Move: WASD/arrows · Bump to attack · T target foe · 1–9 cast · G grab · I inventory · M map</div>
+  <div class="hint">Move: WASD/arrows · Bump to attack · T target · F strike · 1–9 cast · G grab · I inventory · M map</div>
 </footer>
 
 <script>
@@ -708,6 +708,11 @@ function cycleTarget(){
   draw(); renderPanel();
 }
 function clearTargetIfGone(id){ if(S.target===id){ S.target=null; renderPanel(); } }
+// Melee the locked target (the server enforces adjacency / "out of reach").
+function attackTarget(){
+  if(S.target==null){ logCombat('No target — press T to lock a foe.', 'l-err'); return; }
+  send({cmd:'attack', target_id:S.target});
+}
 
 // ─── Spell VFX (transient canvas overlay) ───
 function playFx(m){
@@ -748,6 +753,7 @@ window.addEventListener('keydown', e=>{
   if(e.key === 'i' || e.key === 'I'){ e.preventDefault(); toggleInv(); return; }
   if(e.key === 'g' || e.key === 'G'){ e.preventDefault(); send({cmd:'pickup'}); return; }
   if(e.key === 't' || e.key === 'T'){ e.preventDefault(); cycleTarget(); return; }
+  if(e.key === 'f' || e.key === 'F'){ e.preventDefault(); attackTarget(); return; }
   if(e.key >= '1' && e.key <= '9'){ e.preventDefault(); castByIndex(+e.key - 1); return; }
   const m = MOVE[e.key];
   if(m){ e.preventDefault(); send({cmd:'move', dx:m[0], dy:m[1]}); }
@@ -850,7 +856,7 @@ function handleCommand(raw){
     if(!sp){ logCombat(`You don't know a spell like "${parts[1]||''}".`,'l-err'); return; }
     tryCast(sp); return; }
   if(verb==='help' || verb==='?'){
-    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · T to target/cycle foes · cast <spell> (or 1–9 — fires at your target) · look · map (or M)', 'l-sys'); return; }
+    logCombat('Move with WASD/arrows (bump a foe to attack). Commands: say <text> · talk <npc> <text> · attack <npc> · get [item] (or G) · drop <item> · equip/unequip <item> · inventory (or I) · T to target/cycle foes · F to strike your target · cast <spell> (or 1–9 — fires at your target) · look · map (or M)', 'l-sys'); return; }
   if(verb==='get' || verb==='pickup' || verb==='take' || verb==='grab'){
     const it = itemByName(parts.slice(1).join(' '));
     send(it ? {cmd:'pickup', item_id:it.id} : {cmd:'pickup'}); return; }
