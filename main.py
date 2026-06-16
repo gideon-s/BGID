@@ -20,6 +20,7 @@ from combat import resolve_player_attack, resolve_pvp_attack
 from casting import resolve_cast
 import classes
 import races
+import currency
 import spells as spellbook
 import skills as skillbook
 import services
@@ -234,6 +235,7 @@ def _inventory_payload(player_id: int) -> dict:
         items = [
             {"id": i.id, "name": i.name, "glyph": i.glyph or "📦",
              "type": i.item_type, "equip_slot": i.equip_slot, "equipped": i.equipped,
+             "value": i.value or 0,
              "attack_bonus": i.attack_bonus, "defense_bonus": i.defense_bonus,
              "damage_bonus": i.damage_bonus}
             for i in ItemService.inventory_of(db, player_id)
@@ -290,6 +292,7 @@ def _sheet_payload(player_id: int) -> dict:
             "race": p.race or "human",
             "race_name": races.get_race(p.race).get("name", (p.race or "human").title()),
             "gender": p.gender or "none", "appearance": p.appearance or "",
+            "coins": p.coins or 0,
             "level": p.level, "experience": p.experience,
             "hp": p.health, "max_hp": p.max_health, "mana": p.mana, "max_mana": p.max_mana,
             "abilities": abilities, "modifiers": mods,
@@ -613,6 +616,30 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         if item_id is None:
             await manager.send_personal_message(
                 player_id, {"event": "error", "detail": "Nothing here to pick up."})
+            return
+        # A coin pile collects straight into the wallet (not the pack).
+        db = SessionLocal()
+        try:
+            peek = ItemService.get_item(db, int(item_id))
+            is_coins = peek is not None and peek.item_type == "coins"
+        finally:
+            db.close()
+        if is_coins:
+            db = SessionLocal()
+            try:
+                coin = ItemService.get_item(db, int(item_id))
+                amount, cname = coin.value, coin.name
+                balance = ItemService.add_coins(db, player_id, amount)
+                db.delete(coin)              # the pile is spent into the wallet
+                db.commit()
+            finally:
+                db.close()
+            world.remove_ground_item(int(item_id))
+            await manager.broadcast_to_room(
+                room_id, {"event": "item_taken", "id": int(item_id), "by": player_name})
+            await manager.send_personal_message(player_id, {"event": "wallet", "coins": balance})
+            await manager.send_personal_message(
+                player_id, {"event": "info", "detail": f"You gather {currency.short(amount)}."})
             return
         db = SessionLocal()
         try:

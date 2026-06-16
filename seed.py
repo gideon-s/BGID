@@ -213,6 +213,25 @@ def seed():
             "is_usable": True, "glyph": "🧰", "tile_x": 5, "tile_y": 1,
         })
 
+        # Treasure in the Cellar (behind the locked door). A coin pile collects
+        # straight into the wallet on pickup; gems are valued items you carry.
+        # `value` is in COPPER (base-10: 100cp = 1gp). See currency.py.
+        _get_or_create(db, Item, name="Pouch of Coins", defaults={
+            "description": "Loose coins in a stained leather pouch.",
+            "item_type": "coins", "value": 137, "room_id": cellar.id,
+            "is_movable": True, "glyph": "🪙", "tile_x": 1, "tile_y": 3,
+        })
+        _get_or_create(db, Item, name="Garnet", defaults={
+            "description": "A small, blood-red gem.", "item_type": "gem",
+            "value": 50, "room_id": cellar.id, "is_movable": True,
+            "glyph": "🔴", "tile_x": 2, "tile_y": 3,
+        })
+        _get_or_create(db, Item, name="Sapphire", defaults={
+            "description": "A flawless blue stone, cool to the touch.",
+            "item_type": "gem", "value": 250, "room_id": cellar.id,
+            "is_movable": True, "glyph": "🔷", "tile_x": 5, "tile_y": 3,
+        })
+
         # Room connections:
         #   Foyer <-> Great Hall (open, north/south)
         #   Foyer  -> Cellar (down stairs, LOCKED behind the Rusty Key) — the

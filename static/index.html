@@ -150,6 +150,7 @@
   .hpbar{height:.7rem;background:#1a1610;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.1rem 0 .3rem}
   .hpbar > i{display:block;height:100%;background:linear-gradient(90deg,#6f8a48,var(--green))}
   .hptext{color:var(--dim);font-size:.8rem}
+  #purse{color:var(--accent);font-size:.82rem;letter-spacing:.04em;margin:.15rem 0}
   .manabar{height:.55rem;background:#0f1320;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.1rem 0 .25rem}
   .manabar > i{display:block;height:100%;background:linear-gradient(90deg,#3a5a8c,#5b8fd6)}
   /* Quickslot spell bar (under the map) */
@@ -363,6 +364,7 @@
         <div class="hptext" id="hptext">—</div>
         <div class="manabar hidden" id="manawrap"><i id="manafill" style="width:100%"></i></div>
         <div class="hptext hidden" id="manatext"></div>
+        <div id="purse" title="Your coin purse">👛 0cp</div>
         <h2>Worn <span id="invbtn" class="lnk">inventory ▸</span></h2>
         <div id="worn"></div>
         <h2>Here</h2><div id="here"></div>
@@ -900,6 +902,15 @@ function setMana(mana, max){
   $('#manatext').textContent = `${mana||0} / ${max} MP`;
   renderQuickslots();   // affordability may have changed
 }
+// Base-10 coins (copper base): 1234 -> "1pp 2gp 3sp 4cp" (mirror currency.py).
+const COIN_DENOMS = [['pp',1000],['gp',100],['sp',10],['cp',1]];
+function coinStr(copper){
+  copper = Math.max(0, copper|0);
+  if(copper===0) return '0cp';
+  const parts=[]; for(const [tag,unit] of COIN_DENOMS){ const q=Math.floor(copper/unit); copper-=q*unit; if(q) parts.push(q+tag); }
+  return parts.join(' ');
+}
+function setPurse(coins){ if(S.you) S.you.coins = coins|0; const p=$('#purse'); if(p) p.textContent = '👛 ' + coinStr(coins|0); }
 
 // Item stat bonuses → a compact "+1 atk · +2 dmg" string (or '' if none).
 function bonusText(it){
@@ -927,7 +938,8 @@ function renderInventory(){
   if(!S.inventory.length){ list.innerHTML='<div style="color:var(--dim);padding:.4rem">Your pack is empty.</div>'; return; }
   const mkRow = it=>{
     const row = document.createElement('div'); row.className = 'invrow' + (it.equipped?' worn':'');
-    const st = [it.equip_slot ? it.equip_slot : it.type, bonusText(it)].filter(Boolean).join(' · ');
+    const valTxt = it.value ? `worth ${coinStr(it.value)}` : '';
+    const st = [it.equip_slot ? it.equip_slot : it.type, bonusText(it), valTxt].filter(Boolean).join(' · ');
     row.innerHTML = `<span class="ig">${it.glyph||'📦'}</span><span class="inm">${it.name}</span><span class="ist">${st}</span>`;
     if(it.equip_slot){
       const b = document.createElement('button');
@@ -997,7 +1009,7 @@ function onEvent(m){
       (m.items||[]).forEach(it=>{ S.groundItems[it.id]=it; setToken('item', it.id, it.token_url); });
       if(S.you){ setPortrait('player', S.you.id, S.you.portrait_url); setToken('player', S.you.id, S.you.token_url); }
       rebuildDisplay(); draw(); renderPanel();
-      if(S.you) setMana(S.you.mana, S.you.max_mana);
+      if(S.you){ setMana(S.you.mana, S.you.max_mana); setPurse(S.you.coins||0); }
       if(winOpen('fw-map')) drawOverview();
       if(winOpen('fw-room')) renderRoom();
       logCombat(`— ${m.room?m.room.name:''} —`, 'l-sys');
@@ -1028,6 +1040,7 @@ function onEvent(m){
           S.you.hp=m.hp; setHp(m.hp, m.max_hp); }
       }
       break;
+    case 'wallet': setPurse(m.coins||0); break;
     case 'spell_cast': playFx(m); break;
     case 'inventory':
       S.inventory = m.items || [];
@@ -1541,6 +1554,7 @@ function renderSheet(){
       </div></div>
       ${renderAppearanceBlock(s)}
       <div class="shsec">Vitals</div>${vitals}
+      <div class="shsec">Purse</div><div class="apprtext">👛 ${coinStr(s.coins||0)}</div>
       <div class="shsec">Abilities</div>${abil}
       <div class="shsec">Skills</div>${skl || '<div style="color:var(--dim);font-size:.82rem">none</div>'}
     </div>`;

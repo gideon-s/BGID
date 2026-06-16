@@ -357,6 +357,17 @@ class ItemService:
         return granted, False
 
     @staticmethod
+    def add_coins(db: Session, player_id: int, amount: int) -> int:
+        """Add (or subtract) copper to a player's wallet; returns the new balance
+        (clamped at 0). See currency.py for denominations."""
+        player = PlayerService.get_player(db, player_id)
+        if player is None:
+            return 0
+        player.coins = max(0, (player.coins or 0) + int(amount))
+        db.commit()
+        return player.coins
+
+    @staticmethod
     def destroy(db: Session, item_id: int) -> None:
         """Remove an item from play entirely (no owner, no room, no tile) — e.g.
         a consumed key 'crumbling to dust'. Keeps the row so references (an

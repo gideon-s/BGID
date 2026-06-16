@@ -708,6 +708,7 @@ class WorldState:
                 if pid == viewer_id:
                     rec["mana"] = player.mana
                     rec["max_mana"] = player.max_mana
+                    rec["coins"] = player.coins or 0
                     you = rec
                 else:
                     entities.append(rec)

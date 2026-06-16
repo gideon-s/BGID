@@ -175,6 +175,9 @@ class Player(Base, AbilityScoresMixin):
     # Chest ids this character has already looted (JSON list). A class-gear chest
     # spawns its contents once per character; see ItemService.open_chest.
     opened_chests = Column(Text, default="[]", nullable=False)
+    # Wallet, in COPPER (the base unit). 10cp=1sp, 10sp=1gp, 10gp=1pp. See
+    # currency.py. Gems are valued items, not part of this balance.
+    coins = Column(Integer, default=0, nullable=False)
     # Overhead tile rendering glyph. Live (x,y) is not persisted in Phase 1 —
     # players spawn at the zone's spawn tile on connect (master §6).
     glyph = Column(String(8), default="🧙", nullable=False)

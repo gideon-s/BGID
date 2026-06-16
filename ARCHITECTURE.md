@@ -218,6 +218,14 @@ The client shows a **hover label** with the token's name. **Pickups skip immovab
 items** (`world.grabbable_at`) so an item resting on a chest/furniture stays
 retrievable.
 
+**Currency** (`currency.py`): a base-10 coin wallet — `Player.coins` is a single
+**copper** integer; `10cp=1sp, 10sp=1gp, 10gp=1pp` derived for display
+(`currency.short`/`breakdown`). A coin pile (`item_type:"coins"`, `value` copper)
+**collects into the wallet** on pickup (consumed); **gems** (`item_type:"gem"`)
+are valued carried items (`Item.value`), not spendable currency. `coins` rides
+`zone_state.you` + `character_sheet`; a `wallet` event updates the purse; the
+inventory carries each item's `value`. `migrate_currency.py`.
+
 **Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
 Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)
 on the `open` WS command (**O** key when on/adjacent) — created in the pack and
