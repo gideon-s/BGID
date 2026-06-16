@@ -291,7 +291,13 @@ Each step keeps the app runnable.
 
 5. ✅ **Room graph** (`models.RoomExit`, `directions.py`) — directed exits with
    locks/keys; direction-based, lock-aware movement (WS + `/action`); exits in
-   room_state/`/state`; exit-management API.
+   room_state/`/state`; exit-management API. **Consumable shared unlock:** using
+   a key to pass a locked door **destroys the key** (`ItemService.destroy`) and
+   opens the door for *everyone* for `DOOR_UNLOCK_SECONDS` (a single in-memory
+   timer, `world.door_unlocks`); the slow tick (`_relock_doors`) re-locks it and
+   respawns the key at its recorded home tile (`world.key_home`, armed at load).
+   A restart reverts an open door to locked (timers aren't persisted) and recovers
+   a mid-crumble key to its home (`world._arm_doors`).
 
 6. ✅ **Tiled combat slice** (graphical overhaul Phase 1) — rooms become overhead
    tile grids; per-tile movement + FOV; bump-to-attack melee; a real-time mob-AI

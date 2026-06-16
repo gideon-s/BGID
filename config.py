@@ -67,6 +67,11 @@ MOB_CHATTER_RATE_PER_MIN = int(os.getenv("MOB_CHATTER_RATE_PER_MIN", "8"))
 # so prompts stay bounded and image-gen cost/quality stays predictable.
 APPEARANCE_MAX_LENGTH = int(os.getenv("APPEARANCE_MAX_LENGTH", "400"))
 
+# A locked door, once opened with its key, stays open this long for ALL players
+# (a single shared timer); then it re-locks and the key respawns at its home tile.
+# Using the key CONSUMES it ("crumbles to dust"). See world.door_unlocks.
+DOOR_UNLOCK_SECONDS = float(os.getenv("DOOR_UNLOCK_SECONDS", "600"))   # 10 minutes
+
 # Game Configuration
 DEFAULT_PLAYER_HEALTH = 10
 DEFAULT_PLAYER_LEVEL = 1

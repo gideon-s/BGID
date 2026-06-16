@@ -142,11 +142,56 @@ async def _combat_tick_once() -> None:
                     break
 
 
+async def _relock_doors() -> None:
+    """Re-lock any door whose shared open window has elapsed, respawning its key
+    at its home tile (it 'reforms on the floor'). Runs on the slow tick."""
+    due = world.due_door_relocks()
+    if not due:
+        return
+    events = []   # (room_id, item_dropped_event, info_text)
+    db = SessionLocal()
+    try:
+        for from_room, direction in due:
+            world.relock_door(from_room, direction)
+            node = world.rooms.get(from_room)
+            ex = node.exits.get(direction) if node else None
+            kid = ex.get("key_item_id") if ex else None
+            if not kid:
+                continue
+            # Respawn at the recorded home, or fall back to the door's room spawn
+            # (covers a key that was held — never floored — when the server loaded).
+            home = world.key_home.get(kid)
+            if home is None and node is not None:
+                home = (from_room, node.spawn[0], node.spawn[1])
+            if home is None:
+                continue
+            rid, hx, hy = home
+            item = services.ItemService.get_item(db, kid)
+            if item is None:
+                continue
+            item.room_id, item.tile_x, item.tile_y, item.player_id = rid, hx, hy, None
+            item.equipped = False
+            db.commit()
+            glyph = item.glyph or "🔑"
+            world.add_ground_item(rid, kid, hx, hy, item.name, glyph)
+            events.append((rid,
+                {"event": "item_dropped", "id": kid, "name": item.name, "glyph": glyph,
+                 "token_url": item.token_url, "x": hx, "y": hy},
+                f"With a heavy clunk the {direction} door locks itself again — "
+                f"the {item.name.lower()} reforms on the floor."))
+    finally:
+        db.close()
+    for rid, drop_ev, info in events:
+        await manager.broadcast_to_room(rid, drop_ev)
+        await manager.broadcast_to_room(rid, {"event": "info", "detail": info})
+
+
 async def _loop() -> None:
     while True:
         await asyncio.sleep(TICK_SECONDS)
         try:
             await _tick_once()
+            await _relock_doors()
         except Exception as e:  # never let the loop die on a transient error
             print(f"game tick error: {e}")
 

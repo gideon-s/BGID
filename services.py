@@ -313,6 +313,20 @@ class ItemService:
         log_action("move_item", 0, f"Moved item '{item.name}' to room {new_room_id} or player {new_player_id}")
         return item
 
+    @staticmethod
+    def destroy(db: Session, item_id: int) -> None:
+        """Remove an item from play entirely (no owner, no room, no tile) — e.g.
+        a consumed key 'crumbling to dust'. Keeps the row so references (an
+        exit's key_item_id) stay valid and the item can be respawned later."""
+        item = ItemService.get_item(db, item_id)
+        if item is None:
+            return
+        item.player_id = None
+        item.room_id = None
+        item.tile_x = item.tile_y = None
+        item.equipped = False
+        db.commit()
+
     # ---------- inventory & equipment (Phase 3) ----------
     @staticmethod
     def inventory_of(db: Session, player_id: int) -> List[models.Item]:

@@ -25,7 +25,7 @@ import skills as skillbook
 import services
 import game_loop
 import time
-from config import MOVE_COOLDOWN_SECONDS
+from config import MOVE_COOLDOWN_SECONDS, DOOR_UNLOCK_SECONDS
 from chat_schemas import ChatMessageRequest, ChatHistoryRequest, NPCChatRequest
 from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
@@ -275,16 +275,29 @@ async def _try_transition(player_id: int, player_name: str, from_room: int, ex: 
     """Move a player to an adjacent zone via a door/stairs (Phase 2). Enforces
     locks, re-places at the destination's arrival tile, and fixes up presence."""
     direction = ex["direction"]
-    if ex["is_locked"]:
+    # A locked door is passable while its shared open window is active; otherwise
+    # the player must hold the key — and using it CONSUMES the key and opens the
+    # door for everyone for DOOR_UNLOCK_SECONDS (it re-locks + respawns on a tick).
+    if ex["is_locked"] and not world.door_is_open(from_room, direction):
+        key_id = ex["key_item_id"]
         db = SessionLocal()
         try:
-            has_key = ItemService.is_held_by(db, ex["key_item_id"], player_id)
+            has_key = ItemService.is_held_by(db, key_id, player_id)
+            if has_key:
+                ItemService.destroy(db, key_id)          # the key crumbles to dust
         finally:
             db.close()
         if not has_key:
             await manager.send_personal_message(
                 player_id, {"event": "error", "detail": f"The way {direction} is locked."})
             return
+        world.remove_ground_item(key_id)                 # belt-and-suspenders
+        world.open_door(from_room, direction, DOOR_UNLOCK_SECONDS)
+        await manager.broadcast_to_room(
+            from_room, {"event": "info",
+                        "detail": "The Rusty Key crumbles to dust as the lock gives "
+                                  "way — the door stands open."})
+        await _send_inventory(player_id)                 # the key left their pack
     to_room = ex["to_room_id"]
     if not world.move_player(player_id, to_room):     # room-graph + DB write-through
         await manager.send_personal_message(

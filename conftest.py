@@ -159,12 +159,14 @@ def _reset_mob_clocks():
     import smack_talk
     import combat
     import casting
+    from world import world
     game_loop._aggroed.clear()
     game_loop._last_move_at.clear()
     game_loop._last_attack_at.clear()
     combat._respawn_grace.clear()
     casting.reset()
     smack_talk.reset()
+    world.door_unlocks.clear()   # a leaked open door would unlock locked-exit tests
     yield
 
 

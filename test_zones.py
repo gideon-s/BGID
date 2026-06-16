@@ -124,6 +124,62 @@ def test_locked_stairs_pass_with_key(client, token, db_session):
         assert (zs["you"]["x"], zs["you"]["y"]) == (3, 3)   # just below the up stairs
 
 
+def test_using_key_crumbles_it_and_opens_door(client, token, db_session):
+    import database
+    key = db_session.query(models.Item).filter_by(name="Rusty Key").first()
+    key.room_id = key.tile_x = key.tile_y = None
+    key.player_id = 1                       # Bryan carries the Rusty Key
+    db_session.commit()
+    with _ws(client, token, 1) as ws:
+        ws.receive_json()
+        for dx, dy in [(0, 1), (1, 0), (1, 0), (1, 0), (1, 0)]:   # onto the down stairs
+            ws.send_json({"cmd": "move", "dx": dx, "dy": dy})
+        assert _drain_until(ws, lambda m: m["event"] == "zone_state"
+                            and m["room"]["name"] == "Cellar") is not None
+    assert world.door_is_open(1, "down")    # open for everyone now
+    db = database.SessionLocal()
+    try:                                    # the key crumbled to dust (nowhere)
+        k = db.query(models.Item).filter_by(name="Rusty Key").first()
+        assert k.player_id is None and k.room_id is None and k.tile_x is None
+    finally:
+        db.close()
+
+
+def test_open_door_lets_keyless_player_pass(client, token, db_session):
+    world.open_door(1, "down", 600)         # someone already opened it; no key needed
+    with _ws(client, token, 1) as ws:
+        ws.receive_json()
+        for dx, dy in [(0, 1), (1, 0), (1, 0), (1, 0), (1, 0)]:
+            ws.send_json({"cmd": "move", "dx": dx, "dy": dy})
+        assert _drain_until(ws, lambda m: m["event"] == "zone_state"
+                            and m["room"]["name"] == "Cellar") is not None
+
+
+def test_relock_respawns_key(db_session):
+    import database, services
+    world.load()                            # arms doors → records the key's floor home
+    assert (1, "down") not in world.door_unlocks
+    kid = db_session.query(models.Item).filter_by(name="Rusty Key").first().id
+    assert kid in world.key_home
+    # Open the door and crumble the key, then force the window to expire.
+    world.open_door(1, "down", 600)
+    db = database.SessionLocal()
+    try:
+        services.ItemService.destroy(db, kid)
+    finally:
+        db.close()
+    world.door_unlocks[(1, "down")] = 0.0   # expired
+    asyncio.run(game_loop._relock_doors())
+    assert not world.door_is_open(1, "down")        # re-locked
+    db = database.SessionLocal()
+    try:                                    # key reformed on the Foyer floor
+        k = db.query(models.Item).filter_by(id=kid).first()
+        assert k.room_id == 1 and k.tile_x is not None and k.player_id is None
+    finally:
+        db.close()
+    assert world.item_at(1, k.tile_x, k.tile_y) == kid   # present in the live world
+
+
 def test_zone_state_carries_room_description(client, token):
     with _ws(client, token, 1) as ws:
         zs = _drain_until(ws, lambda m: m["event"] == "zone_state")

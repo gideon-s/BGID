@@ -112,6 +112,13 @@ class WorldState:
         self.player_locations: Dict[int, int] = {}  # online player_id -> room_id
         # Slain hostile mobs awaiting respawn: npc_id -> {room_id, due (monotonic)}.
         self.pending_respawns: Dict[int, dict] = {}
+        # Temporarily-open locked doors: (from_room_id, direction) -> expiry
+        # (monotonic). While present+future, the exit's key check is bypassed for
+        # everyone; on expiry the door re-locks and its key respawns.
+        self.door_unlocks: Dict[Tuple[int, str], float] = {}
+        # Home tile of each exit key: item_id -> (room_id, x, y). Recorded at load
+        # from the key's floor position; used to respawn it after a re-lock.
+        self.key_home: Dict[int, Tuple[int, int, int]] = {}
         self.loaded: bool = False
 
     # ---------- loading ----------
@@ -150,9 +157,40 @@ class WorldState:
             self.rooms = rooms
             self.player_locations = {}
             self.pending_respawns = {}
+            self.door_unlocks = {}            # restarts revert any open door to locked
+            self._arm_doors(db)               # record key homes; recover a lost key
             self.loaded = True
         finally:
             db.close()
+
+    def _arm_doors(self, db) -> None:
+        """For every locked exit, remember its key's floor home and make sure the
+        key actually exists on a floor when the door is locked (recovers a key
+        that was mid-'crumble' if the server restarted during an open window)."""
+        for node in self.rooms.values():
+            for direction, ex in node.exits.items():
+                kid = ex.get("key_item_id")
+                if not (ex.get("is_locked") and kid):
+                    continue
+                item = db.query(models.Item).filter_by(id=kid).first()
+                if item is None:
+                    continue
+                if item.room_id and item.tile_x is not None and item.room_id in self.rooms:
+                    self.key_home[kid] = (item.room_id, item.tile_x, item.tile_y)
+                elif item.player_id is None:
+                    # Key is nowhere (a crumble interrupted by a restart) and
+                    # unheld → reform it at its home (or the door's room spawn).
+                    home = self.key_home.get(kid)
+                    if home is None:
+                        sx, sy = node.spawn
+                        home = (node.id, sx, sy)
+                    rid, hx, hy = home
+                    item.room_id, item.tile_x, item.tile_y, item.player_id = rid, hx, hy, None
+                    item.equipped = False
+                    db.commit()
+                    self.key_home[kid] = (rid, hx, hy)
+                    if rid in self.rooms:
+                        self._place_item(self.rooms[rid], item)
 
     @staticmethod
     def _load_tiles(node: "RoomNode", room) -> None:
@@ -536,6 +574,24 @@ class WorldState:
             return None
         ex = node.exits.get(direction)
         return {"direction": direction, **ex} if ex else None
+
+    # ---------- temporary door unlocks (shared, timed) ----------
+    def door_is_open(self, from_room: int, direction: str) -> bool:
+        """True while a locked door is in its shared open window."""
+        exp = self.door_unlocks.get((from_room, direction))
+        return exp is not None and time.monotonic() < exp
+
+    def open_door(self, from_room: int, direction: str, seconds: float) -> None:
+        """Open a locked door for everyone for `seconds` (resets the window)."""
+        self.door_unlocks[(from_room, direction)] = time.monotonic() + seconds
+
+    def relock_door(self, from_room: int, direction: str) -> None:
+        self.door_unlocks.pop((from_room, direction), None)
+
+    def due_door_relocks(self) -> List[Tuple[int, str]]:
+        """Open windows that have expired (ready to re-lock + respawn the key)."""
+        now = time.monotonic()
+        return [k for k, exp in self.door_unlocks.items() if now >= exp]
 
     def _find_transition_tile(self, node: "RoomNode", direction: str) -> Optional[Tuple[int, int]]:
         """Locate the tile in a room that triggers `direction` (a stair glyph, or
