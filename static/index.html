@@ -371,7 +371,7 @@
   <div class="fw-body"><div id="roombody"></div></div>
 </div>
 <div id="fw-map" class="floatwin hidden">
-  <div class="fw-bar"><span>Map — The Black Goat</span><span class="fw-btns"><a class="fw-x" title="Close (Esc)">✕</a></span></div>
+  <div class="fw-bar"><span>Map — BGID</span><span class="fw-btns"><a class="fw-x" title="Close (Esc)">✕</a></span></div>
   <div class="fw-body"><div id="mapscroll"><canvas id="mapcv"></canvas></div></div>
 </div>
 <footer>
@@ -524,8 +524,8 @@ function rebuildDisplay(){
 }
 
 // Floorish (passable-looking) tiles vs structure, for boundary tracing.
-function _floorish(x,y){ const t=tileAt(x,y); return t==='.'||t===':'||t==='~'; }
-function _passable(x,y){ const t=tileAt(x,y); return t==='.'||t===':'||t==='~'||t==='+'; }
+function _floorish(x,y){ const t=tileAt(x,y); return t==='.'||t===':'||t==='~'||t==='>'||t==='<'; }
+function _passable(x,y){ const t=tileAt(x,y); return t==='.'||t===':'||t==='~'||t==='+'||t==='>'||t==='<'; }
 function _seedAt(x,y){ return ((x*131 + y*53) % 9973) + 1; }   // stable per-tile sketch seed
 
 // A wall/pillar tile is "revealed" only if some adjacent passable tile is seen.
@@ -612,7 +612,7 @@ function renderMapLayer(visible){
       const k=x+','+y, vis=visible[k]; if(!vis && !S.explored[k]) continue;
       const ink = vis?INK_VIS:INK_MEM, px=x*cell, py=y*cell;
       const opt={stroke:ink,strokeWidth:Math.max(1.2,cell*0.055),roughness:0.85,bowing:0.8,seed:_seedAt(x,y)};
-      const wall=(nx,ny)=> !_passable(nx,ny);                 // door is an opening, not a wall edge
+      const wall=(nx,ny)=> tileAt(nx,ny)==='#';               // only solid walls box a room (pillars/doors/stairs don't)
       if(wall(x,y-1)) rc.line(px,py,px+cell,py,opt);
       if(wall(x,y+1)) rc.line(px,py+cell,px+cell,py+cell,opt);
       if(wall(x-1,y)) rc.line(px,py,px,py+cell,opt);
@@ -621,6 +621,12 @@ function renderMapLayer(visible){
         mc.fillStyle = ink;
         for(const [ox,oy] of [[-.22,-.16],[.20,.08],[-.06,.22]]){
           mc.beginPath(); mc.arc(px+cell*0.5+ox*cell, py+cell*0.5+oy*cell, Math.max(.6,cell*0.04),0,7); mc.fill(); }
+      } else if(row[x]==='>' || row[x]==='<'){                // stairs: 3 lines of decreasing length
+        const down = row[x]==='>';                            // down → shortest at bottom; up → shortest at top
+        const lens=[0.60,0.42,0.24], rows=[0.30,0.50,0.70];   // longest→shortest, top→bottom
+        const so={stroke:ink, strokeWidth:Math.max(1.4,cell*0.06), roughness:0.5, seed:_seedAt(x,y)};
+        for(let i=0;i<3;i++){ const len=(down?lens[i]:lens[2-i])*cell, yy=py+cell*rows[i], hx=px+cell/2;
+          rc.line(hx-len/2, yy, hx+len/2, yy, so); }
       }
     }
   }
@@ -1656,7 +1662,7 @@ function drawOverview(){
   // Cartouche title + compass rose.
   x.textAlign='left'; x.textBaseline='alphabetic';
   x.fillStyle=INK_VIS; x.font='bold 16px Georgia, serif';
-  x.fillText('The Black Goat — First Level', 14, 26);
+  x.fillText('BGID — First Level', 14, 26);
   _compass(x, W-34, H-34, 18, INK_VIS);
 }
 
