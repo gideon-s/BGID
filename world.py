@@ -177,9 +177,11 @@ class WorldState:
                     continue
                 if item.room_id and item.tile_x is not None and item.room_id in self.rooms:
                     self.key_home[kid] = (item.room_id, item.tile_x, item.tile_y)
-                elif item.player_id is None:
-                    # Key is nowhere (a crumble interrupted by a restart) and
-                    # unheld → reform it at its home (or the door's room spawn).
+                else:
+                    # Not on a floor at load — held by a since-disconnected player
+                    # (holding state is stale across restarts) or mid-'crumble'.
+                    # Reform it on its home floor so a shared key can't be hoarded
+                    # offline; it's always available when no one is carrying it.
                     home = self.key_home.get(kid)
                     if home is None:
                         sx, sy = node.spawn
@@ -601,6 +603,11 @@ class WorldState:
             return None
         ex = node.exits.get(direction)
         return {"direction": direction, **ex} if ex else None
+
+    def exit_key_ids(self) -> Set[int]:
+        """All item ids that are keys for some locked exit (shared door keys)."""
+        return {ex["key_item_id"] for node in self.rooms.values()
+                for ex in node.exits.values() if ex.get("key_item_id")}
 
     # ---------- temporary door unlocks (shared, timed) ----------
     def door_is_open(self, from_room: int, direction: str) -> bool:

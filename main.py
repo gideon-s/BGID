@@ -183,6 +183,35 @@ def _kick_portraits(room_id: int, player_id: Optional[int] = None) -> None:
             portraits.ensure_portrait("npc", nid, room_id)
 
 
+def _return_held_exit_keys(player_id: int) -> list:
+    """Return any shared door-keys this player carries to their home floor, so a
+    key can't be hoarded across a logout. Returns [(room_id, item_dropped_ev)]."""
+    key_ids = world.exit_key_ids()
+    if not key_ids:
+        return []
+    events = []
+    db = SessionLocal()
+    try:
+        held = (db.query(models.Item)
+                .filter(models.Item.player_id == player_id, models.Item.id.in_(key_ids))
+                .all())
+        for item in held:
+            home = world.key_home.get(item.id)
+            if home is None:
+                continue
+            rid, hx, hy = home
+            item.player_id = None
+            item.room_id, item.tile_x, item.tile_y, item.equipped = rid, hx, hy, False
+            db.commit()
+            glyph = item.glyph or "🔑"
+            world.add_ground_item(rid, item.id, hx, hy, item.name, glyph, item.item_type)
+            events.append((rid, {"event": "item_dropped", "id": item.id, "name": item.name,
+                                 "glyph": glyph, "token_url": item.token_url, "x": hx, "y": hy}))
+    finally:
+        db.close()
+    return events
+
+
 def _kick_tokens(room_id: int, player_id: Optional[int] = None) -> None:
     """Fire-and-forget overhead-token generation for everything on the map in a
     room: the viewer, every NPC, and every ground item. No-op when disabled."""
@@ -396,6 +425,9 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
             raw = await websocket.receive_text()
             await _handle_ws_command(player_id, player_name, user_id, raw)
     except WebSocketDisconnect:
+        # A shared door-key returns to its floor so it can't be hoarded offline.
+        for rid, drop_ev in _return_held_exit_keys(player_id):
+            await manager.broadcast_to_room(rid, drop_ev)
         left_room = world.leave_world(player_id)
         _last_move.pop(player_id, None)
         if left_room is not None:

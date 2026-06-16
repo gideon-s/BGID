@@ -180,6 +180,44 @@ def test_relock_respawns_key(db_session):
     assert world.item_at(1, k.tile_x, k.tile_y) == kid   # present in the live world
 
 
+def test_held_key_returns_to_floor_on_load(db_session):
+    # A shared door-key held at server load (stale across restarts) must reform
+    # on the floor, so it can't be hoarded offline.
+    import database
+    key = db_session.query(models.Item).filter_by(name="Rusty Key").first()
+    key.room_id = key.tile_x = key.tile_y = None
+    key.player_id = 1                       # held by Bryan at "shutdown"
+    db_session.commit()
+    world.load()
+    db = database.SessionLocal()
+    try:
+        k = db.query(models.Item).filter_by(name="Rusty Key").first()
+        assert k.player_id is None and k.room_id == 1 and k.tile_x is not None
+        assert world.grabbable_at(1, k.tile_x, k.tile_y) == k.id
+    finally:
+        db.close()
+
+
+def test_disconnecting_holder_drops_the_key(db_session):
+    import main, database
+    world.load()                            # arms key_home from the floored key
+    kid = db_session.query(models.Item).filter_by(name="Rusty Key").first().id
+    db = database.SessionLocal()
+    try:
+        k = db.get(models.Item, kid); k.room_id = k.tile_x = k.tile_y = None
+        k.player_id = 1; db.commit()        # Bryan now carries it
+    finally:
+        db.close()
+    events = main._return_held_exit_keys(1)
+    assert events and events[0][1]["id"] == kid     # an item_dropped event for the key
+    db = database.SessionLocal()
+    try:
+        k = db.get(models.Item, kid)
+        assert k.player_id is None and k.room_id == 1   # back on the Foyer floor
+    finally:
+        db.close()
+
+
 def test_zone_state_carries_room_description(client, token):
     with _ws(client, token, 1) as ws:
         zs = _drain_until(ws, lambda m: m["event"] == "zone_state")
