@@ -167,7 +167,7 @@
   .ent button:hover{border-color:var(--accent);color:var(--accent)}
   .lnk{color:var(--accent);cursor:pointer;font-size:.7rem;letter-spacing:.04em;text-transform:none}
   .lnk:hover{text-decoration:underline}
-  #minimap{width:100%;background:#e7dfca;border:1px solid var(--edge);border-radius:2px;margin-top:.15rem}
+  #minimap{width:100%;background:#c8ba93;border:1px solid var(--edge);border-radius:2px;margin-top:.15rem}
   /* Modal overlays (map, inventory, sheet, settings, help): centered card over a
      dimmed backdrop. Dismissed only by ✕ or Esc — clicking the backdrop does
      nothing (no close-on-outside-click). */
@@ -177,7 +177,7 @@
   .mapcard{position:relative;background:var(--panel);border:1px solid var(--gold-dim);border-radius:4px;padding:1rem 1.1rem;
            box-shadow:0 0 40px rgba(199,162,74,.12);max-width:92vw;max-height:90vh;display:flex;flex-direction:column;gap:.6rem}
   .maptitle{color:var(--accent);font-family:var(--serif);letter-spacing:.16em;text-align:center;font-size:1.1rem}
-  #mapcv{background:#f3ecda;border:1px solid var(--edge);border-radius:2px}
+  #mapcv{background:#c8ba93;border:1px solid var(--edge);border-radius:2px}
   .maphint{color:var(--dim);font-size:.75rem;text-align:center}
   /* Inventory overlay + panel "worn" list */
   #invlist{min-width:320px;max-width:80vw;max-height:64vh;overflow-y:auto;display:flex;flex-direction:column;gap:.25rem}
@@ -492,13 +492,14 @@ function tokenImg(kind,id){
 let cv = null, ctx = null, cell = 16;
 let lastVisible = {};   // set of "x,y" tiles in FOV on the last draw (target-cycling)
 let mapLayer = null, mapKey = '';   // cached hand-drawn map (offscreen) + its (zone,pos) key
-// Cartographic palette: a hand-drawn dungeon map on graph paper (see map.jpg).
-const PAPER     = '#f3ecda';                          // warm graph paper
-const GRID      = 'rgba(120,140,165,0.20)';           // faint blue ruling
-const INK_VIS   = '#2a2419';                          // ink, in view
-const INK_MEM   = '#a89f88';                          // faded ink, remembered (out of FOV)
-const WATER_VIS = '#a9c6d8', WATER_MEM = '#ccd8df';   // pools (pale wash)
-const WAVE_VIS  = '#5d86a0', WAVE_MEM  = '#9fb2bd';
+// Cartographic palette: a hand-drawn dungeon map on AGED parchment (see map.jpg).
+// Darkened from bright cream so the sheet sits in the dark UI without jarring.
+const PAPER     = '#c8ba93';                          // aged, muted parchment
+const GRID      = 'rgba(70,84,102,0.16)';            // faint ruling
+const INK_VIS   = '#231e14';                          // ink, in view
+const INK_MEM   = '#8a8167';                          // faded ink, remembered (out of FOV)
+const WATER_VIS = '#9bb9cb', WATER_MEM = '#aebcc2';   // pools (muted wash)
+const WAVE_VIS  = '#4e7488', WAVE_MEM  = '#8aa0ab';
 
 function inBounds(x,y){ return y>=0 && y<S.h && S.tiles[y] && x>=0 && x<S.tiles[y].length; }
 function tileAt(x,y){ return inBounds(x,y) ? S.tiles[y][x] : '#'; }  // off-grid = wall (FOV)
@@ -760,8 +761,8 @@ function drawToken(tx, ty, glyph, fpx, r, opts){
   ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7);
   if(opts.img){                                   // generated token image
     ctx.save(); ctx.clip(); ctx.drawImage(opts.img, cx-rad, cy-rad, rad*2, rad*2); ctx.restore();
-  } else {                                        // emoji fallback on a paper disc
-    ctx.fillStyle = 'rgba(245,239,224,0.82)'; ctx.fill();
+  } else {                                        // emoji fallback on a parchment disc
+    ctx.fillStyle = 'rgba(214,201,164,0.88)'; ctx.fill();
   }
   ctx.lineWidth = Math.max(1, cell*0.05); ctx.strokeStyle = 'rgba(42,36,25,0.6)'; ctx.stroke();
   if(opts.flash){ ctx.globalAlpha = base*opts.flash.a;
@@ -1631,7 +1632,7 @@ function drawOverview(){
     const id=+idStr, vx=CX(id), vy=CY(id), rx=vx-RW/2, ry=vy-RH/2;
     const here = S.room && id===S.room.id, seen = S.visited[id];
     if(seen){
-      rc.rectangle(rx,ry,RW,RH,{fill:'#efe7d2',fillStyle:'solid',stroke:INK_VIS,
+      rc.rectangle(rx,ry,RW,RH,{fill:'#d6c8a1',fillStyle:'solid',stroke:INK_VIS,
         strokeWidth: here?3:1.8, roughness:1.1, bowing:1.4, seed:id*17+3});
       // room number badge (top-left corner)
       x.fillStyle=INK_VIS; x.font='bold 12px Georgia,serif'; x.textAlign='left'; x.textBaseline='top';
