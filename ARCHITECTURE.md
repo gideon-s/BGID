@@ -306,6 +306,13 @@ Each step keeps the app runnable.
 4. ✅ **Combat & tick** (`combat.py`, `game_loop.py`) — `attack` (turn-based,
    death/respawn, room-wide) and a periodic NPC-regen tick.
 
+4b. ✅ **Admin console** — `/admin/*` (admin-gated): `GET /admin/accounts` (every
+   account + its characters), `PATCH /admin/accounts/{id}` (promote/demote `role`,
+   activate/ban `is_active` — `is_active` already gates login; self-lockout
+   blocked), `DELETE /admin/accounts/{id}` (cascades characters), `DELETE
+   /admin/characters/{id}`. The client header shows an **Admin** link to admins
+   only, opening an overlay to manage accounts/characters.
+
 5. ✅ **Room graph** (`models.RoomExit`, `directions.py`) — directed exits with
    locks/keys; direction-based, lock-aware movement (WS + `/action`); exits in
    room_state/`/state`; exit-management API. **Consumable shared unlock:** using

@@ -64,6 +64,19 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AdminAccountUpdate(BaseModel):
+    """Admin edit of an account: promote/demote and/or activate/ban."""
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("role")
+    @classmethod
+    def role_valid(cls, v):
+        if v is not None and v not in ("player", "admin"):
+            raise ValueError("role must be 'player' or 'admin'")
+        return v
+
+
 # ---------- Characters ----------
 class CharacterCreate(BaseModel):
     name: str

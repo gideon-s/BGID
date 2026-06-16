@@ -175,9 +175,28 @@
   /* Modal overlays (map, inventory, sheet, settings, help): centered card over a
      dimmed backdrop. Dismissed only by ✕ or Esc — clicking the backdrop does
      nothing (no close-on-outside-click). */
-  #settingsview, #helpview{
+  #settingsview, #helpview, #adminview{
            position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
            background:rgba(5,4,3,.86)}
+  /* Admin overlay: a wider card listing accounts + characters. */
+  .mapcard.wide{width:min(720px,94vw)}
+  #adminbody{max-height:70vh;overflow-y:auto;display:flex;flex-direction:column;gap:.5rem;min-width:300px}
+  .acct{border:1px solid var(--edge);border-radius:4px;padding:.5rem .6rem;background:rgba(199,162,74,.03)}
+  .acct.me{border-color:var(--gold-dim)}
+  .acct-head{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+  .acct-name{font-family:var(--serif);color:var(--fg);font-size:.95rem;letter-spacing:.03em}
+  .badge{font-size:.62rem;text-transform:uppercase;letter-spacing:.12em;padding:.06rem .35rem;border-radius:3px;border:1px solid var(--edge)}
+  .badge.admin{color:var(--accent);border-color:var(--gold-dim)}
+  .badge.banned{color:var(--red);border-color:var(--red)}
+  .acct-actions{margin-left:auto;display:flex;gap:.3rem;flex-wrap:wrap}
+  .acct button, .chr button{background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);color:var(--fg);
+           border-radius:3px;cursor:pointer;font-size:.7rem;padding:.12rem .45rem}
+  .acct button:hover, .chr button:hover{border-color:var(--accent);color:var(--accent)}
+  .acct button.danger:hover, .chr button.danger:hover{border-color:var(--red);color:var(--red)}
+  .acct button:disabled{opacity:.4;cursor:default}
+  .chr{display:flex;align-items:center;gap:.45rem;font-size:.82rem;color:var(--dim);margin:.18rem 0 0 .8rem}
+  .chr .cn{color:var(--fg)}
+  .acct-sub{color:var(--dim);font-size:.7rem;margin-top:.2rem}
   .mapcard{position:relative;background:var(--panel);border:1px solid var(--gold-dim);border-radius:4px;padding:1rem 1.1rem;
            box-shadow:0 0 40px rgba(199,162,74,.12);max-width:92vw;max-height:90vh;display:flex;flex-direction:column;gap:.6rem}
   .maptitle{color:var(--accent);font-family:var(--serif);letter-spacing:.16em;text-align:center;font-size:1.1rem}
@@ -314,9 +333,18 @@
   </div>
 </div>
 
+<!-- Admin: account & character management (admins only) -->
+<div id="adminview" class="hidden">
+  <div class="mapcard wide"><a class="cardx" title="Close (Esc)">✕</a>
+    <div class="maptitle">Admin — Accounts &amp; Characters</div>
+    <div id="adminbody"></div>
+    <div class="maphint" id="admin-hint">Manage accounts and their characters. <b>Esc</b> to close.</div>
+  </div>
+</div>
+
 
 <header><b>BGID</b>
-  <span id="hdr-right"><span id="who"></span><span id="controls"><a id="open-sheet">Character</a><a id="open-room">Room</a><a id="open-help">Help</a><a id="open-settings">Settings</a></span></span>
+  <span id="hdr-right"><span id="who"></span><span id="controls"><a id="open-admin" class="hidden">Admin</a><a id="open-sheet">Character</a><a id="open-room">Room</a><a id="open-help">Help</a><a id="open-settings">Settings</a></span></span>
 </header>
 <main>
   <div id="world">
@@ -1298,12 +1326,13 @@ window.addEventListener('keydown', e=>{
     rebinding = null; renderKeys();
     return;
   }
-  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); closeSheet(); closeRoom(); return; }
+  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); closeSheet(); closeRoom(); closeAdmin(); return; }
   // Never hijack keys while typing in a field (login, character name, command box).
   const ae = document.activeElement;
   if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
   // While a full-screen panel is open, only Esc (above) acts — don't move underneath.
-  if(!$('#settingsview').classList.contains('hidden') || !$('#helpview').classList.contains('hidden')) return;
+  if(!$('#settingsview').classList.contains('hidden') || !$('#helpview').classList.contains('hidden')
+     || !$('#adminview').classList.contains('hidden')) return;
   // Quickslots are fixed (positional).
   if(e.key >= '1' && e.key <= '9'){ e.preventDefault(); castByIndex(+e.key - 1); return; }
   // Arrow keys always move, regardless of rebinding.
@@ -1385,6 +1414,76 @@ function openHelp(){ renderHelp(); $('#helpview').classList.remove('hidden'); }
 function closeHelp(){ $('#helpview').classList.add('hidden'); }
 $('#open-help').onclick = openHelp;
 $('#helpview .cardx').onclick = closeHelp;
+
+// ─── Admin overlay (accounts & characters; admins only) ───
+function isAdmin(){ return S.user && S.user.role === 'admin'; }
+function applyAdminUi(){ $('#open-admin').classList.toggle('hidden', !isAdmin()); }
+async function openAdmin(){
+  if(!isAdmin()) return;
+  $('#adminview').classList.remove('hidden');
+  $('#adminbody').innerHTML = '<div style="color:var(--dim);padding:.6rem">Loading…</div>';
+  renderAdmin();
+}
+function closeAdmin(){ $('#adminview').classList.add('hidden'); }
+async function renderAdmin(){
+  const r = await api('/admin/accounts');
+  if(!r.ok){ $('#adminbody').innerHTML = `<div class="gerr">Couldn't load accounts (${r.status}).</div>`; return; }
+  const accts = await r.json();
+  const body = $('#adminbody'); body.innerHTML='';
+  accts.forEach(a=>{
+    const me = S.user && a.id===S.user.id;
+    const el = document.createElement('div'); el.className = 'acct' + (me?' me':'');
+    let head = `<span class="acct-name">${esc(a.username)}</span>`;
+    if(a.role==='admin') head += ` <span class="badge admin">admin</span>`;
+    if(!a.is_active) head += ` <span class="badge banned">banned</span>`;
+    if(me) head += ` <span class="badge">you</span>`;
+    el.innerHTML = `<div class="acct-head">${head}<span class="acct-actions"></span></div>`;
+    const act = el.querySelector('.acct-actions');
+    const mkBtn = (label, fn, danger)=>{ const b=document.createElement('button');
+      b.textContent=label; if(danger) b.className='danger'; b.onclick=fn; act.appendChild(b); return b; };
+    // role toggle
+    const roleBtn = mkBtn(a.role==='admin'?'revoke admin':'make admin',
+      ()=> patchAccount(a.id, {role: a.role==='admin'?'player':'admin'}));
+    // ban toggle
+    const banBtn = mkBtn(a.is_active?'ban':'unban',
+      ()=> patchAccount(a.id, {is_active: !a.is_active}), a.is_active);
+    // delete account
+    const delBtn = mkBtn('delete', ()=>{
+      if(confirm(`Delete account "${a.username}" and all its characters? This can't be undone.`))
+        delAccount(a.id); }, true);
+    if(me){ roleBtn.disabled = banBtn.disabled = delBtn.disabled = true;
+            roleBtn.title = banBtn.title = delBtn.title = "You can't change your own account here"; }
+    // characters
+    if(a.characters.length){
+      a.characters.forEach(c=>{
+        const cr = document.createElement('div'); cr.className='chr';
+        cr.innerHTML = `<span class="cn">${esc(c.name)}</span> · ${esc(c.race||'')} ${esc(c.char_class)} · L${c.level} · #${c.id}`;
+        const d = document.createElement('button'); d.textContent='delete'; d.className='danger';
+        d.onclick = ()=>{ if(confirm(`Delete character "${c.name}"?`)) delChar(c.id); };
+        cr.appendChild(d); el.appendChild(cr);
+      });
+    } else { el.insertAdjacentHTML('beforeend', `<div class="acct-sub">no characters</div>`); }
+    body.appendChild(el);
+  });
+  if(!accts.length) body.innerHTML='<div style="color:var(--dim);padding:.6rem">No accounts.</div>';
+}
+async function patchAccount(id, data){
+  const r = await api(`/admin/accounts/${id}`, {method:'PATCH', body:data});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); $('#admin-hint').textContent = humanError(e)||('Error '+r.status); }
+  renderAdmin();
+}
+async function delAccount(id){
+  const r = await api(`/admin/accounts/${id}`, {method:'DELETE'});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); $('#admin-hint').textContent = humanError(e)||('Error '+r.status); }
+  renderAdmin();
+}
+async function delChar(id){
+  const r = await api(`/admin/characters/${id}`, {method:'DELETE'});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); $('#admin-hint').textContent = humanError(e)||('Error '+r.status); }
+  renderAdmin();
+}
+$('#open-admin').onclick = openAdmin;
+$('#adminview .cardx').onclick = closeAdmin;
 
 // ─── Character sheet overlay ───
 const ABIL = [['str','STR'],['dex','DEX'],['con','CON'],['intel','INT'],['wis','WIS'],['cha','CHA']];
@@ -1837,6 +1936,7 @@ async function submitAuth(){
     }
     TOK.set(data.tokens);
     S.user = data.user;
+    applyAdminUi();
     showCharacters();
   }catch(_){ $('#au-err').textContent = 'Could not reach the server.'; }
 }
@@ -1955,7 +2055,7 @@ $('#char-logout').onclick = char_logout;
   setMode('login');
   if(TOK.access){
     const r = await api('/auth/me');
-    if(r.ok){ const me = await r.json(); S.user = me.user; showCharacters(); return; }
+    if(r.ok){ const me = await r.json(); S.user = me.user; applyAdminUi(); showCharacters(); return; }
     TOK.clear();
   }
 })();
