@@ -16,7 +16,7 @@ from websocket_manager import manager
 from chat_system import chat_manager, ChatType
 from world import world
 from npc_turns import run_npc_turn, build_llm_npc, build_context
-from combat import resolve_player_attack
+from combat import resolve_player_attack, resolve_pvp_attack
 from casting import resolve_cast
 import classes
 import races
@@ -478,6 +478,8 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
                 await _try_transition(player_id, player_name, room_id, ex)
         elif res.kind == "ATTACK" and res.target_kind == "npc":
             await resolve_player_attack(player_id, room_id, res.target_id)
+        elif res.kind == "ATTACK" and res.target_kind == "player":
+            await resolve_pvp_attack(player_id, room_id, res.target_id)   # PvP bump
         # BLOCKED: walls/occupied — no-op (the wall is its own feedback).
 
     elif cmd == "talk":
@@ -517,7 +519,7 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         asyncio.create_task(run_npc_turn(player_id, room_id, int(npc_id), text))
 
     elif cmd == "attack":
-        # Explicit melee on an adjacent target (alongside bump-to-attack).
+        # Explicit melee on an adjacent target (NPC or another player).
         target_id = msg.get("target_id", msg.get("npc_id"))
         if target_id is None:
             await manager.send_personal_message(
@@ -525,12 +527,15 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
             )
             return
         node = world.rooms.get(room_id)
-        if node is None or int(target_id) not in node.npc_ids:
+        tid = int(target_id)
+        if node is not None and tid in node.npc_ids:
+            await resolve_player_attack(player_id, room_id, tid)
+        elif node is not None and tid in node.player_pos and tid != player_id:
+            await resolve_pvp_attack(player_id, room_id, tid)        # PvP
+        else:
             await manager.send_personal_message(
-                player_id, {"event": "error", "detail": f"No NPC {target_id} in this room"}
+                player_id, {"event": "error", "detail": f"No target {target_id} in this room"}
             )
-            return
-        await resolve_player_attack(player_id, room_id, int(target_id))
 
     elif cmd == "inventory":
         await _send_inventory(player_id)
@@ -573,7 +578,7 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         item_id = msg.get("item_id")
         if item_id is None:
             pos = world.position_of("player", room_id, player_id)
-            item_id = world.item_at(room_id, *pos) if pos else None
+            item_id = world.grabbable_at(room_id, *pos) if pos else None   # skip a chest
         if item_id is None:
             await manager.send_personal_message(
                 player_id, {"event": "error", "detail": "Nothing here to pick up."})

@@ -63,6 +63,16 @@ def test_chest_near_detects_on_and_adjacent(db_session):
     assert world.chest_near(2, 5, 3) is None    # out of reach
 
 
+def test_grabbable_skips_the_immovable_chest(db_session):
+    # An item resting on the chest's tile must still be retrievable (the bug:
+    # the immovable chest shadowed it, so pickup-by-tile grabbed the chest).
+    world.load()
+    world.add_ground_item(2, 999, 3, 1, "Lost Coin", "🪙")   # onto the chest tile (3,1)
+    assert world.grabbable_at(2, 3, 1) == 999                # the coin, not the chest
+    world.remove_ground_item(999)
+    assert world.grabbable_at(2, 3, 1) is None               # the chest alone isn't grabbable
+
+
 def test_chest_migration_idempotent(db_session):
     import migrate_chest
     migrate_chest.migrate()

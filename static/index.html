@@ -917,6 +917,10 @@ function renderPanel(){
       const a = document.createElement('button'); a.textContent='attack';
       a.onclick=()=> send({cmd:'attack', target_id:e.id});
       row.appendChild(a);
+    } else if(e.kind==='player'){
+      const a = document.createElement('button'); a.textContent='attack';
+      a.onclick=()=> send({cmd:'attack', target_id:e.id});   // PvP
+      row.appendChild(a);
     }
     here.appendChild(row); any=true;
   });

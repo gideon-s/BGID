@@ -184,6 +184,42 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
                                                    glyph=npc_glyph))
 
 
+async def resolve_pvp_attack(attacker_id: int, room_id: int, target_id: int) -> None:
+    """One player strikes another adjacent player (bump-to-attack or explicit
+    attack). Both sides' equipped gear counts; a kill routes through the shared
+    damage_player path (broadcast + respawn + grace), exactly like a mob hit."""
+    if attacker_id == target_id:
+        return
+    db = SessionLocal()
+    try:
+        attacker = services.PlayerService.get_player(db, attacker_id)
+        target = services.PlayerService.get_player(db, target_id)
+        if attacker is None or target is None or attacker.health <= 0 or target.health <= 0:
+            return
+        ap = world.position_of("player", room_id, attacker_id)
+        tp = world.position_of("player", room_id, target_id)
+        if ap is None or tp is None or world.chebyshev(ap, tp) > 1:
+            await manager.send_personal_message(
+                attacker_id, {"event": "error", "detail": f"{target.name} is out of reach"})
+            return
+        ag = services.ItemService.equipment_bonuses(db, attacker_id)
+        tg = services.ItemService.equipment_bonuses(db, target_id)
+        roll = _attack_roll(attacker, target, atk_bonus=ag["attack"],
+                            dmg_bonus=ag["damage"], def_bonus=tg["defense"])
+        attacker_name, target_name, target_max, target_hp = (
+            attacker.name, target.name, target.max_health, target.health)
+    finally:
+        db.close()
+    if roll["hit"]:
+        # damage_player applies the hit, broadcasts it, and handles death/respawn.
+        await damage_player(room_id, target_id, roll["damage"],
+                            attacker_name, attacker_id, by_type="player")
+    else:
+        await manager.broadcast_to_room(room_id, _combat_event(
+            attacker_name, attacker_id, "player", target_name, target_id, "player",
+            roll, target_hp, target_max))
+
+
 async def resolve_mob_attack(npc_id: int, room_id: int, player_id: int) -> None:
     """A hostile mob strikes an adjacent player once (driven by the combat tick)."""
     if time.monotonic() < _respawn_grace.get(player_id, 0.0):

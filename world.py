@@ -235,7 +235,8 @@ class WorldState:
         node.item_ids.add(item.id)
         node.item_pos[item.id] = (x, y)
         node.item_meta[item.id] = {"name": item.name, "glyph": item.glyph or "📦",
-                                   "item_type": item.item_type or "generic"}
+                                   "item_type": item.item_type or "generic",
+                                   "movable": bool(item.is_movable)}
 
     @staticmethod
     def _is_walkable_grid(node: "RoomNode", x: int, y: int) -> bool:
@@ -325,7 +326,18 @@ class WorldState:
         node.item_ids.add(item_id)
         node.item_pos[item_id] = (x, y)
         node.item_meta[item_id] = {"name": name, "glyph": glyph or "📦",
-                                   "item_type": item_type or "generic"}
+                                   "item_type": item_type or "generic", "movable": True}
+
+    def grabbable_at(self, room_id: int, x: int, y: int) -> Optional[int]:
+        """A MOVABLE ground item id on a tile — skips immovable objects (a chest,
+        furniture) so an item resting on/under one stays retrievable."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        for iid, pos in node.item_pos.items():
+            if pos == (x, y) and node.item_meta.get(iid, {}).get("movable", True):
+                return iid
+        return None
 
     def chest_near(self, room_id: int, x: int, y: int) -> Optional[int]:
         """Id of a 'chest' ground item on or adjacent to (x, y), or None."""
@@ -404,9 +416,11 @@ class WorldState:
                 if node.npc_meta.get(occ_id, {}).get("combat_enabled"):
                     return StepResult("ATTACK", target_kind="npc", target_id=occ_id)
                 return StepResult("BLOCKED")
+            if kind == "player" and occ_kind == "player":
+                return StepResult("ATTACK", target_kind="player", target_id=occ_id)  # PvP
             if kind == "npc" and occ_kind == "player":
                 return StepResult("ATTACK", target_kind="player", target_id=occ_id)
-            return StepResult("BLOCKED")  # player↔player, npc↔npc
+            return StepResult("BLOCKED")  # npc↔npc
         store[entity_id] = (nx, ny)
         return StepResult("MOVED", x=nx, y=ny)
 

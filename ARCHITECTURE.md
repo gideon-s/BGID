@@ -209,6 +209,12 @@ and a fresh portrait generates. Dark by default: with no
 `NOVITA_API_KEY` the manager is disabled and every subject falls back to its
 emoji glyph (exactly how DeepSeek-off degrades). Additive `migrate_phase5.py`.
 
+**PvP:** bumping another player (or `attack {target_id}` on one) strikes them —
+`world.try_step` returns `ATTACK target_kind:"player"`, `combat.resolve_pvp_attack`
+rolls with both sides' gear and routes a kill through the shared `damage_player`
+(broadcast + respawn + grace). **Pickups skip immovable items** (`world.grabbable_at`)
+so an item resting on a chest/furniture stays retrievable.
+
 **Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
 Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)
 on the `open` WS command (**O** key when on/adjacent) — created in the pack and
