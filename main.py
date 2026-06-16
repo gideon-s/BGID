@@ -478,8 +478,7 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
                 await _try_transition(player_id, player_name, room_id, ex)
         elif res.kind == "ATTACK" and res.target_kind == "npc":
             await resolve_player_attack(player_id, room_id, res.target_id)
-        elif res.kind == "ATTACK" and res.target_kind == "player":
-            await resolve_pvp_attack(player_id, room_id, res.target_id)   # PvP bump
+        # PvP is not bump-triggered (intentional only) — see the `attack` command.
         # BLOCKED: walls/occupied — no-op (the wall is its own feedback).
 
     elif cmd == "talk":

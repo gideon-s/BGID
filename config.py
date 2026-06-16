@@ -67,6 +67,12 @@ MOB_CHATTER_RATE_PER_MIN = int(os.getenv("MOB_CHATTER_RATE_PER_MIN", "8"))
 # so prompts stay bounded and image-gen cost/quality stays predictable.
 APPEARANCE_MAX_LENGTH = int(os.getenv("APPEARANCE_MAX_LENGTH", "400"))
 
+# Rooms where players cannot attack each other (PvP truce). Defaults to the
+# starting room (the Foyer) — a safe arrival/respawn hub. Comma-separated ids.
+PVP_SAFE_ROOM_IDS = {int(x) for x in
+                     os.getenv("PVP_SAFE_ROOM_IDS", str(STARTING_ROOM_ID)).split(",")
+                     if x.strip()}
+
 # A locked door, once opened with its key, stays open this long for ALL players
 # (a single shared timer); then it re-locks and the key respawns at its home tile.
 # Using the key CONSUMES it ("crumbles to dust"). See world.door_unlocks.

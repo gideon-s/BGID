@@ -416,11 +416,11 @@ class WorldState:
                 if node.npc_meta.get(occ_id, {}).get("combat_enabled"):
                     return StepResult("ATTACK", target_kind="npc", target_id=occ_id)
                 return StepResult("BLOCKED")
-            if kind == "player" and occ_kind == "player":
-                return StepResult("ATTACK", target_kind="player", target_id=occ_id)  # PvP
             if kind == "npc" and occ_kind == "player":
                 return StepResult("ATTACK", target_kind="player", target_id=occ_id)
-            return StepResult("BLOCKED")  # npc↔npc
+            # PvP is intentional only: bumping a player does NOT attack (you just
+            # can't walk through them). Use the strike action / `attack` command.
+            return StepResult("BLOCKED")  # player↔player, npc↔npc
         store[entity_id] = (nx, ny)
         return StepResult("MOVED", x=nx, y=ny)
 

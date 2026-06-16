@@ -28,7 +28,7 @@ import services
 from websocket_manager import manager
 from world import world
 import smack_talk
-from config import STARTING_ROOM_ID, RESPAWN_GRACE_SECONDS
+from config import STARTING_ROOM_ID, RESPAWN_GRACE_SECONDS, PVP_SAFE_ROOM_IDS
 
 _DAMAGE_DIE = 6        # 1dN base weapon damage
 _LOW_HP_FRACTION = 0.3  # threshold for "wounded" smack-talk
@@ -189,6 +189,11 @@ async def resolve_pvp_attack(attacker_id: int, room_id: int, target_id: int) -> 
     attack). Both sides' equipped gear counts; a kill routes through the shared
     damage_player path (broadcast + respawn + grace), exactly like a mob hit."""
     if attacker_id == target_id:
+        return
+    if room_id in PVP_SAFE_ROOM_IDS:
+        await manager.send_personal_message(
+            attacker_id, {"event": "error",
+                          "detail": "This hall is under truce — no fighting here."})
         return
     db = SessionLocal()
     try:
