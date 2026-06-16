@@ -1049,7 +1049,12 @@ let _lastHinted = null;
 function grabHint(){
   const it = itemUnderfoot();
   // Only announce when newly standing on something (avoid log spam on every step).
-  if(it && it.id !== _lastHinted){ logCombat(`You see ${it.name} here — press G to grab.`, 'l-sys'); }
+  if(it && it.id !== _lastHinted){
+    if(it.item_type === 'chest')
+      logCombat(`The ${it.name} sits here — press ${keyLabel(S.keys.open)} to open.`, 'l-sys');
+    else
+      logCombat(`You see ${it.name} here — press ${keyLabel(S.keys.grab)} to grab.`, 'l-sys');
+  }
   _lastHinted = it ? it.id : null;
 }
 
@@ -1180,6 +1185,7 @@ const ACTIONS = [
   {id:'target',        label:'Target / cycle foe', def:'t'},
   {id:'attack',        label:'Attack target',    def:' '},
   {id:'grab',          label:'Grab item',        def:'g'},
+  {id:'open',          label:'Open chest',       def:'o'},
   {id:'inventory',     label:'Inventory',        def:'i'},
   {id:'sheet',         label:'Character sheet',  def:'k'},
   {id:'map',           label:'Map',              def:'m'},
@@ -1214,6 +1220,7 @@ function runAction(id){
   if(id==='target') cycleTarget();
   else if(id==='attack') attackTarget();
   else if(id==='grab') send({cmd:'pickup'});
+  else if(id==='open') send({cmd:'open'});
   else if(id==='inventory') toggleInv();
   else if(id==='sheet') toggleSheet();
   else if(id==='map') toggleMap();

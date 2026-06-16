@@ -535,6 +535,39 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
     elif cmd == "inventory":
         await _send_inventory(player_id)
 
+    elif cmd == "open":
+        # Open a chest on/adjacent to the player. Grants the player's class
+        # starting gear — once per character (see ItemService.open_chest).
+        pos = world.position_of("player", room_id, player_id)
+        chest_id = world.chest_near(room_id, *pos) if pos else None
+        if chest_id is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "There's no chest within reach."})
+            return
+        db = SessionLocal()
+        try:
+            player = PlayerService.get_player(db, player_id)
+            chest = ItemService.get_item(db, int(chest_id))
+            if player is None or chest is None:
+                granted, already = [], False
+            else:
+                granted, already = ItemService.open_chest(db, player, chest)
+            names = [g.name for g in granted]
+        finally:
+            db.close()
+        if already:
+            await manager.send_personal_message(
+                player_id, {"event": "info", "detail": "The chest is bare — you've already taken your kit."})
+        elif names:
+            await manager.send_personal_message(
+                player_id, {"event": "info",
+                            "detail": "You open the Old Chest and find gear meant for you: "
+                                      + ", ".join(names) + " — donned and ready."})
+            await _send_inventory(player_id)
+        else:
+            await manager.send_personal_message(
+                player_id, {"event": "info", "detail": "The chest is empty."})
+
     elif cmd == "pickup":
         # Pick up the named item, or (default) whatever lies on the player's tile.
         item_id = msg.get("item_id")
@@ -576,14 +609,14 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         db = SessionLocal()
         try:
             item = ItemService.drop(db, player_id, int(item_id), pos[0], pos[1])
-            name, glyph = item.name, item.glyph or "📦"
+            name, glyph, itype = item.name, item.glyph or "📦", item.item_type
         except HTTPException as exc:
             await manager.send_personal_message(
                 player_id, {"event": "error", "detail": exc.detail})
             return
         finally:
             db.close()
-        world.add_ground_item(room_id, int(item_id), pos[0], pos[1], name, glyph)
+        world.add_ground_item(room_id, int(item_id), pos[0], pos[1], name, glyph, itype)
         token_url = portraits.ensure_token("item", int(item_id), room_id)   # generate-once
         await manager.broadcast_to_room(
             room_id, {"event": "item_dropped", "id": int(item_id), "name": name,

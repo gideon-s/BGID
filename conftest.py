@@ -105,7 +105,11 @@ def _seed(db):
                         item_type="armor", room_id=foyer.id, glyph="🛡️",
                         tile_x=4, tile_y=1, is_movable=True, is_equippable=True,
                         equip_slot="armor", defense_bonus=2)
-    db.add_all([rusty, sword, armor])
+    # Class-gear chest in the Great Hall (room 2) at (3,1); immovable.
+    chest = models.Item(name="Old Chest", description="A banded oak chest.",
+                        item_type="chest", room_id=hall.id, glyph="🧰",
+                        tile_x=3, tile_y=1, is_movable=False, is_usable=True)
+    db.add_all([rusty, sword, armor, chest])
     db.commit()
 
     # Foyer <-> Great Hall (open); Foyer -> Cellar (locked, Rusty Key); Cellar -> Foyer (open)

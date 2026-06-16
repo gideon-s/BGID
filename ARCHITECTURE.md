@@ -209,6 +209,12 @@ and a fresh portrait generates. Dark by default: with no
 `NOVITA_API_KEY` the manager is disabled and every subject falls back to its
 emoji glyph (exactly how DeepSeek-off degrades). Additive `migrate_phase5.py`.
 
+**Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
+Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)
+on the `open` WS command (**O** key when on/adjacent) — created in the pack and
+auto-equipped — **once per character** (`Player.opened_chests` JSON, set by
+`ItemService.open_chest`; `migrate_chest.py`).
+
 Equipment slots: `weapon`, `ring`×2, `amulet`, and the **15 body slots** —
 `head`/`torso`/`pelvis` plus independent left/right for each limb
 (`{left,right}_upper_arm`/`_lower_arm`/`_hand`/`_upper_leg`/`_lower_leg`/`_foot`)

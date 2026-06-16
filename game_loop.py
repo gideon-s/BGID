@@ -173,7 +173,7 @@ async def _relock_doors() -> None:
             item.equipped = False
             db.commit()
             glyph = item.glyph or "🔑"
-            world.add_ground_item(rid, kid, hx, hy, item.name, glyph)
+            world.add_ground_item(rid, kid, hx, hy, item.name, glyph, item.item_type)
             events.append((rid,
                 {"event": "item_dropped", "id": kid, "name": item.name, "glyph": glyph,
                  "token_url": item.token_url, "x": hx, "y": hy},

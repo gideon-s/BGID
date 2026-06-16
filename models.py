@@ -172,6 +172,9 @@ class Player(Base, AbilityScoresMixin):
     # character sheet; folded into the portrait prompt, so editing it re-keys the
     # prompt hash and regenerates the portrait (see portraits.build_player_prompt).
     appearance = Column(Text, default="", nullable=False)
+    # Chest ids this character has already looted (JSON list). A class-gear chest
+    # spawns its contents once per character; see ItemService.open_chest.
+    opened_chests = Column(Text, default="[]", nullable=False)
     # Overhead tile rendering glyph. Live (x,y) is not persisted in Phase 1 —
     # players spawn at the zone's spawn tile on connect (master §6).
     glyph = Column(String(8), default="🧙", nullable=False)

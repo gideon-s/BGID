@@ -5,9 +5,11 @@ from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
+import json
 import models
 import schemas
 import directions
+import classes
 from utils import dict_from_model, log_action, validate_ability_scores
 
 # How many items may be worn in each equipment slot at once. Equipping into a
@@ -312,6 +314,47 @@ class ItemService:
         
         log_action("move_item", 0, f"Moved item '{item.name}' to room {new_room_id} or player {new_player_id}")
         return item
+
+    @staticmethod
+    def open_chest(db: Session, player: "models.Player", chest_item: "models.Item"):
+        """Grant a character its class's starting gear from a chest — ONCE per
+        character. Creates the items in the player's pack, auto-equips the
+        equippable pieces, and records the chest as looted. Returns
+        ``(granted_items, already_claimed)``."""
+        try:
+            claimed = json.loads(player.opened_chests or "[]")
+        except (json.JSONDecodeError, TypeError):
+            claimed = []
+        if chest_item.id in claimed:
+            return [], True
+        granted = []
+        for g in classes.starting_gear(player.char_class):
+            item = models.Item(
+                name=g["name"], description=g.get("description", ""),
+                item_type=g.get("item_type", "generic"), glyph=g.get("glyph", "📦"),
+                player_id=player.id, room_id=None, tile_x=None, tile_y=None,
+                is_movable=True, is_equippable=bool(g.get("equip_slot")),
+                equip_slot=g.get("equip_slot"),
+                attack_bonus=g.get("attack_bonus", 0),
+                defense_bonus=g.get("defense_bonus", 0),
+                damage_bonus=g.get("damage_bonus", 0),
+            )
+            db.add(item)
+            granted.append(item)
+        claimed.append(chest_item.id)
+        player.opened_chests = json.dumps(claimed)
+        db.commit()
+        for item in granted:
+            db.refresh(item)
+        for item in granted:                 # auto-equip (a fresh character's slots are free)
+            if item.equip_slot:
+                try:
+                    ItemService.equip(db, player.id, item.id)
+                except HTTPException:
+                    pass
+        log_action("open_chest", player.id,
+                   f"Looted chest {chest_item.id}: {[i.name for i in granted]}")
+        return granted, False
 
     @staticmethod
     def destroy(db: Session, item_id: int) -> None:

@@ -234,7 +234,8 @@ class WorldState:
             x, y = self._first_free_tile(node)
         node.item_ids.add(item.id)
         node.item_pos[item.id] = (x, y)
-        node.item_meta[item.id] = {"name": item.name, "glyph": item.glyph or "📦"}
+        node.item_meta[item.id] = {"name": item.name, "glyph": item.glyph or "📦",
+                                   "item_type": item.item_type or "generic"}
 
     @staticmethod
     def _is_walkable_grid(node: "RoomNode", x: int, y: int) -> bool:
@@ -302,7 +303,7 @@ class WorldState:
             meta = node.item_meta.get(iid, {})
             out.append({"id": iid, "name": meta.get("name", "item"),
                         "glyph": meta.get("glyph", "📦"), "token_url": tokens.get(iid),
-                        "x": x, "y": y})
+                        "item_type": meta.get("item_type", "generic"), "x": x, "y": y})
         return out
 
     def item_at(self, room_id: int, x: int, y: int) -> Optional[int]:
@@ -316,14 +317,26 @@ class WorldState:
         return None
 
     def add_ground_item(self, room_id: int, item_id: int, x: int, y: int,
-                        name: str, glyph: str) -> None:
+                        name: str, glyph: str, item_type: str = "generic") -> None:
         """Place an item onto a tile in the live world (a drop)."""
         node = self.rooms.get(room_id)
         if node is None:
             return
         node.item_ids.add(item_id)
         node.item_pos[item_id] = (x, y)
-        node.item_meta[item_id] = {"name": name, "glyph": glyph or "📦"}
+        node.item_meta[item_id] = {"name": name, "glyph": glyph or "📦",
+                                   "item_type": item_type or "generic"}
+
+    def chest_near(self, room_id: int, x: int, y: int) -> Optional[int]:
+        """Id of a 'chest' ground item on or adjacent to (x, y), or None."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        for iid, (ix, iy) in node.item_pos.items():
+            if max(abs(ix - x), abs(iy - y)) <= 1 \
+                    and node.item_meta.get(iid, {}).get("item_type") == "chest":
+                return iid
+        return None
 
     def remove_ground_item(self, item_id: int) -> None:
         """Drop an item from whatever room's ground holds it (a pickup)."""

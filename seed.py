@@ -203,6 +203,16 @@ def seed():
             stool.glyph, stool.tile_x, stool.tile_y = "🪑", 10, 1
             db.commit()
 
+        # Class-gear chest in the Great Hall. Immovable; opening it (the `open`
+        # command / O key) grants the opener their class's starting kit, once per
+        # character (see ItemService.open_chest + classes.starting_gear).
+        _get_or_create(db, Item, name="Old Chest", defaults={
+            "description": "A banded oak chest. It seems to hold something fitting "
+                           "for each who opens it.",
+            "item_type": "chest", "room_id": hall.id, "is_movable": False,
+            "is_usable": True, "glyph": "🧰", "tile_x": 5, "tile_y": 1,
+        })
+
         # Room connections:
         #   Foyer <-> Great Hall (open, north/south)
         #   Foyer  -> Cellar (down stairs, LOCKED behind the Rusty Key) — the
