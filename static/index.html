@@ -740,9 +740,11 @@ function paint(){
   for(const id in S.entities){ const e=S.entities[id];
     if(!visible[e.x+','+e.y]) continue;
     const v = vpos(e.id, e.x, e.y); ANIM.last[e.id]=v;
-    drawToken(v.x, v.y, e.glyph||'?', cell*0.72, 0.44, {flash:flashOf(e.id), img:tokenImg(e.kind, e.id)}); }
+    drawToken(v.x, v.y, e.glyph||'?', cell*0.72, 0.44, {flash:flashOf(e.id), img:tokenImg(e.kind, e.id)});
+    if(e.max_hp && e.hp!=null && e.hp < e.max_hp) drawHealthBar(v.x, v.y, e.hp/e.max_hp); }
   const yv = vpos('you', S.you.x, S.you.y); ANIM.last['you']=yv;
   drawToken(yv.x, yv.y, S.you.glyph||'🧙', cell*0.72, 0.46, {flash:flashOf('you'), img:tokenImg('player', S.you.id)});
+  if(S.you.max_hp && S.you.hp!=null && S.you.hp < S.you.max_hp) drawHealthBar(yv.x, yv.y, S.you.hp/S.you.max_hp);
 
   drawReticle(visible);
   drawFx();
@@ -785,6 +787,27 @@ function drawToken(tx, ty, glyph, fpx, r, opts){
     ctx.fillStyle = '#1a1710'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(glyph, cx, cy+1);
   }
+  ctx.restore();
+}
+
+// A percentage health bar over a token's head (drawn only when hurt). Green at
+// full, lerping to fully red by 50% HP (and red below).
+function drawHealthBar(tx, ty, frac){
+  frac = Math.max(0, Math.min(1, frac));
+  const cx = tx*cell + cell/2, w = cell*0.78, h = Math.max(3, cell*0.12);
+  const x = cx - w/2, y = ty*cell + cell/2 - cell*0.54 - h;
+  // green (full) → yellow (~75%) → red (≤50%); 'u' is 0 at full HP, 1 by 50%.
+  const u = Math.min(1, (1 - frac) / 0.5);
+  const lerp = (a, c, k) => Math.round(a + (c - a) * k);
+  let r, g, b;
+  if(u < 0.5){ const k = u / 0.5;                    // green → yellow
+    r = lerp(70, 220, k); g = lerp(170, 190, k); b = lerp(60, 50, k); }
+  else { const k = (u - 0.5) / 0.5;                  // yellow → red
+    r = lerp(220, 190, k); g = lerp(190, 45, k); b = lerp(50, 40, k); }
+  ctx.save();
+  ctx.fillStyle = 'rgba(20,16,10,0.88)'; ctx.fillRect(x-1, y-1, w+2, h+2);   // frame
+  ctx.fillStyle = 'rgba(60,52,38,0.9)';  ctx.fillRect(x, y, w, h);           // empty track
+  ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.fillRect(x, y, w*frac, h);      // fill
   ctx.restore();
 }
 
@@ -1004,7 +1027,7 @@ function onEvent(m){
       break;
     case 'entity_spawned':
       if(!(S.you && m.id===S.you.id)){
-        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile, portrait_url:m.portrait_url, token_url:m.token_url};
+        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile, hp:m.hp, max_hp:m.max_hp, portrait_url:m.portrait_url, token_url:m.token_url};
         setPortrait(m.kind, m.id, m.portrait_url); setToken(m.kind, m.id, m.token_url);
         if(m.kind==='player') logSide(`${m.name} arrives.`, 'l-enter');
         else if(m.hostile) logCombat(`${m.name} appears!`, 'l-combat');
@@ -1028,7 +1051,9 @@ function onEvent(m){
       const who=m.attacker, tgt=m.target;
       if(m.hit) logCombat(`${who} hits ${tgt} for ${m.damage} (${tgt} ${m.target_hp}/${m.target_max_hp}).`, 'l-combat');
       else logCombat(`${who} misses ${tgt}.`, 'l-combat');
-      if(S.you && m.target_id===S.you.id){ S.you.hp=m.target_hp; setHp(m.target_hp, m.target_max_hp); }
+      // Track the target's live HP (drives the over-head health bar).
+      if(S.you && m.target_id===S.you.id){ S.you.hp=m.target_hp; S.you.max_hp=m.target_max_hp; setHp(m.target_hp, m.target_max_hp); }
+      else if(S.entities[m.target_id]){ S.entities[m.target_id].hp=m.target_hp; S.entities[m.target_id].max_hp=m.target_max_hp; }
       // Juice: floating number over the target, a hit-flash, and an attacker lunge.
       const tEnt = (S.you && m.target_id===S.you.id) ? S.you : S.entities[m.target_id];
       const aEnt = (S.you && m.attacker_id===S.you.id) ? S.you : S.entities[m.attacker_id];

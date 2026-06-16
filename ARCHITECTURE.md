@@ -264,7 +264,9 @@ still drives fog-of-war (visible = full ink, remembered = faded). Entities/items
 are emoji **tokens** on paper discs, animated by a `requestAnimationFrame` loop
 (`paint()` blits the cached map; `draw()` owns FOV + the cache): eased movement
 slides, floating combat numbers, hit-flash, attacker lunge, and death fade — the
-loop runs only while something is animating. The **M** overview redraws as a `map.jpg`-
+loop runs only while something is animating. A damaged entity (hp < max) shows a
+**percentage health bar** over its head (green → yellow → red by 50% HP); live HP
+rides `combat` events + `zone_state`. The **M** overview redraws as a `map.jpg`-
 style floor plan (numbered chambers, locked exits, cartouche, compass). A Layer-2
 dialogue window (right) and combat-log/stats strip complete the layout. Movement
 is WASD/arrow keys; bump a foe to attack. (Renderer evolved: Phase 1 used rot.js
