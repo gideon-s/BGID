@@ -224,7 +224,11 @@ retrievable.
 **collects into the wallet** on pickup (consumed); **gems** (`item_type:"gem"`)
 are valued carried items (`Item.value`), not spendable currency. `coins` rides
 `zone_state.you` + `character_sheet`; a `wallet` event updates the purse; the
-inventory carries each item's `value`. `migrate_currency.py`.
+inventory carries each item's `value`. `migrate_currency.py`. **Economy loop:**
+slain mobs drop coins/gems on their tile (`loot.py` tables, on the NPC-death
+paths); a **vendor** NPC (`shops.py` stock, e.g. the Innkeeper — `entity.vendor`
+flag) trades via `shop`/`buy`/`sell` WS cmds (a `shop` event lists wares + your
+sellables); admins grant coins (`POST /admin/characters/{id}/coins`).
 
 **Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
 Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)

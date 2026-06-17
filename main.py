@@ -21,6 +21,7 @@ from casting import resolve_cast
 import classes
 import races
 import currency
+import shops
 import spells as spellbook
 import skills as skillbook
 import services
@@ -247,6 +248,42 @@ def _inventory_payload(player_id: int) -> dict:
 
 async def _send_inventory(player_id: int) -> None:
     await manager.send_personal_message(player_id, _inventory_payload(player_id))
+
+
+def _shop_payload(player_id: int, vendor_id: int, vendor_name: str, npc_type: str) -> dict:
+    """A vendor's stock + the player's sellable items + their coin balance."""
+    db = SessionLocal()
+    try:
+        player = PlayerService.get_player(db, player_id)
+        coins = (player.coins or 0) if player else 0
+        sell = [{"id": it.id, "name": it.name, "glyph": it.glyph or "📦",
+                 "type": it.item_type, "price": it.value}
+                for it in ItemService.inventory_of(db, player_id)
+                if not it.equipped and (it.value or 0) > 0
+                and it.item_type not in ("coins", "chest")]
+    finally:
+        db.close()
+    buy = [{"sku": g["sku"], "name": g["name"], "glyph": g.get("glyph", "📦"),
+            "type": g["item_type"], "slot": g.get("equip_slot"), "price": g["price"]}
+           for g in shops.stock_for(npc_type)]
+    return {"event": "shop", "vendor_id": vendor_id, "vendor": vendor_name,
+            "coins": coins, "buy": buy, "sell": sell}
+
+
+def _vendor_in_room(room_id: int, npc_id):
+    """Return (npc_row-fields) if npc_id is a vendor NPC in the room, else None.
+    Yields a tiny dict {id, name, type} so callers don't hold a DB row."""
+    node = world.rooms.get(room_id)
+    if node is None or npc_id is None or int(npc_id) not in node.npc_ids:
+        return None
+    db = SessionLocal()
+    try:
+        npc = NpcService.get_npc(db, int(npc_id))
+        if npc is None or not shops.is_vendor(npc.npc_type):
+            return None
+        return {"id": npc.id, "name": npc.name, "type": npc.npc_type}
+    finally:
+        db.close()
 
 
 def _spellbook_payload(player_id: int) -> dict:
@@ -606,6 +643,82 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         else:
             await manager.send_personal_message(
                 player_id, {"event": "info", "detail": "The chest is empty."})
+
+    elif cmd == "shop":
+        vendor = _vendor_in_room(room_id, msg.get("npc_id"))
+        if vendor is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "There's no merchant here."})
+            return
+        await manager.send_personal_message(
+            player_id, _shop_payload(player_id, vendor["id"], vendor["name"], vendor["type"]))
+
+    elif cmd == "buy":
+        vendor = _vendor_in_room(room_id, msg.get("npc_id"))
+        if vendor is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "There's no merchant here."})
+            return
+        g = shops.good(vendor["type"], str(msg.get("sku")))
+        if g is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "They don't sell that."})
+            return
+        db = SessionLocal()
+        try:
+            player = PlayerService.get_player(db, player_id)
+            if player is None:
+                return
+            if (player.coins or 0) < g["price"]:
+                await manager.send_personal_message(
+                    player_id, {"event": "error",
+                                "detail": f"You can't afford the {g['name']} ({currency.short(g['price'])})."})
+                return
+            balance = ItemService.add_coins(db, player_id, -g["price"])
+            item = models.Item(
+                name=g["name"], item_type=g["item_type"], glyph=g.get("glyph", "📦"),
+                value=g["price"], player_id=player_id, is_movable=True,
+                is_equippable=bool(g.get("equip_slot")), equip_slot=g.get("equip_slot"),
+                attack_bonus=g.get("attack_bonus", 0), defense_bonus=g.get("defense_bonus", 0),
+                damage_bonus=g.get("damage_bonus", 0))
+            db.add(item)
+            db.commit()
+        finally:
+            db.close()
+        await _send_inventory(player_id)
+        await manager.send_personal_message(player_id, {"event": "wallet", "coins": balance})
+        await manager.send_personal_message(
+            player_id, {"event": "info", "detail": f"You buy the {g['name']} for {currency.short(g['price'])}."})
+        await manager.send_personal_message(
+            player_id, _shop_payload(player_id, vendor["id"], vendor["name"], vendor["type"]))
+
+    elif cmd == "sell":
+        vendor = _vendor_in_room(room_id, msg.get("npc_id"))
+        if vendor is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "There's no merchant here."})
+            return
+        item_id = msg.get("item_id")
+        db = SessionLocal()
+        try:
+            item = ItemService.get_item(db, int(item_id)) if item_id is not None else None
+            if (item is None or item.player_id != player_id or item.equipped
+                    or (item.value or 0) <= 0 or item.item_type in ("coins", "chest")):
+                await manager.send_personal_message(
+                    player_id, {"event": "error", "detail": "You can't sell that."})
+                return
+            price, iname = item.value, item.name
+            balance = ItemService.add_coins(db, player_id, price)
+            db.delete(item)
+            db.commit()
+        finally:
+            db.close()
+        await _send_inventory(player_id)
+        await manager.send_personal_message(player_id, {"event": "wallet", "coins": balance})
+        await manager.send_personal_message(
+            player_id, {"event": "info", "detail": f"You sell the {iname} for {currency.short(price)}."})
+        await manager.send_personal_message(
+            player_id, _shop_payload(player_id, vendor["id"], vendor["name"], vendor["type"]))
 
     elif cmd == "pickup":
         # Pick up the named item, or (default) whatever lies on the player's tile.

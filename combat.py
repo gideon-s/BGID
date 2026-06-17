@@ -28,6 +28,8 @@ import services
 from websocket_manager import manager
 from world import world
 import smack_talk
+import loot
+import models
 from config import STARTING_ROOM_ID, RESPAWN_GRACE_SECONDS, PVP_SAFE_ROOM_IDS
 
 _DAMAGE_DIE = 6        # 1dN base weapon damage
@@ -70,6 +72,33 @@ def _adjacent(room_id: int, player_id: int, npc_id: int) -> bool:
     return world.chebyshev(p, n) <= 1
 
 
+async def _drop_loot(room_id: int, npc_id: int, tile, npc_type: str) -> None:
+    """Spawn a slain mob's loot on its death tile + broadcast item_dropped."""
+    if tile is None:
+        return
+    drops = loot.roll(npc_type)
+    if not drops:
+        return
+    events = []
+    db = SessionLocal()
+    try:
+        for d in drops:
+            item = models.Item(name=d["name"], item_type=d["item_type"], value=d["value"],
+                               glyph=d["glyph"], room_id=room_id, tile_x=tile[0], tile_y=tile[1],
+                               is_movable=True)
+            db.add(item)
+            db.flush()                       # assign item.id before broadcasting
+            world.add_ground_item(room_id, item.id, tile[0], tile[1],
+                                  item.name, item.glyph, item.item_type)
+            events.append({"event": "item_dropped", "id": item.id, "name": item.name,
+                           "glyph": item.glyph, "token_url": None, "x": tile[0], "y": tile[1]})
+        db.commit()
+    finally:
+        db.close()
+    for ev in events:
+        await manager.broadcast_to_room(room_id, ev)
+
+
 async def damage_npc(room_id: int, npc_id: int, amount: int,
                      by_name: str, by_id: int, by_type: str = "player") -> bool:
     """Apply `amount` damage to an NPC, broadcast the combat hit, and on death
@@ -80,7 +109,7 @@ async def damage_npc(room_id: int, npc_id: int, amount: int,
         npc = services.NpcService.get_npc(db, npc_id)
         if npc is None or npc.health <= 0:
             return False
-        npc_name, npc_max = npc.name, npc.max_health
+        npc_name, npc_max, npc_type = npc.name, npc.max_health, npc.npc_type
         npc.health = max(0, npc.health - amount)
         db.commit()
         npc_hp = npc.health
@@ -91,10 +120,12 @@ async def damage_npc(room_id: int, npc_id: int, amount: int,
         by_name, by_id, by_type, npc_name, npc_id, "npc",
         {"hit": True, "damage": amount}, npc_hp, npc_max))
     if dead:
+        tile = world.position_of("npc", room_id, npc_id)
         world.kill_npc(room_id, npc_id)
         await manager.broadcast_to_room(
             room_id, {"event": "entity_died", "id": npc_id, "kind": "npc",
                       "name": npc_name, "by": by_name})
+        await _drop_loot(room_id, npc_id, tile, npc_type)
     return dead
 
 
@@ -163,7 +194,7 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
         db.commit()
         npc_hp = npc.health
         npc_dead = npc_hp <= 0
-        npc_glyph = npc.glyph
+        npc_glyph, npc_type = npc.glyph, npc.npc_type
     finally:
         db.close()
 
@@ -171,10 +202,12 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
         player_name, player_id, "player", npc_name, npc_id, "npc", roll, npc_hp, npc_max))
 
     if npc_dead:
+        tile = world.position_of("npc", room_id, npc_id)
         world.kill_npc(room_id, npc_id)  # removes from map; schedules respawn if hostile
         await manager.broadcast_to_room(
             room_id, {"event": "entity_died", "id": npc_id, "kind": "npc",
                       "name": npc_name, "by": player_name})
+        await _drop_loot(room_id, npc_id, tile, npc_type)
         return
 
     # Layer-1 -> Layer-2: the mob reacts to being hit / being wounded.

@@ -176,6 +176,19 @@ def delete_account(user_id: int,
     db.commit()
 
 
+@admin_router.post("/characters/{player_id}/coins")
+def grant_coins(player_id: int, data: aschemas.AdminCoinGrant,
+                _admin: models.User = Depends(get_current_admin),
+                db: Session = Depends(get_db)):
+    """Grant (or deduct, if negative) coins to a character's wallet (admin)."""
+    player = db.query(models.Player).filter_by(id=player_id).first()
+    if player is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+    player.coins = max(0, (player.coins or 0) + data.amount)
+    db.commit()
+    return {"id": player.id, "name": player.name, "coins": player.coins}
+
+
 @admin_router.delete("/characters/{player_id}", status_code=status.HTTP_204_NO_CONTENT)
 def admin_delete_character(player_id: int,
                            _admin: models.User = Depends(get_current_admin),

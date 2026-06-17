@@ -19,6 +19,7 @@ from database import SessionLocal
 import services
 import models
 import directions
+import shops
 from config import MOB_RESPAWN_SECONDS
 
 # A generous cap so load() pulls the whole table (service defaults are paged).
@@ -561,6 +562,7 @@ class WorldState:
             name, glyph, hp = npc.name, npc.glyph or "👤", npc.max_health
             portrait_url = npc.portrait_url
             token_url = npc.token_url
+            vendor = shops.is_vendor(npc.npc_type)
         finally:
             db.close()
         meta = node.npc_meta.get(npc_id, {})
@@ -574,7 +576,8 @@ class WorldState:
         return {"room_id": room_id, "entity": {
             "id": npc_id, "kind": "npc", "name": name, "glyph": glyph,
             "x": x, "y": y, "hostile": meta.get("hostile", False),
-            "hp": hp, "max_hp": hp, "portrait_url": portrait_url, "token_url": token_url}}
+            "hp": hp, "max_hp": hp, "vendor": vendor,
+            "portrait_url": portrait_url, "token_url": token_url}}
 
     # ---------- zone transitions (Phase 2) ----------
     def transition_for_tile(self, room_id: int, x: int, y: int) -> Optional[Dict[str, Any]]:
@@ -722,6 +725,7 @@ class WorldState:
                     "glyph": meta.get("glyph", npc.glyph or "👤"),
                     "x": pos[0], "y": pos[1], "hostile": meta.get("hostile", False),
                     "hp": npc.health, "max_hp": npc.max_health,
+                    "vendor": shops.is_vendor(npc.npc_type),
                     "portrait_url": npc.portrait_url, "token_url": npc.token_url,
                 })
         finally:

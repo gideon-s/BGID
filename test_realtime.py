@@ -135,8 +135,14 @@ def test_explicit_attack_defeats_npc(client, token, monkeypatch):
         assert died["id"] == cid and died["kind"] == "npc"
 
         ws.send_json({"cmd": "look"})
-        snap = ws.receive_json()
-        assert snap["event"] == "zone_state"
+        # The slain mob may drop loot (an item_dropped event) before the look
+        # reply — read until the zone_state.
+        snap = None
+        for _ in range(6):
+            m = ws.receive_json()
+            if m["event"] == "zone_state":
+                snap = m; break
+        assert snap is not None
         assert "Caretaker" not in {e["name"] for e in snap["entities"]}
 
 

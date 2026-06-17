@@ -77,6 +77,11 @@ class AdminAccountUpdate(BaseModel):
         return v
 
 
+class AdminCoinGrant(BaseModel):
+    """Admin grant/deduct of coins (copper) to a character's wallet."""
+    amount: int
+
+
 # ---------- Characters ----------
 class CharacterCreate(BaseModel):
     name: str

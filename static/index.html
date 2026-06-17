@@ -176,9 +176,19 @@
   /* Modal overlays (map, inventory, sheet, settings, help): centered card over a
      dimmed backdrop. Dismissed only by ✕ or Esc — clicking the backdrop does
      nothing (no close-on-outside-click). */
-  #settingsview, #helpview, #adminview{
+  #settingsview, #helpview, #adminview, #shopview{
            position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
            background:rgba(5,4,3,.86)}
+  /* Shop overlay */
+  #shopbody{max-height:62vh;overflow-y:auto;display:flex;flex-direction:column;gap:.7rem;min-width:320px}
+  .shopsec{color:var(--gold-dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.16em;font-family:var(--serif);border-bottom:1px solid var(--edge);padding-bottom:.15rem;margin-top:.3rem}
+  .shoprow{display:flex;align-items:center;gap:.5rem;font-size:.85rem;padding:.12rem 0}
+  .shoprow .sg{font-size:1.05rem}
+  .shoprow .snm{color:var(--fg)} .shoprow .sty{color:var(--dim);font-size:.74rem}
+  .shoprow .spr{margin-left:auto;color:var(--accent);font-size:.78rem;white-space:nowrap}
+  .shoprow button{background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);color:var(--fg);border-radius:3px;cursor:pointer;font-size:.72rem;padding:.12rem .55rem}
+  .shoprow button:hover{border-color:var(--accent);color:var(--accent)}
+  .shoprow button:disabled{opacity:.4;cursor:default}
   /* Admin overlay: a wider card listing accounts + characters. */
   .mapcard.wide{width:min(720px,94vw)}
   #adminbody{max-height:70vh;overflow-y:auto;display:flex;flex-direction:column;gap:.5rem;min-width:300px}
@@ -331,6 +341,16 @@
     <div class="maptitle">Help — Chat Commands</div>
     <div id="helplist"></div>
     <div class="maphint">Type these in the command box below the map. <b>Esc</b> to close.</div>
+  </div>
+</div>
+
+<!-- Shop: buy from / sell to a vendor NPC -->
+<div id="shopview" class="hidden">
+  <div class="mapcard wide"><a class="cardx" title="Close (Esc)">✕</a>
+    <div class="maptitle" id="shop-title">Shop</div>
+    <div class="acct-sub" id="shop-coins" style="text-align:center"></div>
+    <div id="shopbody"></div>
+    <div class="maphint">Stand by the merchant to trade. <b>Esc</b> to close.</div>
   </div>
 </div>
 
@@ -983,6 +1003,8 @@ function renderPanel(){
       const t = document.createElement('button'); t.textContent='talk';
       t.onclick=()=>{ $('#cmd').value = `talk ${e.name} `; $('#cmd').focus(); };
       row.appendChild(t);
+      if(e.vendor){ const sh = document.createElement('button'); sh.textContent='shop';
+        sh.onclick=()=> openShop(e.id); row.appendChild(sh); }
       const a = document.createElement('button'); a.textContent='attack';
       a.onclick=()=> send({cmd:'attack', target_id:e.id});
       row.appendChild(a);
@@ -1041,6 +1063,7 @@ function onEvent(m){
       }
       break;
     case 'wallet': setPurse(m.coins||0); break;
+    case 'shop': renderShop(m); break;
     case 'spell_cast': playFx(m); break;
     case 'inventory':
       S.inventory = m.items || [];
@@ -1068,7 +1091,7 @@ function onEvent(m){
       break;
     case 'entity_spawned':
       if(!(S.you && m.id===S.you.id)){
-        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile, hp:m.hp, max_hp:m.max_hp, portrait_url:m.portrait_url, token_url:m.token_url};
+        S.entities[m.id] = {id:m.id, kind:m.kind, name:m.name, glyph:m.glyph, x:m.x, y:m.y, hostile:m.hostile, hp:m.hp, max_hp:m.max_hp, vendor:m.vendor, portrait_url:m.portrait_url, token_url:m.token_url};
         setPortrait(m.kind, m.id, m.portrait_url); setToken(m.kind, m.id, m.token_url);
         if(m.kind==='player') logSide(`${m.name} arrives.`, 'l-enter');
         else if(m.hostile) logCombat(`${m.name} appears!`, 'l-combat');
@@ -1339,13 +1362,13 @@ window.addEventListener('keydown', e=>{
     rebinding = null; renderKeys();
     return;
   }
-  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); closeSheet(); closeRoom(); closeAdmin(); return; }
+  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); closeSheet(); closeRoom(); closeAdmin(); closeShop(); return; }
   // Never hijack keys while typing in a field (login, character name, command box).
   const ae = document.activeElement;
   if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
   // While a full-screen panel is open, only Esc (above) acts — don't move underneath.
   if(!$('#settingsview').classList.contains('hidden') || !$('#helpview').classList.contains('hidden')
-     || !$('#adminview').classList.contains('hidden')) return;
+     || !$('#adminview').classList.contains('hidden') || !$('#shopview').classList.contains('hidden')) return;
   // Quickslots are fixed (positional).
   if(e.key >= '1' && e.key <= '9'){ e.preventDefault(); castByIndex(+e.key - 1); return; }
   // Arrow keys always move, regardless of rebinding.
@@ -1471,6 +1494,10 @@ async function renderAdmin(){
       a.characters.forEach(c=>{
         const cr = document.createElement('div'); cr.className='chr';
         cr.innerHTML = `<span class="cn">${esc(c.name)}</span> · ${esc(c.race||'')} ${esc(c.char_class)} · L${c.level} · #${c.id}`;
+        const gv = document.createElement('button'); gv.textContent='+coins';
+        gv.onclick = ()=>{ const v = prompt(`Grant coins (copper) to ${c.name}? (negative to deduct)`, '100');
+          if(v!==null && v.trim()!=='') grantCoins(c.id, parseInt(v,10)||0); };
+        cr.appendChild(gv);
         const d = document.createElement('button'); d.textContent='delete'; d.className='danger';
         d.onclick = ()=>{ if(confirm(`Delete character "${c.name}"?`)) delChar(c.id); };
         cr.appendChild(d); el.appendChild(cr);
@@ -1495,8 +1522,42 @@ async function delChar(id){
   if(!r.ok){ const e=await r.json().catch(()=>({})); $('#admin-hint').textContent = humanError(e)||('Error '+r.status); }
   renderAdmin();
 }
+async function grantCoins(id, amount){
+  const r = await api(`/admin/characters/${id}/coins`, {method:'POST', body:{amount}});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok) $('#admin-hint').textContent = humanError(d)||('Error '+r.status);
+  else $('#admin-hint').textContent = `${d.name}: 👛 ${coinStr(d.coins)}`;
+}
 $('#open-admin').onclick = openAdmin;
 $('#adminview .cardx').onclick = closeAdmin;
+
+// ─── Shop overlay (buy from / sell to a vendor) ───
+function openShop(npcId){ send({cmd:'shop', npc_id:npcId}); }   // server replies with a `shop` event
+function closeShop(){ $('#shopview').classList.add('hidden'); }
+function renderShop(s){
+  if(!s){ closeShop(); return; }
+  $('#shopview').classList.remove('hidden');
+  $('#shop-title').textContent = (s.vendor||'Merchant') + "'s Wares";
+  $('#shop-coins').innerHTML = `Your purse: <span style="color:var(--accent)">👛 ${coinStr(s.coins||0)}</span>`;
+  const body = $('#shopbody'); body.innerHTML='';
+  const sec = (label)=>{ const h=document.createElement('div'); h.className='shopsec'; h.textContent=label; body.appendChild(h); };
+  const row = (glyph,name,sub,price,btnLabel,onclick,disabled)=>{
+    const r=document.createElement('div'); r.className='shoprow';
+    r.innerHTML = `<span class="sg">${esc(glyph||'📦')}</span><span class="snm">${esc(name)}</span>`
+      + (sub?` <span class="sty">${esc(sub)}</span>`:'') + `<span class="spr">${coinStr(price)}</span>`;
+    const b=document.createElement('button'); b.textContent=btnLabel; if(disabled) b.disabled=true; b.onclick=onclick;
+    r.appendChild(b); body.appendChild(r);
+  };
+  sec('Buy');
+  (s.buy||[]).forEach(g=> row(g.glyph, g.name, g.slot||g.type, g.price, 'buy',
+    ()=> send({cmd:'buy', npc_id:s.vendor_id, sku:g.sku}), (s.coins||0) < g.price));
+  if(!(s.buy||[]).length) body.insertAdjacentHTML('beforeend','<div class="acct-sub">nothing for sale</div>');
+  sec('Sell');
+  (s.sell||[]).forEach(it=> row(it.glyph, it.name, it.type, it.price, 'sell',
+    ()=> send({cmd:'sell', npc_id:s.vendor_id, item_id:it.id})));
+  if(!(s.sell||[]).length) body.insertAdjacentHTML('beforeend','<div class="acct-sub">you have nothing to sell</div>');
+}
+$('#shopview .cardx').onclick = closeShop;
 
 // ─── Character sheet overlay ───
 const ABIL = [['str','STR'],['dex','DEX'],['con','CON'],['intel','INT'],['wis','WIS'],['cha','CHA']];
