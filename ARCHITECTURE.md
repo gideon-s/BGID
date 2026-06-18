@@ -230,6 +230,14 @@ paths); a **vendor** NPC (`shops.py` stock, e.g. the Innkeeper — `entity.vendo
 flag) trades via `shop`/`buy`/`sell` WS cmds (a `shop` event lists wares + your
 sellables); admins grant coins (`POST /admin/characters/{id}/coins`).
 
+**XP & leveling** (`leveling.py`): a triangular XP curve (`xp_to_reach` /
+`level_for_xp` / `progress`). Slaying a mob grants the killer XP (`xp_for_kill`,
+scaled by mob max-HP) via `PlayerService.award_xp`, which levels the character up
+(+HP +CON-mod per level, +mana for casters, healed to full) and fires `xp` /
+`level_up` / `stats` events. `character_sheet` carries `xp_into`/`xp_needed`; the
+sheet draws an XP bar and a level-up gold-flashes the token. The `level` /
+`experience` columns predate this — no migration.
+
 **Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
 Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)
 on the `open` WS command (**O** key when on/adjacent) — created in the pack and

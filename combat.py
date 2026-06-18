@@ -29,6 +29,7 @@ from websocket_manager import manager
 from world import world
 import smack_talk
 import loot
+import leveling
 import models
 from config import STARTING_ROOM_ID, RESPAWN_GRACE_SECONDS, PVP_SAFE_ROOM_IDS
 
@@ -99,6 +100,27 @@ async def _drop_loot(room_id: int, npc_id: int, tile, npc_type: str) -> None:
         await manager.broadcast_to_room(room_id, ev)
 
 
+async def _award_kill_xp(killer_id: int, room_id: int, npc_max: int) -> None:
+    """Grant the slaying player XP; announce any level-up + refreshed bars."""
+    amount = leveling.xp_for_kill(npc_max)
+    db = SessionLocal()
+    try:
+        res = services.PlayerService.award_xp(db, killer_id, amount)
+    finally:
+        db.close()
+    if res is None:
+        return
+    await manager.send_personal_message(killer_id, {
+        "event": "xp", "experience": res["experience"], "level": res["level"],
+        "into": res["into"], "needed": res["needed"], "gained": amount})
+    if res["leveled"]:
+        await manager.broadcast_to_room(
+            room_id, {"event": "level_up", "player_id": killer_id, "level": res["level"]})
+        await manager.send_personal_message(killer_id, {
+            "event": "stats", "player_id": killer_id, "hp": res["hp"],
+            "max_hp": res["max_health"], "mana": res["mana"], "max_mana": res["max_mana"]})
+
+
 async def damage_npc(room_id: int, npc_id: int, amount: int,
                      by_name: str, by_id: int, by_type: str = "player") -> bool:
     """Apply `amount` damage to an NPC, broadcast the combat hit, and on death
@@ -126,6 +148,8 @@ async def damage_npc(room_id: int, npc_id: int, amount: int,
             room_id, {"event": "entity_died", "id": npc_id, "kind": "npc",
                       "name": npc_name, "by": by_name})
         await _drop_loot(room_id, npc_id, tile, npc_type)
+        if by_type == "player":
+            await _award_kill_xp(by_id, room_id, npc_max)
     return dead
 
 
@@ -208,6 +232,7 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
             room_id, {"event": "entity_died", "id": npc_id, "kind": "npc",
                       "name": npc_name, "by": player_name})
         await _drop_loot(room_id, npc_id, tile, npc_type)
+        await _award_kill_xp(player_id, room_id, npc_max)
         return
 
     # Layer-1 -> Layer-2: the mob reacts to being hit / being wounded.

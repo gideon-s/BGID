@@ -65,6 +65,36 @@ class PlayerService:
     def get_player(db: Session, player_id: int) -> Optional[models.Player]:
         """Get player by ID"""
         return db.query(models.Player).filter(models.Player.id == player_id).first()
+
+    @staticmethod
+    def award_xp(db: Session, player_id: int, amount: int) -> Optional[dict]:
+        """Grant XP; level the character up if a threshold is crossed (gaining
+        max HP + the CON modifier, and max mana for casters), healing to full.
+        Returns a result dict (None if no player / non-positive amount)."""
+        import leveling
+        player = PlayerService.get_player(db, player_id)
+        if player is None or amount <= 0:
+            return None
+        old_level = player.level
+        player.experience = (player.experience or 0) + int(amount)
+        new_level = leveling.level_for_xp(player.experience)
+        leveled = new_level > old_level
+        if leveled:
+            con_mod = player.ability_mod("con")
+            for _ in range(new_level - old_level):
+                player.max_health += max(1, leveling.HP_PER_LEVEL + con_mod)
+                if (player.max_mana or 0) > 0:
+                    player.max_mana += leveling.MANA_PER_LEVEL
+            player.level = new_level
+            player.health = player.max_health      # heal to full on level-up
+            player.mana = player.max_mana
+        lvl, into, needed = leveling.progress(player.experience)
+        db.commit()
+        return {"experience": player.experience, "level": player.level,
+                "leveled": leveled, "old_level": old_level,
+                "into": into, "needed": needed,
+                "max_health": player.max_health, "max_mana": player.max_mana,
+                "hp": player.health, "mana": player.mana}
     
     @staticmethod
     def get_players(db: Session, skip: int = 0, limit: int = 100) -> List[models.Player]:

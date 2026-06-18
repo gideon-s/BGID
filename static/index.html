@@ -151,6 +151,8 @@
   .hpbar > i{display:block;height:100%;background:linear-gradient(90deg,#6f8a48,var(--green))}
   .hptext{color:var(--dim);font-size:.8rem}
   #purse{color:var(--accent);font-size:.82rem;letter-spacing:.04em;margin:.15rem 0}
+  .xpbar{height:.5rem;background:#161208;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.15rem 0 .1rem}
+  .xpbar i{display:block;height:100%;background:linear-gradient(90deg,#7a5a1e,#c7a24a)}
   .manabar{height:.55rem;background:#0f1320;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.1rem 0 .25rem}
   .manabar > i{display:block;height:100%;background:linear-gradient(90deg,#3a5a8c,#5b8fd6)}
   /* Quickslot spell bar (under the map) */
@@ -1064,6 +1066,17 @@ function onEvent(m){
       break;
     case 'wallet': setPurse(m.coins||0); break;
     case 'shop': renderShop(m); break;
+    case 'xp':
+      if(S.you){ S.you.experience=m.experience; S.you.level=m.level; }
+      if(S.sheet){ Object.assign(S.sheet, {level:m.level, experience:m.experience, xp_into:m.into, xp_needed:m.needed});
+                   if(winOpen('fw-sheet')) renderSheet(); }
+      logCombat(`+${m.gained} XP`, 'l-sys');
+      break;
+    case 'level_up':
+      if(S.you && m.player_id===S.you.id){ S.you.level=m.level;
+        logCombat(`✨ You reach level ${m.level}!`, 'l-win'); flashEntity('you', 'rgba(230,189,94,0.95)'); }
+      else { const e=S.entities[m.player_id]; logSide(`${e?e.name:'Someone'} reaches level ${m.level}.`, 'l-enter'); }
+      break;
     case 'spell_cast': playFx(m); break;
     case 'inventory':
       S.inventory = m.items || [];
@@ -1615,6 +1628,8 @@ function renderSheet(){
       </div></div>
       ${renderAppearanceBlock(s)}
       <div class="shsec">Vitals</div>${vitals}
+      <div class="xpbar"><i style="width:${Math.round(100*(s.xp_into||0)/Math.max(1,s.xp_needed||1))}%"></i></div>
+      <div class="hptext" style="text-align:center">${s.xp_into||0} / ${s.xp_needed||0} XP → level ${(s.level||1)+1}</div>
       <div class="shsec">Purse</div><div class="apprtext">👛 ${coinStr(s.coins||0)}</div>
       <div class="shsec">Abilities</div>${abil}
       <div class="shsec">Skills</div>${skl || '<div style="color:var(--dim);font-size:.82rem">none</div>'}

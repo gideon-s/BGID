@@ -22,6 +22,7 @@ import classes
 import races
 import currency
 import shops
+import leveling
 import spells as spellbook
 import skills as skillbook
 import services
@@ -331,6 +332,8 @@ def _sheet_payload(player_id: int) -> dict:
             "gender": p.gender or "none", "appearance": p.appearance or "",
             "coins": p.coins or 0,
             "level": p.level, "experience": p.experience,
+            "xp_into": leveling.progress(p.experience)[1],
+            "xp_needed": leveling.progress(p.experience)[2],
             "hp": p.health, "max_hp": p.max_health, "mana": p.mana, "max_mana": p.max_mana,
             "abilities": abilities, "modifiers": mods,
             "skills": skillbook.normalize(stored_skills),
