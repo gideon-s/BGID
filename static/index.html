@@ -969,6 +969,11 @@ function renderInventory(){
       b.onclick = ()=> send({cmd: it.equipped?'unequip':'equip', item_id: it.id});
       row.appendChild(b);
     }
+    if(it.type==='potion'){
+      const u = document.createElement('button'); u.textContent='drink';
+      u.onclick = ()=> send({cmd:'use', item_id: it.id});
+      row.appendChild(u);
+    }
     const dr = document.createElement('button'); dr.textContent='drop';
     dr.onclick = ()=> send({cmd:'drop', item_id: it.id});
     row.appendChild(dr);
@@ -1964,6 +1969,9 @@ function handleCommand(raw){
   if(verb==='unequip' || verb==='remove'){
     const it = invByName(parts.slice(1).join(' ')); if(!it){ logCombat(`You aren't wearing "${parts.slice(1).join(' ')}".`,'l-err'); return; }
     send({cmd:'unequip', item_id:it.id}); return; }
+  if(verb==='use' || verb==='drink' || verb==='quaff'){
+    const it = invByName(parts.slice(1).join(' ')); if(!it){ logCombat(`You aren't carrying "${parts.slice(1).join(' ')}".`,'l-err'); return; }
+    send({cmd:'use', item_id:it.id}); return; }
   if(verb==='say'){ send({cmd:'say', text:parts.slice(1).join(' ')}); return; }
   if(verb==='talk'){
     const npc = npcByName(parts[1]||''); if(!npc){ logCombat(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }

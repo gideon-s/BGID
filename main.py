@@ -23,6 +23,7 @@ import races
 import currency
 import shops
 import leveling
+import potions
 import spells as spellbook
 import skills as skillbook
 import services
@@ -819,6 +820,50 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         finally:
             db.close()
         await _send_inventory(player_id)
+
+    elif cmd == "use":
+        # Drink a potion: apply its effect (potions.py) and consume it.
+        item_id = msg.get("item_id")
+        if item_id is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "use requires 'item_id'"})
+            return
+        db = SessionLocal()
+        err, result = None, None
+        try:
+            item = ItemService.get_item(db, int(item_id))
+            if item is None or item.player_id != player_id:
+                err = "You aren't carrying that."
+            elif item.item_type != "potion":
+                err = "You can't drink that."
+            else:
+                effect = potions.effect_for(item.name)
+                if effect is None:
+                    err = "Nothing happens — the draught is inert."
+                else:
+                    player = PlayerService.get_player(db, player_id)
+                    res = potions.apply(player, effect)
+                    iname = item.name
+                    db.delete(item)
+                    db.commit()
+                    result = {"name": iname, "flavor": effect.get("flavor", ""), **res,
+                              "hp": player.health, "max_hp": player.max_health,
+                              "mana": player.mana, "max_mana": player.max_mana}
+        finally:
+            db.close()
+        if err:
+            await manager.send_personal_message(player_id, {"event": "error", "detail": err})
+            return
+        await manager.send_personal_message(player_id, {
+            "event": "stats", "player_id": player_id, "hp": result["hp"],
+            "max_hp": result["max_hp"], "mana": result["mana"], "max_mana": result["max_mana"]})
+        await _send_inventory(player_id)
+        gained = [f"+{result['hp_restored']} HP"] if result["hp_restored"] else []
+        if result["mana_restored"]:
+            gained.append(f"+{result['mana_restored']} MP")
+        tail = f" ({', '.join(gained)})" if gained else ""
+        await manager.send_personal_message(player_id, {
+            "event": "info", "detail": f"You drink the {result['name']}. {result['flavor']}{tail}"})
 
     elif cmd == "spells":
         await manager.send_personal_message(player_id, _spellbook_payload(player_id))

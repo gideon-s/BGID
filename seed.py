@@ -231,6 +231,12 @@ def seed():
             "item_type": "gem", "value": 250, "room_id": cellar.id,
             "is_movable": True, "glyph": "🔷", "tile_x": 5, "tile_y": 3,
         })
+        # A potion to find + drink (the `use` command — see potions.py).
+        _get_or_create(db, Item, name="Healing Draught", defaults={
+            "description": "A warm red tonic that mends wounds.", "item_type": "potion",
+            "value": 40, "room_id": cellar.id, "is_movable": True, "is_usable": True,
+            "glyph": "🧪", "tile_x": 3, "tile_y": 1,
+        })
 
         # Room connections:
         #   Foyer <-> Great Hall (open, north/south)

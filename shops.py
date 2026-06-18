@@ -16,6 +16,8 @@ STOCK: Dict[str, List[dict]] = {
         {"sku": "ration", "name": "Trail Ration", "glyph": "🍖", "item_type": "food", "price": 3},
         {"sku": "torch", "name": "Torch", "glyph": "🔦", "item_type": "tool", "price": 5},
         {"sku": "potion", "name": "Healing Draught", "glyph": "🧪", "item_type": "potion", "price": 40},
+        {"sku": "greaterheal", "name": "Greater Healing", "glyph": "🧪", "item_type": "potion", "price": 110},
+        {"sku": "manapot", "name": "Mana Potion", "glyph": "🔵", "item_type": "potion", "price": 45},
         {"sku": "dagger", "name": "Iron Dagger", "glyph": "🗡️", "item_type": "weapon",
          "equip_slot": "weapon", "attack_bonus": 1, "damage_bonus": 1, "price": 60},
         {"sku": "buckler", "name": "Buckler", "glyph": "🛡️", "item_type": "armor",

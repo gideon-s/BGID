@@ -238,6 +238,13 @@ scaled by mob max-HP) via `PlayerService.award_xp`, which levels the character u
 sheet draws an XP bar and a level-up gold-flashes the token. The `level` /
 `experience` columns predate this — no migration.
 
+**Consumable potions** (`potions.py`): an `item_type:"potion"` item; the `use`
+WS cmd applies an instant effect (heal HP / restore mana / full restore, keyed
+by item name) and consumes it, pushing `stats` + `inventory` + a flavor line.
+Unknown potions are inert (not wasted). The Innkeeper sells Healing/Greater/Mana;
+one Healing Draught is seeded in the Cellar. Client: a **drink** button on potions
+(+ `use`/`drink` text verb).
+
 **Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
 Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)
 on the `open` WS command (**O** key when on/adjacent) — created in the pack and
