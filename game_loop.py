@@ -186,12 +186,24 @@ async def _relock_doors() -> None:
         await manager.broadcast_to_room(rid, {"event": "info", "detail": info})
 
 
+async def _expire_effects() -> None:
+    """Drop expired timed buffs and tell each affected player (effects.py)."""
+    import effects
+    expired = effects.sweep()
+    for player_id, names in expired.items():
+        await manager.send_personal_message(
+            player_id, {"event": "effects", "effects": effects.snapshot(player_id)})
+        await manager.send_personal_message(
+            player_id, {"event": "info", "detail": f"{', '.join(names)} fades."})
+
+
 async def _loop() -> None:
     while True:
         await asyncio.sleep(TICK_SECONDS)
         try:
             await _tick_once()
             await _relock_doors()
+            await _expire_effects()
         except Exception as e:  # never let the loop die on a transient error
             print(f"game tick error: {e}")
 

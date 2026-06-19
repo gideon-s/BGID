@@ -151,6 +151,9 @@
   .hpbar > i{display:block;height:100%;background:linear-gradient(90deg,#6f8a48,var(--green))}
   .hptext{color:var(--dim);font-size:.8rem}
   #purse{color:var(--accent);font-size:.82rem;letter-spacing:.04em;margin:.15rem 0}
+  #buffs{display:flex;flex-wrap:wrap;gap:.25rem;margin:.15rem 0}
+  .buff{font-size:.74rem;color:var(--fg);border:1px solid var(--gold-dim);border-radius:3px;padding:.04rem .3rem;background:rgba(199,162,74,.06)}
+  .buff .bt{color:var(--dim)}
   .xpbar{height:.5rem;background:#161208;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.15rem 0 .1rem}
   .xpbar i{display:block;height:100%;background:linear-gradient(90deg,#7a5a1e,#c7a24a)}
   .manabar{height:.55rem;background:#0f1320;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.1rem 0 .25rem}
@@ -387,6 +390,7 @@
         <div class="manabar hidden" id="manawrap"><i id="manafill" style="width:100%"></i></div>
         <div class="hptext hidden" id="manatext"></div>
         <div id="purse" title="Your coin purse">👛 0cp</div>
+        <div id="buffs" class="hidden"></div>
         <h2>Worn <span id="invbtn" class="lnk">inventory ▸</span></h2>
         <div id="worn"></div>
         <h2>Here</h2><div id="here"></div>
@@ -445,6 +449,7 @@ const S = {pid:null, name:null, ws:null, user:null,
            target:null, keys:{}, keyToAction:{}, sheet:null,
            portraits:{},    // "kind:id" -> portrait_url (Phase 5; generate-once)
            tokens:{},       // "kind:id" -> token_url (Phase 6; overhead map tokens)
+           buffs:[],        // active timed effects (effects.py)
            editAppr:false, apprDraft:null};   // character-sheet appearance editor
 const $ = s => document.querySelector(s);
 const combatEl = $('#combat');
@@ -933,6 +938,13 @@ function coinStr(copper){
   return parts.join(' ');
 }
 function setPurse(coins){ if(S.you) S.you.coins = coins|0; const p=$('#purse'); if(p) p.textContent = '👛 ' + coinStr(coins|0); }
+// Active timed buffs (effects.py), shown in the Status panel.
+function setBuffs(list){
+  S.buffs = list || [];
+  const el = $('#buffs'); if(!el) return;
+  el.classList.toggle('hidden', !S.buffs.length);
+  el.innerHTML = S.buffs.map(b=> `<span class="buff" title="${esc(b.name)} — ${b.remaining}s">${esc(b.glyph||'✨')} ${esc(b.name)} <span class="bt">${b.remaining}s</span></span>`).join('');
+}
 
 // Item stat bonuses → a compact "+1 atk · +2 dmg" string (or '' if none).
 function bonusText(it){
@@ -1070,6 +1082,7 @@ function onEvent(m){
       }
       break;
     case 'wallet': setPurse(m.coins||0); break;
+    case 'effects': setBuffs(m.effects||[]); break;
     case 'shop': renderShop(m); break;
     case 'xp':
       if(S.you){ S.you.experience=m.experience; S.you.level=m.level; }

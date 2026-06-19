@@ -164,6 +164,7 @@ def _reset_mob_clocks():
     import combat
     import casting
     from world import world
+    import effects
     game_loop._aggroed.clear()
     game_loop._last_move_at.clear()
     game_loop._last_attack_at.clear()
@@ -171,6 +172,7 @@ def _reset_mob_clocks():
     casting.reset()
     smack_talk.reset()
     world.door_unlocks.clear()   # a leaked open door would unlock locked-exit tests
+    effects._active.clear()      # a leaked buff would skew combat assertions
     yield
 
 

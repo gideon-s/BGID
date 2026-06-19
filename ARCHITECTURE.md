@@ -243,7 +243,12 @@ WS cmd applies an instant effect (heal HP / restore mana / full restore, keyed
 by item name) and consumes it, pushing `stats` + `inventory` + a flavor line.
 Unknown potions are inert (not wasted). The Innkeeper sells Healing/Greater/Mana;
 one Healing Draught is seeded in the Cellar. Client: a **drink** button on potions
-(+ `use`/`drink` text verb).
+(+ `use`/`drink` text verb). **Timed buffs** (`effects.py`): a `buff`-kind potion
+applies an in-memory, per-player timed effect (Strength = +atk/+dmg, Stoneskin =
++def, Haste = halved move-cooldown). `effects.bonuses`/`haste_factor` read the
+LIVE set and fold into the melee resolvers + the move cooldown; the slow tick
+`sweep`s expiries (fires an `effects` event + "… fades"). Active buffs ride a
+push on connect + an `effects` event; the client shows them in the Status panel.
 
 **Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
 Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)

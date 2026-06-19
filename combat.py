@@ -30,6 +30,7 @@ from world import world
 import smack_talk
 import loot
 import leveling
+import effects
 import models
 from config import STARTING_ROOM_ID, RESPAWN_GRACE_SECONDS, PVP_SAFE_ROOM_IDS
 
@@ -213,7 +214,9 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
         npc_max = npc.max_health
         # The player's equipped weapon/rings sharpen the attack (mobs are bare).
         gear = services.ItemService.equipment_bonuses(db, player_id)
-        roll = _attack_roll(player, npc, atk_bonus=gear["attack"], dmg_bonus=gear["damage"])
+        eb = effects.bonuses(player_id)                 # active buffs (Strength, …)
+        roll = _attack_roll(player, npc, atk_bonus=gear["attack"] + eb["attack"],
+                            dmg_bonus=gear["damage"] + eb["damage"])
         npc.health = max(0, npc.health - roll["damage"])
         db.commit()
         npc_hp = npc.health
@@ -267,8 +270,10 @@ async def resolve_pvp_attack(attacker_id: int, room_id: int, target_id: int) -> 
             return
         ag = services.ItemService.equipment_bonuses(db, attacker_id)
         tg = services.ItemService.equipment_bonuses(db, target_id)
-        roll = _attack_roll(attacker, target, atk_bonus=ag["attack"],
-                            dmg_bonus=ag["damage"], def_bonus=tg["defense"])
+        ea, et = effects.bonuses(attacker_id), effects.bonuses(target_id)
+        roll = _attack_roll(attacker, target, atk_bonus=ag["attack"] + ea["attack"],
+                            dmg_bonus=ag["damage"] + ea["damage"],
+                            def_bonus=tg["defense"] + et["defense"])
         attacker_name, target_name, target_max, target_hp = (
             attacker.name, target.name, target.max_health, target.health)
     finally:
@@ -298,7 +303,8 @@ async def resolve_mob_attack(npc_id: int, room_id: int, player_id: int) -> None:
         npc_glyph = npc.glyph
         # The player's equipped armor/rings soften the blow (mob attacks bare).
         gear = services.ItemService.equipment_bonuses(db, player_id)
-        roll = _attack_roll(npc, player, def_bonus=gear["defense"])
+        roll = _attack_roll(npc, player,
+                            def_bonus=gear["defense"] + effects.bonuses(player_id)["defense"])
         player.health = max(0, player.health - roll["damage"])
         db.commit()
         player_hp = player.health

@@ -24,6 +24,7 @@ import currency
 import shops
 import leveling
 import potions
+import effects
 import spells as spellbook
 import skills as skillbook
 import services
@@ -448,6 +449,10 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
     await manager.send_personal_message(
         player_id, {"event": "zone_state", **world.zone_snapshot(room_id, player_id)}
     )
+    # Any still-active buffs (reconnect mid-effect) so the UI is in sync.
+    if effects.active(player_id):
+        await manager.send_personal_message(
+            player_id, {"event": "effects", "effects": effects.snapshot(player_id)})
     # The inventory is fetched lazily by the client (an `inventory` command on
     # connect), mirroring `world_map` — so the server-side connect sequence stays
     # stable for tests and reconnection logic.
@@ -539,7 +544,8 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
                 player_id, {"event": "error", "detail": "move must be one tile step (dx/dy = -1, 0, or 1)"})
             return
         now = time.monotonic()
-        if now - _last_move.get(player_id, 0.0) < MOVE_COOLDOWN_SECONDS:
+        cooldown = MOVE_COOLDOWN_SECONDS * effects.haste_factor(player_id)   # Haste = faster
+        if now - _last_move.get(player_id, 0.0) < cooldown:
             return  # moving too fast — silently drop (client will retry on next keypress)
         _last_move[player_id] = now
 
@@ -840,13 +846,23 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
                 effect = potions.effect_for(item.name)
                 if effect is None:
                     err = "Nothing happens — the draught is inert."
+                elif effect["kind"] == "buff":
+                    effects.apply_effect(
+                        player_id, effect["effect"], effect.get("glyph", "✨"),
+                        effect.get("duration", 60), atk=effect.get("atk", 0),
+                        dmg=effect.get("dmg", 0), defn=effect.get("defn", 0),
+                        haste=effect.get("haste", 1.0))
+                    iname = item.name
+                    db.delete(item)
+                    db.commit()
+                    result = {"name": iname, "flavor": effect.get("flavor", ""), "buff": True}
                 else:
                     player = PlayerService.get_player(db, player_id)
                     res = potions.apply(player, effect)
                     iname = item.name
                     db.delete(item)
                     db.commit()
-                    result = {"name": iname, "flavor": effect.get("flavor", ""), **res,
+                    result = {"name": iname, "flavor": effect.get("flavor", ""), "buff": False, **res,
                               "hp": player.health, "max_hp": player.max_health,
                               "mana": player.mana, "max_mana": player.max_mana}
         finally:
@@ -854,16 +870,22 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         if err:
             await manager.send_personal_message(player_id, {"event": "error", "detail": err})
             return
-        await manager.send_personal_message(player_id, {
-            "event": "stats", "player_id": player_id, "hp": result["hp"],
-            "max_hp": result["max_hp"], "mana": result["mana"], "max_mana": result["max_mana"]})
         await _send_inventory(player_id)
-        gained = [f"+{result['hp_restored']} HP"] if result["hp_restored"] else []
-        if result["mana_restored"]:
-            gained.append(f"+{result['mana_restored']} MP")
-        tail = f" ({', '.join(gained)})" if gained else ""
-        await manager.send_personal_message(player_id, {
-            "event": "info", "detail": f"You drink the {result['name']}. {result['flavor']}{tail}"})
+        if result["buff"]:
+            await manager.send_personal_message(
+                player_id, {"event": "effects", "effects": effects.snapshot(player_id)})
+            await manager.send_personal_message(
+                player_id, {"event": "info", "detail": f"You drink the {result['name']}. {result['flavor']}"})
+        else:
+            await manager.send_personal_message(player_id, {
+                "event": "stats", "player_id": player_id, "hp": result["hp"],
+                "max_hp": result["max_hp"], "mana": result["mana"], "max_mana": result["max_mana"]})
+            gained = [f"+{result['hp_restored']} HP"] if result["hp_restored"] else []
+            if result["mana_restored"]:
+                gained.append(f"+{result['mana_restored']} MP")
+            tail = f" ({', '.join(gained)})" if gained else ""
+            await manager.send_personal_message(player_id, {
+                "event": "info", "detail": f"You drink the {result['name']}. {result['flavor']}{tail}"})
 
     elif cmd == "spells":
         await manager.send_personal_message(player_id, _spellbook_payload(player_id))

@@ -9,6 +9,8 @@ keyed by item name (shop/loot potions have stable names). Kinds:
     heal       -> restore `amount` HP (clamped to max)
     mana       -> restore `amount` mana (clamped to max)
     restore    -> heal HP *and* mana to full
+    buff       -> apply a TIMED status effect (see effects.py): `duration` seconds
+                  of flat combat deltas (atk/dmg/defn) and/or a `haste` factor.
 
 `flavor` is shown to the drinker. Unknown potions do nothing (a dud).
 """
@@ -23,6 +25,16 @@ POTIONS: Dict[str, dict] = {
                     "flavor": "A cold clarity sharpens your mind."},
     "Elixir of Vigor": {"kind": "restore", "amount": 0,
                         "flavor": "You feel utterly renewed."},
+    # Timed buffs (effects.py). `effect` is the active-effect name shown to the UI.
+    "Strength Tonic": {"kind": "buff", "effect": "Strength", "glyph": "💪",
+                       "duration": 60, "atk": 2, "dmg": 2,
+                       "flavor": "Power surges through your arms."},
+    "Stoneskin Brew": {"kind": "buff", "effect": "Stoneskin", "glyph": "🪨",
+                       "duration": 60, "defn": 3,
+                       "flavor": "Your skin hardens like grey stone."},
+    "Draught of Haste": {"kind": "buff", "effect": "Haste", "glyph": "⚡",
+                         "duration": 45, "haste": 0.5,
+                         "flavor": "The world seems to slow around you."},
 }
 
 
