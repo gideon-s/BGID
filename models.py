@@ -44,6 +44,19 @@ class AbilityScoresMixin:
         }
 
 # ---------- Base Models ----------
+class Level(Base):
+    """A named area (handoff-11 Slice B): the Manor, the Caves. A level is a
+    *stack of floors* — Rooms sharing this level_id, indexed by signed `Room.z`
+    (0 ground, -1 cellar, +1 attic). Floors link by stairs (intra-level); an
+    *entrance* is an exit crossing into another level (the room-graph)."""
+    __tablename__ = "levels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    description = Column(Text, default="", nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Room(Base):
     """Room model representing locations in the game world"""
     __tablename__ = "rooms"
@@ -66,6 +79,10 @@ class Room(Base):
     # PvP is refused AND hostile mobs won't acquire targets here.
     room_type = Column(String(20), default="dungeon", nullable=False)
     is_safe = Column(Boolean, default=False, nullable=False)
+    # Levels & z-floors (handoff-11 Slice B): the level this room is a floor of,
+    # and its signed floor index within that level (0 ground, -1 cellar, +1 attic).
+    level_id = Column(Integer, ForeignKey("levels.id"), nullable=True, index=True)
+    z = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -1,9 +1,15 @@
 # Handoff 11 — Maps overhaul: structured tiles, z-floors, levels & adaptive camera
 
-**Status:** phased build — **Slice A SHIPPED 2026-06-20** (`tiles.py` registry;
-walkability/sight/transition derived from it with unknown-glyph fail-safe;
-`tiledefs` in `zone_state` + client `isTransparent` reads it; `test_tiles.py`
-extended, suite 251 green). Slices B (levels/z) → C (camera) → D (mapgen) remain.
+**Status:** phased build — **Slices A+B SHIPPED 2026-06-20.** A: `tiles.py`
+registry (walkability/sight/transition derived, unknown-glyph fail-safe;
+`tiledefs` in `zone_state` + client reads it). B: `Level` table +
+`Room.level_id`/`z` (`migrate_maps.py`), stairs = intra-level / cross-level exits
+= entrances, `world_map`+`zone_state` carry level/z, overview labels chambers +
+shows a floor-stack widget; seed authors the Manor (Foyer z0 + Cellar z−1) with
+the Great Hall as its own level. `test_tiles.py`/`test_zones.py` extended, suite
+**255 green**. Slices C (adaptive camera) → D (mapgen) remain. *(Deferred polish:
+a dedicated PageUp/PageDn floor-flip view — the overview already shows all floors
+labeled + the stack widget.)*
 · **Depends on:** `handoff-01-graphical-overhaul-master.md`,
 Phases 1–5 (live), and the **maps-model decision** that gated the map designer
 (`handoff-10-tool-suite.md` §2) — now **settled** (see §1). **Goal:** evolve the

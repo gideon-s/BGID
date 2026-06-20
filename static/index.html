@@ -2130,7 +2130,20 @@ function drawOverview(){
       // name
       x.fillStyle = here ? '#7a3b12' : INK_VIS;
       x.font = (here?'bold ':'') + '14px Georgia, serif'; x.textAlign='center'; x.textBaseline='middle';
-      x.fillText(byId[id] ? byId[id].name : '#'+id, vx, vy+2);
+      x.fillText(byId[id] ? byId[id].name : '#'+id, vx, vy-3);
+      // level + floor (handoff-11 B): "The Manor · z-1" under the name
+      const r = byId[id];
+      if(r && (r.level_name || r.z)){
+        x.fillStyle = INK_MEM; x.font='italic 10px Georgia,serif';
+        const lvl = r.level_name ? r.level_name : '';
+        const zl = r.z ? `z${r.z>0?'+':''}${r.z}` : 'z0';
+        x.fillText((lvl ? lvl+' · ' : '') + zl, vx, vy+11);
+      }
+      // a z badge in the top-right when this isn't the ground floor
+      if(r && r.z){ x.fillStyle=INK_VIS; x.font='bold 11px Georgia,serif';
+        x.textAlign='right'; x.textBaseline='top';
+        x.fillText(`z${r.z>0?'+':''}${r.z}`, rx+RW-6, ry+5);
+        x.textAlign='center'; x.textBaseline='middle'; }
       if(here){                                            // "you are here" ✦
         x.fillStyle='#7a3b12'; x.font='13px Georgia,serif';
         x.fillText('✦ you are here', vx, vy+RH/2-9);
@@ -2146,8 +2159,29 @@ function drawOverview(){
   // Cartouche title + compass rose.
   x.textAlign='left'; x.textBaseline='alphabetic';
   x.fillStyle=INK_VIS; x.font='bold 16px Georgia, serif';
-  x.fillText('BGID — First Level', 14, 26);
+  const lvlTitle = (S.room && S.room.level_name) ? S.room.level_name : 'First Level';
+  x.fillText('BGID — ' + lvlTitle, 14, 26);
   _compass(x, W-34, H-34, 18, INK_VIS);
+
+  // Floor stack for the current level (handoff-11 B): the level's floors listed
+  // by z (highest on top), the floor you're on highlighted.
+  const lid = S.room && S.room.level_id;
+  if(lid != null){
+    const floors = wm.rooms.filter(r=> r.level_id===lid).sort((a,b)=> b.z-a.z);
+    if(floors.length > 1){
+      const fx = W-128, fy = 14, fw = 114, rh = 18;
+      x.textAlign='left'; x.textBaseline='middle';
+      x.fillStyle=INK_VIS; x.font='bold 11px Georgia,serif';
+      x.fillText('Floors', fx, fy-2);
+      floors.forEach((r,i)=>{
+        const yy = fy + 10 + i*(rh+3), cur = S.room && r.id===S.room.id;
+        rc.rectangle(fx, yy, fw, rh, {fill: cur?'#d6c8a1':PAPER, fillStyle:'solid',
+          stroke: cur?'#7a3b12':INK_MEM, strokeWidth: cur?2:1, roughness:1, seed:r.id*13+5});
+        x.fillStyle = cur ? '#7a3b12' : INK_VIS; x.font = (cur?'bold ':'')+'11px Georgia,serif';
+        x.fillText(`z${r.z>0?'+':''}${r.z}  ${r.name}`, fx+6, yy+rh/2);
+      });
+    }
+  }
 }
 
 // ─── Command box (Layer-2 verbs) ───

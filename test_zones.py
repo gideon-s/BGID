@@ -232,3 +232,64 @@ def test_map_command_returns_graph(client, token):
         m = ws.receive_json()
         assert m["event"] == "world_map"
         assert {r["name"] for r in m["rooms"]} >= {"Foyer", "Great Hall", "Cellar"}
+
+
+# ---------- levels & z-floors (handoff-11 Slice B) ----------
+def _mk_levels(db):
+    """Assign the test world to levels: Foyer(z0)+Cellar(z-1) = the Manor;
+    Great Hall = its own level (so Foyer↔Hall is an entrance)."""
+    manor = models.Level(name="Manor", description="")
+    hall_lvl = models.Level(name="Hall", description="")
+    db.add_all([manor, hall_lvl]); db.commit()
+    foyer = db.query(models.Room).filter_by(name="Foyer").first()
+    cellar = db.query(models.Room).filter_by(name="Cellar").first()
+    hall = db.query(models.Room).filter_by(name="Great Hall").first()
+    foyer.level_id, foyer.z = manor.id, 0
+    cellar.level_id, cellar.z = manor.id, -1
+    hall.level_id, hall.z = hall_lvl.id, 0
+    db.commit()
+    return manor.id, hall_lvl.id
+
+
+def test_floors_group_by_level(db_session):
+    manor_id, hall_id = _mk_levels(db_session)
+    world.load()
+    assert world.rooms[1].level_id == manor_id and world.rooms[1].z == 0
+    assert world.rooms[3].level_id == manor_id and world.rooms[3].z == -1   # cellar floor
+    assert world.rooms[2].level_id == hall_id
+    assert world.levels[manor_id] == "Manor"
+
+
+def test_world_map_levels_and_entrances(db_session):
+    _mk_levels(db_session)
+    world.load()
+    wm = world.world_map()
+    assert {l["name"] for l in wm["levels"]} >= {"Manor", "Hall"}
+    byname = {r["name"]: r for r in wm["rooms"]}
+    assert byname["Cellar"]["z"] == -1 and byname["Cellar"]["level_name"] == "Manor"
+    e = {(x["from"], x["to"]): x for x in wm["exits"]}
+    assert e[(1, 2)]["entrance"] is True     # Foyer↔Hall crosses levels = entrance
+    assert e[(1, 3)]["entrance"] is False    # Foyer→Cellar stays in the Manor = stair
+
+
+def test_zone_state_carries_level_z(client, token, db_session):
+    manor = models.Level(name="Manor"); db_session.add(manor); db_session.commit()
+    foyer = db_session.query(models.Room).filter_by(name="Foyer").first()
+    foyer.level_id, foyer.z = manor.id, 0; db_session.commit()
+    world.load()
+    with _ws(client, token, 1) as ws:
+        zs = ws.receive_json()
+        assert zs["event"] == "zone_state"
+        assert zs["room"]["level_id"] == manor.id and zs["room"]["z"] == 0
+        assert zs["room"]["level_name"] == "Manor"
+
+
+def test_migrate_maps_idempotent(db_session):
+    import migrate_maps
+    import database
+    from sqlalchemy import text
+    migrate_maps.migrate(); migrate_maps.migrate()      # idempotent — guarded
+    with database.engine.begin() as conn:
+        cols = {r[1] for r in conn.execute(text("PRAGMA table_info(rooms)"))}
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+    assert {"level_id", "z"} <= cols and "levels" in tables

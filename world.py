@@ -100,6 +100,9 @@ class RoomNode:
     # ----- room type (Phase 7 / handoff-09 §5) -----
     room_type: str = "dungeon"
     is_safe: bool = False           # sanctuary: blocks PvP + mob aggro
+    # ----- levels & z-floors (handoff-11 Slice B) -----
+    level_id: Optional[int] = None  # the level this room is a floor of
+    z: int = 0                      # signed floor index within the level
     # ----- tile features (handoff-09 §6): id -> {id,x,y,kind,glyph,config} -----
     # Traps/hazards/signs/spawners/kegs attached to tiles. Room.tiles stays
     # geometric; features are an overlay layer the client draws on top.
@@ -111,6 +114,7 @@ class WorldState:
 
     def __init__(self):
         self.rooms: Dict[int, RoomNode] = {}
+        self.levels: Dict[int, str] = {}            # level_id -> name (handoff-11 B)
         self.player_locations: Dict[int, int] = {}  # online player_id -> room_id
         # Slain hostile mobs awaiting respawn: npc_id -> {room_id, due (monotonic)}.
         self.pending_respawns: Dict[int, dict] = {}
@@ -134,9 +138,12 @@ class WorldState:
                     id=room.id, name=room.name, description=room.description or "",
                     room_type=getattr(room, "room_type", None) or "dungeon",
                     is_safe=bool(getattr(room, "is_safe", False)),
+                    level_id=getattr(room, "level_id", None),
+                    z=int(getattr(room, "z", 0) or 0),
                 )
                 self._load_tiles(node, room)
                 rooms[room.id] = node
+            self.levels = {lvl.id: lvl.name for lvl in db.query(models.Level).all()}
             for feat in db.query(models.RoomFeature).all():
                 node = rooms.get(feat.room_id)
                 if node is not None:
@@ -856,14 +863,23 @@ class WorldState:
         return self._first_free_tile(node)
 
     def world_map(self) -> Dict[str, Any]:
-        """The zone graph for the overview map: rooms + (deduped) exits."""
-        rooms = [{"id": n.id, "name": n.name} for n in self.rooms.values()]
+        """The overview graph: rooms (with their level + z), levels, and exits.
+        The client builds two tiers — a level graph (entrances = cross-level
+        exits) and, per level, a floor stack by z (handoff-11 Slice B)."""
+        rooms = [{"id": n.id, "name": n.name, "level_id": n.level_id,
+                  "level_name": self.levels.get(n.level_id), "z": n.z}
+                 for n in self.rooms.values()]
+        levels = [{"id": lid, "name": name} for lid, name in self.levels.items()]
         exits = []
         for n in self.rooms.values():
             for direction, ex in n.exits.items():
-                exits.append({"from": n.id, "to": ex["to_room_id"],
-                              "dir": direction, "locked": bool(ex["is_locked"])})
-        return {"rooms": rooms, "exits": exits}
+                to_id = ex["to_room_id"]
+                to_node = self.rooms.get(to_id)
+                # An entrance crosses into another level; a stair stays intra-level.
+                entrance = bool(to_node and to_node.level_id != n.level_id)
+                exits.append({"from": n.id, "to": to_id, "dir": direction,
+                              "locked": bool(ex["is_locked"]), "entrance": entrance})
+        return {"rooms": rooms, "levels": levels, "exits": exits}
 
     def zone_snapshot(self, room_id: int, viewer_id: int) -> Optional[Dict[str, Any]]:
         """Serializable tiled-zone view for a `zone_state` event, from one
@@ -913,7 +929,9 @@ class WorldState:
             you = {"id": viewer_id, "x": sx, "y": sy, "glyph": "🧙"}
         return {
             "room": {"id": node.id, "name": node.name, "description": node.description,
-                     "room_type": node.room_type, "is_safe": node.is_safe},
+                     "room_type": node.room_type, "is_safe": node.is_safe,
+                     "level_id": node.level_id, "level_name": self.levels.get(node.level_id),
+                     "z": node.z},
             "tiles": {"w": node.width, "h": node.height, "grid": node.tiles,
                       # Registry defs for the glyphs present, so the client derives
                       # its render/sight rules from data (handoff-11 Slice A).

@@ -344,6 +344,19 @@ the LLM social layer. Two tiers share one world view (see
   client derives its FOV/`isTransparent` rule from data — a new tile type behaves
   correctly with no engine or client change. This is also the designer's palette
   source + the first registry slated to move to the config layer (handoff-10 §1).
+- **Levels & z-floors** (`models.Level`, `Room.level_id`/`Room.z`, handoff-11
+  Slice B): a **level** is a named area (the Manor); its floors are the Rooms
+  sharing a `level_id`, indexed by signed `z` (0 ground, −1 cellar). *Within* a
+  level, floors link by **stairs** (the existing `up`/`down` transitions — same
+  `level_id`, adjacent `z`); *between* levels, an exit crossing `level_id` is an
+  **entrance** (the generalized room-graph). The runtime is unchanged — vertical
+  movement already worked; this is grouping metadata. `RoomNode` caches
+  `level_id`/`z`; `world.levels` maps id→name; `world_map` ships rooms (with
+  `level_name`/`z`), `levels`, and per-exit `entrance` flags; `zone_state.room`
+  carries `level_id`/`level_name`/`z`. The overview labels each chamber with its
+  level + floor and shows a **floor-stack** widget for the current level.
+  Additive `migrate_maps.py`; seed authors the Manor (Foyer z0 + Cellar z−1) with
+  the Great Hall as its own level (an entrance).
 - **Layer 1 — the dungeon (no LLM):** each room is now an overhead **tile grid**
   (`Room.width/height/tiles/spawn_x/spawn_y`; glyphs `#` wall, `.` floor, `+`
   door — see the tile registry above). `WorldState` tracks live tile positions (`RoomNode.player_pos` /

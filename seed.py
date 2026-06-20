@@ -9,7 +9,7 @@ Idempotent: safe to run repeatedly (won't duplicate rows). Run directly:
 import json
 
 from database import SessionLocal, engine, Base
-from models import Room, Player, Item, Npc, NpcReaction, RoomExit, RoomFeature
+from models import Room, Player, Item, Npc, NpcReaction, RoomExit, RoomFeature, Level
 
 # Authored tiled zones (Phase 1 palette + Phase 2 transitions). Glyphs: '#' wall,
 # '.' floor, '+' door (on a border → that wall's cardinal exit), 'o' pillar,
@@ -114,6 +114,20 @@ def seed():
         # In-place so a pre-§5 Foyer row gets the flags too.
         if not foyer.is_safe or foyer.room_type != "tavern":
             foyer.room_type, foyer.is_safe = "tavern", True
+            db.commit()
+
+        # Levels & z-floors (handoff-11 Slice B). The Manor is a multi-floor
+        # level: Foyer (ground, z=0) + Cellar (z=-1) linked by the down-stairs
+        # (an intra-level floor stair). The Great Hall is its OWN level, reached
+        # from the Foyer by the north/south door — an *entrance* (cross-level).
+        manor = _get_or_create(db, Level, name="The Manor",
+                               defaults={"description": "A crumbling manor house."})
+        hall_lvl = _get_or_create(db, Level, name="The Great Hall",
+                                  defaults={"description": "A vast vaulted chamber."})
+        lvlmap = [(foyer, manor.id, 0), (cellar, manor.id, -1), (hall, hall_lvl.id, 0)]
+        if any(r.level_id != lid or r.z != z for r, lid, z in lvlmap):
+            for r, lid, z in lvlmap:
+                r.level_id, r.z = lid, z
             db.commit()
 
         # No player characters are seeded: every character now belongs to a
