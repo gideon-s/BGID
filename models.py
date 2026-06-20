@@ -57,6 +57,24 @@ class Level(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class Content(Base):
+    """Editable content overrides (handoff-10 §1): a generic key/value store that
+    overlays the authored code registries (spells, potions, …). A row holds one
+    entry's JSON `data` for a `(kind, key)`; the live registry is
+    `{**code_defaults, **overrides}` (see content.py). Empty store = pure code
+    defaults, so this is additive and safe to wipe."""
+    __tablename__ = "content"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(40), nullable=False, index=True)   # spells|potions|debuffs|gear
+    key = Column(String(80), nullable=False, index=True)    # entry id (e.g. "firebolt")
+    data = Column(Text, nullable=False, default="{}")        # the entry's JSON
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (UniqueConstraint("kind", "key", name="uq_content_kind_key"),)
+
+
 class Room(Base):
     """Room model representing locations in the game world"""
     __tablename__ = "rooms"

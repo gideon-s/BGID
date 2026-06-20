@@ -55,3 +55,13 @@ def apply(player, effect: dict) -> dict:
         hp = player.heal(player.max_health)
         mana = player.restore_mana(player.max_mana)
     return {"hp_restored": hp, "mana_restored": mana}
+
+
+# ---------- config layer (handoff-10 §1) ----------
+import content as _content
+
+def _apply_potions(merged):
+    global POTIONS
+    POTIONS = merged
+
+_content.register("potions", dict(POTIONS), _apply_potions)

@@ -47,3 +47,13 @@ def apply_to(key: str, name: str, source_name: str = None,
         dot_interval=spec.get("dot_interval", 3.0), harm=True,
         source_name=source_name, source_id=source_id, source_type=source_type)
     return True
+
+
+# ---------- config layer (handoff-10 §1) ----------
+import content as _content
+
+def _apply_debuffs(merged):
+    global DEBUFFS
+    DEBUFFS = merged
+
+_content.register("debuffs", dict(DEBUFFS), _apply_debuffs)

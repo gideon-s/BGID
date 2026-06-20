@@ -408,6 +408,7 @@
     <div id="admintabs">
       <button class="atab" data-tab="accounts">Accounts</button>
       <button class="atab" data-tab="monsters">Monsters</button>
+      <button class="atab" data-tab="content">Content</button>
       <button id="open-designer" title="Open the map designer">🗺 Map Designer</button>
       <button id="admin-reload" title="Re-sync the live world from the database">⟳ Reload world</button>
     </div>
@@ -1740,6 +1741,7 @@ function renderAdmin(){
     b.classList.toggle('active', b.dataset.tab===tab));
   $('#adminbody').innerHTML = '<div style="color:var(--dim);padding:.6rem">Loading…</div>';
   if(tab==='monsters') renderMonsters();
+  else if(tab==='content') renderContent();
   else renderAccounts();
 }
 async function renderAccounts(){
@@ -1892,6 +1894,67 @@ document.querySelectorAll('#admintabs .atab').forEach(b=>
 $('#admin-reload').onclick = reloadWorld;
 $('#open-admin').onclick = openAdmin;
 $('#adminview .cardx').onclick = closeAdmin;
+
+// ─── Admin: Content editor (editable code registries — handoff-10 §1) ───
+async function renderContent(){
+  const body = $('#adminbody'); body.innerHTML='';
+  const kr = await api('/admin/content');
+  if(!kr.ok){ body.innerHTML = `<div class="gerr">Couldn't load content (${kr.status}).</div>`; return; }
+  const kinds = kr.json ? (await kr.json()).kinds : [];
+  S.contentKind = S.contentKind && kinds.includes(S.contentKind) ? S.contentKind : kinds[0];
+  const bar = document.createElement('div'); bar.className='drow';
+  bar.innerHTML = `<label style="flex:0 0 auto">Registry
+    <select id="c-kind">${kinds.map(k=>`<option${k===S.contentKind?' selected':''}>${esc(k)}</option>`).join('')}</select></label>`;
+  const addBtn = document.createElement('button'); addBtn.textContent='+ new entry';
+  addBtn.onclick = ()=> editContentEntry(S.contentKind, '', {}, true);
+  bar.appendChild(addBtn); body.appendChild(bar);
+  bar.querySelector('#c-kind').onchange = e=>{ S.contentKind=e.target.value; renderContent(); };
+
+  const r = await api('/admin/content/'+S.contentKind);
+  if(!r.ok){ body.insertAdjacentHTML('beforeend', `<div class="gerr">load failed</div>`); return; }
+  const d = await r.json(); const defaults = new Set(d.defaults||[]);
+  Object.keys(d.entries).sort().forEach(key=>{
+    const row = document.createElement('div'); row.className='mrow';
+    row.innerHTML = `<span class="mn">${esc(key)}</span>`
+      + `<span class="mmeta">${defaults.has(key)?'default':'custom'}</span>`
+      + `<span class="acct-actions"></span>`;
+    const act = row.querySelector('.acct-actions');
+    const e=document.createElement('button'); e.textContent='edit';
+    e.onclick=()=> editContentEntry(S.contentKind, key, d.entries[key], false); act.appendChild(e);
+    const rv=document.createElement('button'); rv.textContent = defaults.has(key)?'revert':'delete';
+    if(!defaults.has(key)) rv.className='danger';
+    rv.onclick=()=>{ if(confirm(`${defaults.has(key)?'Revert':'Delete'} "${key}"?`)) delContentEntry(S.contentKind, key); };
+    act.appendChild(rv);
+    body.appendChild(row);
+  });
+}
+function editContentEntry(kind, key, data, isNew){
+  const f = document.createElement('div'); f.className='mform';
+  f.innerHTML =
+    `<label class="mfull">key<input data-k="key" value="${esc(key)}"${isNew?'':' readonly'}></label>`
+    + `<label class="mfull">JSON<textarea data-k="json" rows="10" style="font-family:ui-monospace,monospace;font-size:.78rem">${esc(JSON.stringify(data, null, 2))}</textarea></label>`
+    + `<div class="mfull"><button data-act="cancel">cancel</button><button data-act="save">save</button></div>`;
+  f.querySelector('[data-act="cancel"]').onclick = ()=> renderContent();
+  f.querySelector('[data-act="save"]').onclick = ()=> saveContentEntry(kind, f);
+  $('#adminbody').prepend(f);
+}
+async function saveContentEntry(kind, f){
+  const key = f.querySelector('[data-k="key"]').value.trim();
+  if(!key){ $('#admin-hint').textContent='Key is required.'; return; }
+  let data;
+  try{ data = JSON.parse(f.querySelector('[data-k="json"]').value); }
+  catch(err){ $('#admin-hint').textContent='Invalid JSON: '+err.message; return; }
+  const r = await api(`/admin/content/${kind}/${encodeURIComponent(key)}`, {method:'PUT', body:{data}});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); $('#admin-hint').textContent = humanError(e)||('Error '+r.status); return; }
+  $('#admin-hint').textContent = `Saved ${kind}/${key} (live).`;
+  renderContent();
+}
+async function delContentEntry(kind, key){
+  const r = await api(`/admin/content/${kind}/${encodeURIComponent(key)}`, {method:'DELETE'});
+  if(!r.ok){ $('#admin-hint').textContent='Delete failed.'; return; }
+  $('#admin-hint').textContent = `Reverted ${kind}/${key}.`;
+  renderContent();
+}
 
 // ─── Map Designer (admin) ───
 const D = { room:null, grid:[], w:0, h:0, palette:[], sel:'#', tool:'paint',

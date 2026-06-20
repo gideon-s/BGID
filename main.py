@@ -1,7 +1,7 @@
 """
 Main FastAPI application for the RPG Game API
 """
-from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Body
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ import gear_effects
 import features
 import tiles as tile_registry
 import mapgen
+import content
 import spells as spellbook
 import skills as skillbook
 import services
@@ -74,6 +75,12 @@ async def startup_event():
         print(f"🌍 World loaded: {len(world.rooms)} rooms")
     except Exception as e:
         print(f"⚠️  Warning: Could not load world state: {e}")
+
+    # Overlay any editable content (handoff-10 §1) over the code registries.
+    try:
+        content.reload_all()
+    except Exception as e:
+        print(f"⚠️  Warning: Could not load content overrides: {e}")
 
     try:
         await initialize_deepseek_npcs()
@@ -1182,6 +1189,43 @@ def create_level(data: schemas.LevelBase, db: Session = Depends(get_db),
     db.add(lvl); db.commit(); db.refresh(lvl)
     world.reload()
     return lvl
+
+# ---------- Content config layer (handoff-10 §1) — editable code registries ----------
+@app.get("/admin/content", tags=["Admin"])
+def list_content_kinds(_admin: models.User = Depends(get_current_admin)):
+    """The editable registry kinds (spells/potions/debuffs/gear)."""
+    return {"kinds": content.kinds()}
+
+@app.get("/admin/content/{kind}", tags=["Admin"])
+def get_content(kind: str, _admin: models.User = Depends(get_current_admin)):
+    """The merged live view of a registry + which keys are code defaults."""
+    if kind not in content.kinds():
+        raise HTTPException(status_code=404, detail="Unknown content kind")
+    entries = content.current(kind)
+    return {"kind": kind, "entries": entries,
+            "defaults": [k for k in entries if content.is_default(kind, k)]}
+
+@app.put("/admin/content/{kind}/{key}", tags=["Admin"])
+def put_content(kind: str, key: str, body: dict = Body(...),
+                _admin: models.User = Depends(get_current_admin)):
+    """Create/override one registry entry (validated), then hot-reload it live."""
+    if kind not in content.kinds():
+        raise HTTPException(status_code=404, detail="Unknown content kind")
+    data = body.get("data", body)          # accept {data:{…}} or the raw object
+    try:
+        content.upsert(kind, key, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"kind": kind, "key": key, "entries": content.current(kind)}
+
+@app.delete("/admin/content/{kind}/{key}", tags=["Admin"])
+def delete_content(kind: str, key: str,
+                   _admin: models.User = Depends(get_current_admin)):
+    """Remove an override (reverts to the code default if the key has one)."""
+    if kind not in content.kinds():
+        raise HTTPException(status_code=404, detail="Unknown content kind")
+    content.delete(kind, key)
+    return {"kind": kind, "entries": content.current(kind)}
 
 @app.get("/rooms/{room_id}/state", tags=["Rooms"])
 def get_room_state(room_id: int, db: Session = Depends(get_db)):

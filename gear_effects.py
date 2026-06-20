@@ -50,3 +50,13 @@ def sync(player_id: int) -> List[dict]:
             defn=spec.get("defn", 0), haste=spec.get("haste", 1.0),
             source_type="gear")
     return effects.snapshot(key)
+
+
+# ---------- config layer (handoff-10 §1) ----------
+import content as _content
+
+def _apply_gear(merged):
+    global GEAR_EFFECTS
+    GEAR_EFFECTS = merged
+
+_content.register("gear", dict(GEAR_EFFECTS), _apply_gear)

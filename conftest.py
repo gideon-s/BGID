@@ -176,6 +176,8 @@ def _reset_mob_clocks():
     casting.reset()
     smack_talk.reset()
     features.reset()             # a leaked sprung-trap set would skip a trap test
+    import content
+    content.reset()              # reset edited registries (spells/potions/…) to defaults
     world.door_unlocks.clear()   # a leaked open door would unlock locked-exit tests
     effects._active.clear()      # a leaked buff would skew combat assertions
     yield

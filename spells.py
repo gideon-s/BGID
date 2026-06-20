@@ -113,3 +113,15 @@ def spell_summary(spell_id: str) -> Optional[dict]:
     return {"id": spell_id, "name": sp["name"], "glyph": sp["glyph"],
             "cost": sp["cost"], "cooldown": sp["cooldown"], "range": sp["range"],
             "shape": sp["shape"], "radius": sp.get("radius", 0)}
+
+
+# ---------- config layer (handoff-10 §1) ----------
+# The authored SPELLS above are the defaults; content.py overlays DB edits and
+# reassigns this module's SPELLS on reload. Accessors read SPELLS at call time.
+import content as _content
+
+def _apply_spells(merged):
+    global SPELLS
+    SPELLS = merged
+
+_content.register("spells", dict(SPELLS), _apply_spells)

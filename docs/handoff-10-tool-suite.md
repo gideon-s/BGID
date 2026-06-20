@@ -7,9 +7,18 @@ CRUD (`PUT/DELETE /rooms/{id}`, `PUT/DELETE /npcs/{id}`, `RoomFeature` CRUD,
 `#designerview` admin canvas — tile palette (`GET /tiles`), paint/spawn/feature/
 erase tools, room properties incl. `level_id`/`z`, exit + feature management, the
 `mapgen` generator (`POST /admin/mapgen`), and Save → `PUT /rooms/{id}` +
-`world.reload()`; `GET/POST /levels` back the level picker. Suite **270 green**
-(`test_authoring.py` extended). *(Deferred: item/NPC tile placement; hand-drawn
-editor skin.)* **§1 config layer + §4/§5/§6 editors remain.** · **Depends on:** the admin layer (account/character
+`world.reload()`; `GET/POST /levels` back the level picker. *(Deferred: item/NPC
+tile placement; hand-drawn editor skin.)*
+
+§1 **config layer SHIPPED 2026-06-20** (`content.py` + `models.Content` +
+`migrate_content.py`): the code registries `spells`/`potions`/`debuffs`/`gear`
+become editable data — `{**defaults, **DB overrides}` with per-kind validation +
+hot-reload; admin `GET/PUT/DELETE /admin/content/...` + a **Content** tab (JSON
+editor, revert-to-default). This is the §4 (spells/effects) + §5 (items/potions)
+**editing surface** via one generic editor. Suite **284 green** (`test_content.py`).
+*(Remaining: §6 classes/races + the tiles registry on the config layer — same
+pattern, deferred for the character-creation/migration + import-frozen-set risk;
+per-field form editors over the JSON editor.)* · **Depends on:** the admin layer (account/character
 console + admin-gated REST CRUD), the world model, and the content registries.
 **Goal:** give admins **in-browser authoring tools** instead of editing seed code:
 a **map designer**, and editors for the **monster list, spells & effects, magic items,

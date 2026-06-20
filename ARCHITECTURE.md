@@ -467,6 +467,22 @@ Each step keeps the app runnable.
    *(Deferred: drag-placing items/NPCs on tiles — use the Monsters editor + an
    NPC's home tile; and re-skinning the editor with the hand-drawn renderer.)*
 
+   **Content config layer** (handoff-10 §1, `content.py` + `models.Content`): the
+   authored code registries become **editable data without a restart**. Each
+   registry module (`spells`, `potions`, `debuffs`, `gear_effects`) keeps its
+   Python dict as the **defaults** and registers an applier; the live registry is
+   `{**defaults, **overrides}`, where overrides are JSON rows in the `content`
+   table (`kind`/`key`/`data`). An empty store = pure defaults (additive, safe to
+   wipe; `migrate_content.py` just creates the table). Admin endpoints
+   `GET /admin/content[/{kind}]`, `PUT/DELETE /admin/content/{kind}/{key}`
+   validate on write (per-kind schema) and **hot-reload** the module global, so an
+   edit reaches combat/casting immediately; deleting an override reverts to the
+   code default. A **Content** tab in the admin console edits entries as JSON.
+   Startup `content.reload_all()`s; tests reset to defaults between cases.
+   *(Lowest-risk registries first per the handoff; classes/races — which touch
+   character creation + migration defaults — and the import-frozen tiles set are
+   deferred to follow the same pattern.)*
+
 5. ✅ **Room graph** (`models.RoomExit`, `directions.py`) — directed exits with
    locks/keys; direction-based, lock-aware movement (WS + `/action`); exits in
    room_state/`/state`; exit-management API. **Consumable shared unlock:** using
