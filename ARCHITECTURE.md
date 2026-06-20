@@ -383,7 +383,14 @@ are emoji **tokens** on paper discs, animated by a `requestAnimationFrame` loop
 slides, floating combat numbers, hit-flash, attacker lunge, and death fade — the
 loop runs only while something is animating. A damaged entity (hp < max) shows a
 **percentage health bar** over its head (green → yellow → red by 50% HP); live HP
-rides `combat` events + `zone_state`. The **M** overview redraws as a `map.jpg`-
+rides `combat` events + `zone_state`. **Adaptive camera** (handoff-11 Slice C,
+`static/camera.js` — pure, unit-tested in `test_camera.js`): a floor that fits the
+panel at a readable tile size renders **static** (whole grid, as before); a larger
+floor switches to a **player-centered follow camera** at a fixed cell — the cached
+ink layer still renders the *whole* floor once, and `paint()` blits the camera
+sub-rect + translates the token layer by the camera offset (no re-hatch → no
+shimmer); the minimap shows the whole floor with the camera window outlined, and
+click/hover map back through the offset. The **M** overview redraws as a `map.jpg`-
 style floor plan (numbered chambers, locked exits, cartouche, compass). A Layer-2
 dialogue window (right) and combat-log/stats strip complete the layout. Movement
 is WASD/arrow keys; bump a foe to attack. (Renderer evolved: Phase 1 used rot.js

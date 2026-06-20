@@ -6,6 +6,7 @@
 <title>BGID</title>
 <script src="/static/vendor/rot.min.js"></script>
 <script src="/static/vendor/rough.min.js"></script>
+<script src="/static/camera.js"></script>
 <style>
   /* Palette + type lifted from the Black Goat splash: near-black warm gradient,
      gold accents, parchment ink, classical serif. */
@@ -608,11 +609,22 @@ function rebuildDisplay(){
            cv.addEventListener('mouseleave', hideMaptip); }
   if(!S.w || !S.h) return;
   const area = $('#map').getBoundingClientRect();
-  cell = Math.max(14, Math.floor(Math.min((area.width - 24) / S.w, (area.height - 24) / S.h)));
+  // Adaptive camera (handoff-11 Slice C): small floors stay static (whole grid);
+  // big floors switch to a fixed readable cell + a player-followed viewport.
+  S.view = cameraView(S.w, S.h, area.width, area.height);
+  cell = S.view.cell;
   const dpr = window.devicePixelRatio || 1;
-  cv.width = S.w * cell * dpr; cv.height = S.h * cell * dpr;
-  cv.style.width = (S.w * cell) + 'px'; cv.style.height = (S.h * cell) + 'px';
+  cv.width = S.view.viewCols * cell * dpr; cv.height = S.view.viewRows * cell * dpr;
+  cv.style.width = (S.view.viewCols * cell) + 'px'; cv.style.height = (S.view.viewRows * cell) + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  updateCamera();
+}
+
+// Recompute the camera's top-left tile (follow mode) from the player position.
+function updateCamera(){
+  if(!S.view || S.view.mode === 'static' || !S.you){ S.cam = {x:0, y:0}; return; }
+  const o = cameraOffset(S.view.viewCols, S.view.viewRows, S.w, S.h, S.you.x, S.you.y);
+  S.cam = {x:o.camX, y:o.camY};
 }
 
 // Floorish (passable-looking) tiles vs structure, for boundary tracing.
@@ -658,7 +670,8 @@ function _compass(mc, cx, cy, r, ink){
 function renderMapLayer(visible){
   if(!mapLayer) mapLayer = document.createElement('canvas');
   const dpr = window.devicePixelRatio || 1;
-  mapLayer.width = cv.width; mapLayer.height = cv.height;
+  // The cached ink layer is the WHOLE floor (the camera blits a sub-rect of it).
+  mapLayer.width = S.w * cell * dpr; mapLayer.height = S.h * cell * dpr;
   const mc = mapLayer.getContext('2d');
   mc.setTransform(dpr,0,0,dpr,0,0);
   mc.lineCap = 'round'; mc.lineJoin = 'round';
@@ -803,6 +816,7 @@ function draw(){
     fov.compute(S.you.x, S.you.y, FOV_RADIUS, (x,y)=>{ visible[x+','+y]=true; S.explored[x+','+y]=true; });
   }catch(_){ /* player off-grid mid-update; skip this frame */ }
   lastVisible = visible;   // shared with target-cycling, the reticle, and paint()
+  updateCamera();          // re-center the follow camera on the player
   // (Re)build the cached hand-drawn map only when the zone or FOV changes.
   const key = (S.room?S.room.id:'?') + ':' + S.you.x + ',' + S.you.y;
   if(key !== mapKey || !mapLayer){ renderMapLayer(visible); mapKey = key; }
@@ -818,9 +832,16 @@ const FEATURE_GLYPH = {trap:'⚠️', hazard:'🔥', sign:'🪧', spawner:'🕳�
 function paint(){
   if(!ctx || !S.you) return;
   const visible = lastVisible || {};
+  const dpr = window.devicePixelRatio || 1;
+  const ox = -(S.cam ? S.cam.x : 0) * cell, oy = -(S.cam ? S.cam.y : 0) * cell;
+  // Blit the camera sub-rect of the cached full-floor ink layer (no re-hatch → no
+  // shimmer); in static mode ox=oy=0 so this is the whole floor at the origin.
   ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
-  if(mapLayer) ctx.drawImage(mapLayer,0,0); ctx.restore();
+  if(mapLayer) ctx.drawImage(mapLayer, ox*dpr, oy*dpr); ctx.restore();
 
+  // Everything below is drawn in tile-space; shift it by the camera so the
+  // helpers can keep using `tile*cell` unchanged.
+  ctx.save(); ctx.translate(ox, oy);
   // Tile features (traps/hazards/signs/spawners/kegs) — overlay beneath items.
   for(const id in (S.features||{})){ const f=S.features[id];
     if(visible[f.x+','+f.y]) drawToken(f.x, f.y, f.glyph||FEATURE_GLYPH[f.kind]||'❔', cell*0.5, 0.32, {}); }
@@ -843,6 +864,7 @@ function paint(){
   drawReticle(visible);
   drawFx();
   drawFloaters();
+  ctx.restore();   // end camera translate
 }
 
 // Rising, fading combat numbers ("-5" red, "+3" green, "miss" grey).
@@ -975,6 +997,12 @@ function drawMinimap(){
     m.fillRect(e.x*cs, e.y*cs, cs, cs);
   }
   m.fillStyle = '#1a1710'; m.fillRect(S.you.x*cs, S.you.y*cs, cs, cs);
+  // In follow mode, outline the slice of the floor the camera is showing.
+  if(S.view && S.view.mode === 'follow' && S.cam){
+    m.strokeStyle = '#7a3b12'; m.lineWidth = Math.max(1, cs*0.5);
+    m.strokeRect(S.cam.x*cs + 0.5, S.cam.y*cs + 0.5,
+                 S.view.viewCols*cs - 1, S.view.viewRows*cs - 1);
+  }
 }
 
 function setHp(hp, max){
@@ -1353,10 +1381,10 @@ function castByIndex(i){ const sp = S.spellbook[i]; if(sp) tryCast(sp); }
 function handleMapClick(e){
   if(!S.targeting || !cv) return;
   const r = cv.getBoundingClientRect();
-  const x = Math.floor((e.clientX - r.left) / cell);
-  const y = Math.floor((e.clientY - r.top) / cell);
-  if(x<0 || y<0 || x>=S.w || y>=S.h){ cancelTargeting(); return; }
-  sendCast(S.targeting, x, y);
+  const t = tileFromPixel(e.clientX - r.left, e.clientY - r.top, cell,
+                          S.cam?S.cam.x:0, S.cam?S.cam.y:0);   // through the camera
+  if(t.x<0 || t.y<0 || t.x>=S.w || t.y>=S.h){ cancelTargeting(); return; }
+  sendCast(S.targeting, t.x, t.y);
   cancelTargeting();
 }
 
@@ -1378,7 +1406,9 @@ function nameAtTile(x, y){
 function handleMapHover(e){
   if(!cv || !S.tiles) return;
   const r = cv.getBoundingClientRect();
-  const x = Math.floor((e.clientX - r.left) / cell), y = Math.floor((e.clientY - r.top) / cell);
+  const t = tileFromPixel(e.clientX - r.left, e.clientY - r.top, cell,
+                          S.cam?S.cam.x:0, S.cam?S.cam.y:0);
+  const x = t.x, y = t.y;
   const name = (x>=0 && y>=0 && x<S.w && y<S.h) ? nameAtTile(x, y) : null;
   const tip = ensureMaptip();
   if(name){ tip.textContent = name; tip.style.display='block';
