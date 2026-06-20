@@ -184,9 +184,31 @@
   /* Modal overlays (map, inventory, sheet, settings, help): centered card over a
      dimmed backdrop. Dismissed only by ✕ or Esc — clicking the backdrop does
      nothing (no close-on-outside-click). */
-  #settingsview, #helpview, #adminview, #shopview{
+  #settingsview, #helpview, #adminview, #shopview, #designerview{
            position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
            background:rgba(5,4,3,.86)}
+  /* Map designer overlay */
+  .mapcard.huge{width:min(1100px,97vw)}
+  #designerwrap{display:flex;gap:.8rem;max-height:78vh}
+  #designerwrap .dpanel{width:250px;flex:0 0 250px;overflow-y:auto;display:flex;flex-direction:column;gap:.55rem}
+  #designerwrap .dcanvaswrap{flex:1;overflow:auto;background:#1a1710;border:1px solid var(--edge);border-radius:4px;display:flex;align-items:flex-start;justify-content:flex-start}
+  #dcanvas{image-rendering:pixelated;cursor:crosshair;display:block}
+  .dsec{color:var(--gold-dim);font-size:.66rem;text-transform:uppercase;letter-spacing:.14em;font-family:var(--serif);border-bottom:1px solid var(--edge);padding-bottom:.12rem;margin-top:.25rem}
+  .dpalette{display:flex;flex-wrap:wrap;gap:.25rem}
+  .dpal{width:34px;height:34px;border:1px solid var(--edge);border-radius:4px;background:rgba(199,162,74,.05);
+        cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:1rem;line-height:1}
+  .dpal small{font-size:.5rem;color:var(--dim)}
+  .dpal.sel{border-color:var(--accent);background:rgba(199,162,74,.18)}
+  #designerwrap .drow{display:flex;align-items:center;gap:.4rem;font-size:.78rem;flex-wrap:wrap}
+  #designerwrap label{display:flex;flex-direction:column;font-size:.62rem;color:var(--dim);gap:.1rem;flex:1}
+  #designerwrap input, #designerwrap select, #designerwrap textarea{background:#1a1710;border:1px solid var(--edge);color:var(--fg);border-radius:3px;padding:.2rem .35rem;font-size:.8rem}
+  #designerwrap button{background:rgba(199,162,74,.06);border:1px solid var(--gold-dim);color:var(--fg);border-radius:3px;cursor:pointer;font-size:.74rem;padding:.18rem .5rem}
+  #designerwrap button:hover{border-color:var(--accent);color:var(--accent)}
+  #designerwrap button.danger:hover{border-color:var(--red);color:var(--red)}
+  .dtool.sel{border-color:var(--accent);color:var(--accent);background:rgba(199,162,74,.18)}
+  .dlist{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem}
+  .dlist .di{display:flex;align-items:center;gap:.35rem;border:1px solid var(--edge);border-radius:3px;padding:.15rem .35rem}
+  .dlist .di .dx{margin-left:auto;cursor:pointer;color:var(--red)}
   /* Shop overlay */
   #shopbody{max-height:62vh;overflow-y:auto;display:flex;flex-direction:column;gap:.7rem;min-width:320px}
   .shopsec{color:var(--gold-dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.16em;font-family:var(--serif);border-bottom:1px solid var(--edge);padding-bottom:.15rem;margin-top:.3rem}
@@ -386,10 +408,81 @@
     <div id="admintabs">
       <button class="atab" data-tab="accounts">Accounts</button>
       <button class="atab" data-tab="monsters">Monsters</button>
+      <button id="open-designer" title="Open the map designer">🗺 Map Designer</button>
       <button id="admin-reload" title="Re-sync the live world from the database">⟳ Reload world</button>
     </div>
     <div id="adminbody"></div>
     <div class="maphint" id="admin-hint">Manage accounts, characters, and monsters. <b>Esc</b> to close.</div>
+  </div>
+</div>
+
+<div id="designerview" class="hidden">
+  <div class="mapcard huge"><a class="cardx" title="Close (Esc)">✕</a>
+    <div class="maptitle">Map Designer</div>
+    <div id="designerwrap">
+      <div class="dpanel">
+        <div class="drow">
+          <label style="flex:2">Room
+            <select id="d-room"></select></label>
+          <button id="d-new" title="New room">＋</button>
+        </div>
+        <div class="dsec">Properties</div>
+        <label>Name<input id="d-name"></label>
+        <label>Description<textarea id="d-desc" rows="2"></textarea></label>
+        <div class="drow">
+          <label>Width<input id="d-w" type="number" min="5" max="200"></label>
+          <label>Height<input id="d-h" type="number" min="5" max="200"></label>
+        </div>
+        <div class="drow">
+          <label>Type<input id="d-type" placeholder="dungeon"></label>
+          <label style="flex:0 0 auto;flex-direction:row;align-items:center;gap:.25rem">
+            <input id="d-safe" type="checkbox"> safe</label>
+        </div>
+        <div class="drow">
+          <label>Level<select id="d-level"></select></label>
+          <label>z<input id="d-z" type="number"></label>
+          <button id="d-newlevel" title="New level">＋lvl</button>
+        </div>
+        <div class="dsec">Tools</div>
+        <div class="drow">
+          <button class="dtool" data-tool="paint">🖌 paint</button>
+          <button class="dtool" data-tool="spawn">✦ spawn</button>
+          <button class="dtool" data-tool="feature">◆ feature</button>
+          <button class="dtool" data-tool="erase">⌫ erase</button>
+        </div>
+        <div class="dpalette" id="d-palette"></div>
+        <div class="drow" id="d-featrow" style="display:none">
+          <label>Feature
+            <select id="d-featkind">
+              <option value="trap">trap</option><option value="hazard">hazard</option>
+              <option value="sign">sign</option><option value="spawner">spawner</option>
+              <option value="keg">keg</option></select></label>
+          <label>Glyph<input id="d-featglyph" maxlength="8" placeholder="auto"></label>
+        </div>
+        <div class="dsec">Generate</div>
+        <div class="drow">
+          <label>Kind<select id="d-genkind"><option value="rooms">rooms</option><option value="cave">cave</option></select></label>
+          <label>Seed<input id="d-genseed" type="number" placeholder="random"></label>
+          <button id="d-gen">⚙ generate</button>
+        </div>
+        <div class="dsec">Exits</div>
+        <div class="dlist" id="d-exits"></div>
+        <div class="drow">
+          <label>Dir<select id="d-exdir"><option>north</option><option>south</option><option>east</option><option>west</option><option>up</option><option>down</option></select></label>
+          <label>To<select id="d-exto"></select></label>
+          <label style="flex:0 0 auto;flex-direction:row;align-items:center;gap:.2rem"><input id="d-exlock" type="checkbox">lock</label>
+          <button id="d-exadd">add exit</button>
+        </div>
+        <div class="dsec">Tile features</div>
+        <div class="dlist" id="d-features"></div>
+      </div>
+      <div class="dcanvaswrap"><canvas id="dcanvas"></canvas></div>
+    </div>
+    <div class="maphint" id="designer-hint">Pick a tool + glyph, then paint on the grid. <b>Save</b> writes to the live world. <b>Esc</b> to close.</div>
+    <div class="drow" style="justify-content:flex-end;margin-top:.4rem">
+      <span id="d-status" style="margin-right:auto;color:var(--dim);font-size:.78rem"></span>
+      <button id="d-save">💾 Save room</button>
+    </div>
   </div>
 </div>
 
@@ -1541,13 +1634,14 @@ window.addEventListener('keydown', e=>{
     rebinding = null; renderKeys();
     return;
   }
-  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); closeSheet(); closeRoom(); closeAdmin(); closeShop(); return; }
+  if(e.key === 'Escape'){ cancelTargeting(); closeMap(); closeInv(); closeSettings(); closeHelp(); closeSheet(); closeRoom(); closeAdmin(); closeShop(); closeDesigner(); return; }
   // Never hijack keys while typing in a field (login, character name, command box).
   const ae = document.activeElement;
   if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
   // While a full-screen panel is open, only Esc (above) acts — don't move underneath.
   if(!$('#settingsview').classList.contains('hidden') || !$('#helpview').classList.contains('hidden')
-     || !$('#adminview').classList.contains('hidden') || !$('#shopview').classList.contains('hidden')) return;
+     || !$('#adminview').classList.contains('hidden') || !$('#shopview').classList.contains('hidden')
+     || !$('#designerview').classList.contains('hidden')) return;
   // Quickslots are fixed (positional).
   if(e.key >= '1' && e.key <= '9'){ e.preventDefault(); castByIndex(+e.key - 1); return; }
   // Arrow keys always move, regardless of rebinding.
@@ -1798,6 +1892,213 @@ document.querySelectorAll('#admintabs .atab').forEach(b=>
 $('#admin-reload').onclick = reloadWorld;
 $('#open-admin').onclick = openAdmin;
 $('#adminview .cardx').onclick = closeAdmin;
+
+// ─── Map Designer (admin) ───
+const D = { room:null, grid:[], w:0, h:0, palette:[], sel:'#', tool:'paint',
+            spawn:[1,1], rooms:[], levels:[], exits:[], features:[], cell:20 };
+function dStatus(msg){ $('#d-status').textContent = msg || ''; }
+async function openDesigner(){
+  if(!isAdmin()) return;
+  $('#designerview').classList.remove('hidden');
+  // Load palette + levels + room list once per open.
+  const [tp, lv, rm] = await Promise.all([api('/tiles'), api('/levels'), api('/rooms/')]);
+  D.palette = tp.ok ? (await tp.json()).tiles : [];
+  D.levels  = lv.ok ? await lv.json() : [];
+  D.rooms   = rm.ok ? (await rm.json()).items : [];
+  renderPalette(); renderRoomSelect(); renderLevelSelect(); selectTool('paint');
+  if(D.rooms.length) { $('#d-room').value = String(D.rooms[0].id); await loadDesignerRoom(D.rooms[0].id); }
+  else newDesignerRoom();
+}
+function closeDesigner(){ $('#designerview').classList.add('hidden'); }
+function renderPalette(){
+  const el = $('#d-palette'); el.innerHTML='';
+  D.palette.forEach(t=>{
+    const b = document.createElement('div'); b.className='dpal'+(t.glyph===D.sel?' sel':'');
+    b.title = `${t.name} (${t.walkable?'walk':'solid'}${t.transparent?'':' · opaque'})`;
+    b.innerHTML = `${t.glyph}<small>${t.name.slice(0,5)}</small>`;
+    b.onclick = ()=>{ D.sel=t.glyph; if(D.tool!=='feature') selectTool('paint'); renderPalette(); };
+    el.appendChild(b);
+  });
+}
+function renderRoomSelect(){
+  const s = $('#d-room'); s.innerHTML = D.rooms.map(r=>`<option value="${r.id}">${esc(r.name)} (#${r.id})</option>`).join('');
+  const to = $('#d-exto'); to.innerHTML = D.rooms.map(r=>`<option value="${r.id}">${esc(r.name)} (#${r.id})</option>`).join('');
+}
+function renderLevelSelect(){
+  const s = $('#d-level');
+  s.innerHTML = '<option value="">— none —</option>' +
+    D.levels.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('');
+}
+function selectTool(t){ D.tool=t; $('#d-featrow').style.display = t==='feature'?'flex':'none';
+  document.querySelectorAll('.dtool').forEach(b=> b.classList.toggle('sel', b.dataset.tool===t)); }
+async function loadDesignerRoom(id){
+  const r = await api('/rooms/'+id); if(!r.ok){ dStatus('Load failed'); return; }
+  const rm = await r.json();
+  D.room = rm;
+  D.w = rm.width || 12; D.h = rm.height || 9;
+  D.grid = (rm.tiles||'').split('\n');
+  while(D.grid.length < D.h) D.grid.push('#'.repeat(D.w));
+  D.grid = D.grid.map(row=> (row + '#'.repeat(D.w)).slice(0, D.w));
+  D.spawn = [rm.spawn_x??1, rm.spawn_y??1];
+  $('#d-name').value = rm.name||''; $('#d-desc').value = rm.description||'';
+  $('#d-w').value = D.w; $('#d-h').value = D.h;
+  $('#d-type').value = rm.room_type||'dungeon'; $('#d-safe').checked = !!rm.is_safe;
+  $('#d-level').value = rm.level_id ? String(rm.level_id) : ''; $('#d-z').value = rm.z||0;
+  await loadDesignerExtras(id);
+  drawDesigner(); dStatus(`Loaded ${rm.name}`);
+}
+async function loadDesignerExtras(id){
+  const [ex, ft] = await Promise.all([api('/rooms/'+id+'/exits'), api('/rooms/'+id+'/features')]);
+  D.exits = ex.ok ? await ex.json() : [];
+  D.features = ft.ok ? await ft.json() : [];
+  renderExitList(); renderFeatureList();
+}
+function newDesignerRoom(){
+  D.room = null; D.w = 12; D.h = 9;
+  D.grid = []; for(let y=0;y<D.h;y++) D.grid.push(y===0||y===D.h-1 ? '#'.repeat(D.w) : '#'+'.'.repeat(D.w-2)+'#');
+  D.spawn=[1,1]; D.exits=[]; D.features=[];
+  $('#d-name').value='New Room'; $('#d-desc').value=''; $('#d-w').value=D.w; $('#d-h').value=D.h;
+  $('#d-type').value='dungeon'; $('#d-safe').checked=false; $('#d-level').value=''; $('#d-z').value=0;
+  renderExitList(); renderFeatureList(); drawDesigner(); dStatus('New room (unsaved)');
+}
+function resizeDesigner(w, h){
+  w=Math.max(5,Math.min(200,w|0)); h=Math.max(5,Math.min(200,h|0));
+  const g=[]; for(let y=0;y<h;y++){ let row=''; for(let x=0;x<w;x++){
+    const old = (D.grid[y]||'')[x];
+    row += (old!=null) ? old : (x===0||y===0||x===w-1||y===h-1 ? '#' : '.'); }
+    g.push(row); }
+  D.w=w; D.h=h; D.grid=g; drawDesigner();
+}
+function drawDesigner(){
+  const c=$('#dcanvas'); const cell=D.cell; const ctx2=c.getContext('2d');
+  c.width=D.w*cell; c.height=D.h*cell;
+  for(let y=0;y<D.h;y++){ const row=D.grid[y]||''; for(let x=0;x<D.w;x++){
+    const g=row[x]||'#'; const def=(D.palette.find(t=>t.glyph===g))||{walkable:false};
+    ctx2.fillStyle = g==='#' ? '#3a3424' : g==='~' ? '#3a566a' : g==='o' ? '#4a4436'
+                   : (g==='+'||g==='>'||g==='<') ? '#6b5a2a' : def.walkable ? '#cabf99' : '#2a2519';
+    ctx2.fillRect(x*cell, y*cell, cell, cell);
+    ctx2.strokeStyle='rgba(0,0,0,0.18)'; ctx2.strokeRect(x*cell+0.5, y*cell+0.5, cell, cell);
+    if(g!=='.' && g!=='#'){ ctx2.fillStyle='#1a1710'; ctx2.font=Math.floor(cell*0.6)+'px serif';
+      ctx2.textAlign='center'; ctx2.textBaseline='middle'; ctx2.fillText(g, x*cell+cell/2, y*cell+cell/2+1); } } }
+  // features
+  D.features.forEach(f=>{ ctx2.font=Math.floor(cell*0.62)+'px serif'; ctx2.textAlign='center'; ctx2.textBaseline='middle';
+    ctx2.fillText(f.glyph||'◆', f.x*cell+cell/2, f.y*cell+cell/2+1); });
+  // spawn marker
+  ctx2.strokeStyle='#7a3b12'; ctx2.lineWidth=2;
+  ctx2.strokeRect(D.spawn[0]*cell+2, D.spawn[1]*cell+2, cell-4, cell-4);
+  ctx2.fillStyle='#7a3b12'; ctx2.font=Math.floor(cell*0.5)+'px serif'; ctx2.textAlign='center'; ctx2.textBaseline='middle';
+  ctx2.fillText('✦', D.spawn[0]*cell+cell/2, D.spawn[1]*cell+cell/2+1);
+}
+function dTileFromEvent(e){
+  const c=$('#dcanvas'); const r=c.getBoundingClientRect();
+  return [Math.floor((e.clientX-r.left)/D.cell), Math.floor((e.clientY-r.top)/D.cell)];
+}
+function setTile(x,y,g){ if(y<0||y>=D.h||x<0||x>=D.w) return;
+  const row=D.grid[y]; D.grid[y]=row.slice(0,x)+g+row.slice(x+1); }
+async function designerPaintAt(x,y){
+  if(x<0||y<0||x>=D.w||y>=D.h) return;
+  if(D.tool==='paint'){ setTile(x,y,D.sel); drawDesigner(); }
+  else if(D.tool==='erase'){ setTile(x,y,'.'); drawDesigner(); }
+  else if(D.tool==='spawn'){ D.spawn=[x,y]; drawDesigner(); }
+  else if(D.tool==='feature'){ await addFeatureAt(x,y); }
+}
+let _dDown=false;
+function wireDesignerCanvas(){
+  const c=$('#dcanvas');
+  c.onmousedown = e=>{ _dDown=true; const [x,y]=dTileFromEvent(e); designerPaintAt(x,y); };
+  c.onmousemove = e=>{ if(!_dDown) return; if(D.tool==='feature'||D.tool==='spawn') return;
+    const [x,y]=dTileFromEvent(e); designerPaintAt(x,y); };
+  window.addEventListener('mouseup', ()=>{ _dDown=false; });
+}
+function renderExitList(){
+  const el=$('#d-exits'); el.innerHTML='';
+  D.exits.forEach(x=>{ const d=document.createElement('div'); d.className='di';
+    d.innerHTML=`<span>${esc(x.direction)} → #${x.to_room_id}${x.is_locked?' 🔒':''}</span>`;
+    if(D.room){ const rm=document.createElement('span'); rm.className='dx'; rm.textContent='✕';
+      rm.onclick=()=>delExit(x.direction); d.appendChild(rm); }
+    el.appendChild(d); });
+  if(!D.exits.length) el.innerHTML='<div style="color:var(--dim)">none</div>';
+}
+function renderFeatureList(){
+  const el=$('#d-features'); el.innerHTML='';
+  D.features.forEach(f=>{ const d=document.createElement('div'); d.className='di';
+    d.innerHTML=`<span>${f.glyph||'◆'} ${esc(f.kind)} @(${f.x},${f.y})</span>`;
+    const rm=document.createElement('span'); rm.className='dx'; rm.textContent='✕';
+    rm.onclick=()=>delFeature(f.id); d.appendChild(rm); el.appendChild(d); });
+  if(!D.features.length) el.innerHTML='<div style="color:var(--dim)">none</div>';
+}
+async function addFeatureAt(x,y){
+  if(!D.room){ dStatus('Save the room first, then add features.'); return; }
+  const kind=$('#d-featkind').value; let glyph=$('#d-featglyph').value.trim();
+  let config={};
+  if(kind==='sign'){ const text=prompt('Sign text:',''); if(text===null) return; config={title:'Sign', text}; if(!glyph) glyph='🪧'; }
+  else if(kind==='trap'||kind==='hazard'){ const dmg=parseInt(prompt('Damage:','3')||'0',10); const rad=parseInt(prompt('AoE radius (0=tile):','0')||'0',10); config={name:kind, damage:dmg, radius:rad}; if(!glyph) glyph= kind==='trap'?'^':'≈'; }
+  else if(kind==='keg'){ config={name:'Powder Keg', damage:parseInt(prompt('Damage:','8')||'8',10), radius:parseInt(prompt('Radius:','1')||'1',10)}; if(!glyph) glyph='🛢️'; }
+  else if(kind==='spawner'){ config={interval:8, max_active:2, radius:2, template:{name:'Creature', glyph:'👾', is_hostile:true, health:6}}; if(!glyph) glyph='🕳️'; }
+  const r=await api(`/rooms/${D.room.id}/features`, {method:'POST', body:{x,y,kind,glyph,config}});
+  if(!r.ok){ dStatus('Feature add failed'); return; }
+  await loadDesignerExtras(D.room.id); drawDesigner(); dStatus(`Added ${kind}`);
+}
+async function delFeature(id){ const r=await api(`/features/${id}`, {method:'DELETE'});
+  if(r.ok && D.room){ await loadDesignerExtras(D.room.id); drawDesigner(); dStatus('Feature removed'); } }
+async function addExit(){
+  if(!D.room){ dStatus('Save the room first, then add exits.'); return; }
+  const body={direction:$('#d-exdir').value, to_room_id:parseInt($('#d-exto').value,10),
+              is_locked:$('#d-exlock').checked};
+  const r=await api(`/rooms/${D.room.id}/exits`, {method:'POST', body});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); dStatus(humanError(e)||'Exit add failed'); return; }
+  await loadDesignerExtras(D.room.id); dStatus('Exit added');
+}
+async function delExit(dir){ const r=await api(`/rooms/${D.room.id}/exits/${dir}`, {method:'DELETE'});
+  if(r.ok){ await loadDesignerExtras(D.room.id); dStatus('Exit removed'); } }
+async function saveDesigner(){
+  const w=parseInt($('#d-w').value,10), h=parseInt($('#d-h').value,10);
+  if(w!==D.w || h!==D.h) resizeDesigner(w,h);
+  if(D.spawn[0]>=D.w || D.spawn[1]>=D.h){ D.spawn=[1,1]; }
+  const body={ name:$('#d-name').value, description:$('#d-desc').value,
+    width:D.w, height:D.h, tiles:D.grid.join('\n'), spawn_x:D.spawn[0], spawn_y:D.spawn[1],
+    room_type:$('#d-type').value||'dungeon', is_safe:$('#d-safe').checked,
+    level_id: $('#d-level').value ? parseInt($('#d-level').value,10) : null, z: parseInt($('#d-z').value,10)||0 };
+  let r, id;
+  if(D.room){ id=D.room.id; r=await api(`/rooms/${id}`, {method:'PUT', body}); }
+  else { const cr=await api('/rooms/', {method:'POST', body:{name:body.name, description:body.description}});
+         if(!cr.ok){ dStatus('Create failed'); return; } id=(await cr.json()).id;
+         r=await api(`/rooms/${id}`, {method:'PUT', body}); }
+  if(!r.ok){ const e=await r.json().catch(()=>({})); dStatus(humanError(e)||'Save failed'); return; }
+  D.room = await r.json();
+  // refresh room lists (new room appears)
+  const rm=await api('/rooms/'); D.rooms = rm.ok ? (await rm.json()).items : D.rooms;
+  renderRoomSelect(); $('#d-room').value=String(id);
+  dStatus(`Saved “${D.room.name}” (world reloaded).`);
+}
+async function genDesigner(){
+  const kind=$('#d-genkind').value; const seedV=$('#d-genseed').value;
+  const body={kind, width:parseInt($('#d-w').value,10)||D.w, height:parseInt($('#d-h').value,10)||D.h};
+  if(seedV!=='') body.seed=parseInt(seedV,10);
+  const r=await api('/admin/mapgen', {method:'POST', body});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); dStatus(humanError(e)||'Generate failed'); return; }
+  const out=await r.json(); D.grid=out.tiles; D.w=out.width; D.h=out.height;
+  $('#d-w').value=D.w; $('#d-h').value=D.h; drawDesigner(); dStatus(`Generated ${kind} (unsaved — Save to keep)`);
+}
+async function newLevelPrompt(){
+  const name=prompt('New level name:',''); if(!name) return;
+  const r=await api('/levels', {method:'POST', body:{name}});
+  if(!r.ok){ dStatus('Level create failed'); return; }
+  const lv=await api('/levels'); D.levels = lv.ok ? await lv.json() : D.levels;
+  renderLevelSelect(); $('#d-level').value=String((await r.json()).id); dStatus('Level created');
+}
+$('#open-designer').onclick = openDesigner;
+$('#designerview .cardx').onclick = closeDesigner;
+$('#d-room').onchange = e=> loadDesignerRoom(parseInt(e.target.value,10));
+$('#d-new').onclick = newDesignerRoom;
+$('#d-newlevel').onclick = newLevelPrompt;
+$('#d-w').onchange = ()=> resizeDesigner(parseInt($('#d-w').value,10), D.h);
+$('#d-h').onchange = ()=> resizeDesigner(D.w, parseInt($('#d-h').value,10));
+$('#d-gen').onclick = genDesigner;
+$('#d-exadd').onclick = addExit;
+$('#d-save').onclick = saveDesigner;
+document.querySelectorAll('.dtool').forEach(b=> b.onclick=()=> selectTool(b.dataset.tool));
+wireDesignerCanvas();
 
 // ─── Shop overlay (buy from / sell to a vendor) ───
 function openShop(npcId){ send({cmd:'shop', npc_id:npcId}); }   // server replies with a `shop` event

@@ -27,6 +27,8 @@ import potions
 import effects
 import gear_effects
 import features
+import tiles as tile_registry
+import mapgen
 import spells as spellbook
 import skills as skillbook
 import services
@@ -1150,6 +1152,36 @@ def admin_world_reload(_admin: models.User = Depends(get_current_admin)):
     """Re-sync the in-memory world from the DB (admin). Preserves online players."""
     world.reload()
     return {"message": "World reloaded"}
+
+@app.get("/tiles", tags=["Rooms"])
+def get_tiles():
+    """The tile registry — the map designer's palette (glyph → def)."""
+    return {"tiles": [{"glyph": g, **d} for g, d in tile_registry.TILES.items()]}
+
+@app.post("/admin/mapgen", tags=["Admin"])
+def admin_mapgen(req: schemas.MapGenRequest,
+                 _admin: models.User = Depends(get_current_admin)):
+    """Author-time procedural generation for the designer (handoff-11 §D). Returns
+    a tile grid to paint into a room; never touches the live world."""
+    try:
+        grid = mapgen.generate(req.kind, req.width, req.height, req.params, req.seed)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"tiles": grid, "width": len(grid[0]), "height": len(grid)}
+
+@app.get("/levels", response_model=List[schemas.LevelOut], tags=["Rooms"])
+def get_levels(db: Session = Depends(get_db)):
+    """All levels (the designer's level dropdown)."""
+    return db.query(models.Level).order_by(models.Level.id).all()
+
+@app.post("/levels", response_model=schemas.LevelOut, tags=["Rooms"])
+def create_level(data: schemas.LevelBase, db: Session = Depends(get_db),
+                 _admin: models.User = Depends(get_current_admin)):
+    """Create a level (admin/designer)."""
+    lvl = models.Level(name=data.name, description=data.description)
+    db.add(lvl); db.commit(); db.refresh(lvl)
+    world.reload()
+    return lvl
 
 @app.get("/rooms/{room_id}/state", tags=["Rooms"])
 def get_room_state(room_id: int, db: Session = Depends(get_db)):

@@ -96,3 +96,58 @@ def test_authoring_admin_only(client, user_headers):
     assert client.post("/rooms/1/features", json={"x": 1, "y": 1, "kind": "sign"},
                        headers=user_headers).status_code == 403
     assert client.post("/admin/world/reload", headers=user_headers).status_code == 403
+
+
+# ---------- map designer support (handoff-10 §2 / P6) ----------
+def test_tiles_palette(client):
+    r = client.get("/tiles")
+    assert r.status_code == 200
+    glyphs = {t["glyph"]: t for t in r.json()["tiles"]}
+    assert "#" in glyphs and glyphs["#"]["walkable"] is False
+    assert "." in glyphs and glyphs["."]["walkable"] is True
+    assert glyphs[">"]["transition"] == "down"
+
+
+def test_mapgen_endpoint(client, admin_headers):
+    r = client.post("/admin/mapgen", json={"kind": "rooms", "width": 30, "height": 18, "seed": 3},
+                    headers=admin_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["width"] == 30 and body["height"] == 18 and len(body["tiles"]) == 18
+    assert all(len(row) == 30 for row in body["tiles"])
+    import mapgen
+    assert mapgen.validate(body["tiles"])
+
+
+def test_mapgen_bad_kind(client, admin_headers):
+    assert client.post("/admin/mapgen", json={"kind": "nope", "width": 20, "height": 20},
+                       headers=admin_headers).status_code == 400
+
+
+def test_mapgen_admin_only(client, user_headers):
+    assert client.post("/admin/mapgen", json={"kind": "cave", "width": 20, "height": 20},
+                       headers=user_headers).status_code == 403
+
+
+def test_designer_save_round_trip(client, admin_headers):
+    """A generated grid saved via PUT /rooms loads back through the world."""
+    from world import world
+    grid = client.post("/admin/mapgen", json={"kind": "rooms", "width": 20, "height": 12, "seed": 9},
+                       headers=admin_headers).json()["tiles"]
+    rid = client.post("/rooms/", json={"name": "Designed", "description": "by the tool"},
+                      headers=admin_headers).json()["id"]
+    r = client.put(f"/rooms/{rid}", json={"width": 20, "height": 12,
+                                          "tiles": "\n".join(grid), "spawn_x": 1, "spawn_y": 1},
+                   headers=admin_headers)
+    assert r.status_code == 200
+    node = world.rooms[rid]
+    assert node.width == 20 and node.height == 12 and len(node.tiles) == 12
+
+
+def test_levels_endpoints(client, admin_headers, user_headers):
+    assert client.get("/levels").status_code == 200
+    r = client.post("/levels", json={"name": "Crypt", "description": "deep"}, headers=admin_headers)
+    assert r.status_code == 200 and r.json()["name"] == "Crypt"
+    assert any(l["name"] == "Crypt" for l in client.get("/levels").json())
+    # admin-only create
+    assert client.post("/levels", json={"name": "X"}, headers=user_headers).status_code == 403

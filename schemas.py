@@ -93,11 +93,42 @@ class RoomFeatureOut(BaseModel):
     glyph: str
     config: dict
 
+
+class MapGenRequest(BaseModel):
+    """Author-time procedural generation request (handoff-11 §D, designer §2)."""
+    kind: str = Field(..., max_length=20)            # "cave" | "rooms"
+    width: int = Field(..., ge=5, le=200)
+    height: int = Field(..., ge=5, le=200)
+    seed: Optional[int] = None
+    params: dict = Field(default_factory=dict)
+
 class RoomOut(RoomBase):
-    """Schema for room output"""
+    """Schema for room output (includes the tile grid + level fields the map
+    designer needs to load a room for editing)."""
     id: int
+    width: Optional[int] = None
+    height: Optional[int] = None
+    tiles: Optional[str] = None
+    spawn_x: Optional[int] = None
+    spawn_y: Optional[int] = None
+    room_type: Optional[str] = "dungeon"
+    is_safe: Optional[bool] = False
+    level_id: Optional[int] = None
+    z: Optional[int] = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class LevelBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=1000)
+
+
+class LevelOut(LevelBase):
+    id: int
 
     class Config:
         from_attributes = True

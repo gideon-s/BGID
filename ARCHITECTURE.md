@@ -453,8 +453,19 @@ Each step keeps the app runnable.
    `world.reload()` (resyncs the in-memory world, preserving online players). The
    admin overlay is now **tabbed** (`#admintabs`): an **Accounts** tab + a
    **Monsters** tab (list/create/edit/delete NPCs with a per-NPC form) + a
-   **Reload world** button. These endpoints back the future map designer
-   (handoff-10 §2).
+   **Reload world** button.
+
+   **Map designer** (handoff-10 §2, built against the handoff-11 maps model): an
+   admin-only `#designerview` overlay (launched from the admin console) — a canvas
+   editor that paints tiles from a **palette** (`GET /tiles`, the `tiles.py`
+   registry), sets the **spawn**, edits room **properties** (name/desc/size/
+   `room_type`/`is_safe`/`level_id`/`z`), manages **exits** and **RoomFeatures**
+   (traps/signs/spawners/kegs) via the CRUD above, and runs the **generator**
+   (`POST /admin/mapgen` → `mapgen.py`, cave/rooms). **Save** writes the grid +
+   meta via `PUT /rooms/{id}` (creating the row first for a new room) and
+   `world.reload()`s. Levels come from `GET /levels` (+ `POST /levels` to create).
+   *(Deferred: drag-placing items/NPCs on tiles — use the Monsters editor + an
+   NPC's home tile; and re-skinning the editor with the hand-drawn renderer.)*
 
 5. ✅ **Room graph** (`models.RoomExit`, `directions.py`) — directed exits with
    locks/keys; direction-based, lock-aware movement (WS + `/action`); exits in
