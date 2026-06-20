@@ -344,6 +344,14 @@ the LLM social layer. Two tiers share one world view (see
   client derives its FOV/`isTransparent` rule from data — a new tile type behaves
   correctly with no engine or client change. This is also the designer's palette
   source + the first registry slated to move to the config layer (handoff-10 §1).
+- **Author-time map generator** (`mapgen.py`, handoff-11 Slice D): imported by
+  the designer/CLI, **never by the live sim**. `generate(kind, w, h, params, seed)`
+  → glyph rows (geometry only) for `cave` (cellular automata) and `rooms` (BSP +
+  L-corridors); deterministic per seed, border-walled, and run through a
+  largest-connected-component pass so the floor is always connected. `validate()`
+  (rectangular, registry-only glyphs, connected floor) is the shared check the
+  designer reuses alongside its spawn/exit rules. Output bakes one-way to static
+  `Room.tiles` — after that it's hand-editing.
 - **Levels & z-floors** (`models.Level`, `Room.level_id`/`Room.z`, handoff-11
   Slice B): a **level** is a named area (the Manor); its floors are the Rooms
   sharing a `level_id`, indexed by signed `z` (0 ground, −1 cellar). *Within* a

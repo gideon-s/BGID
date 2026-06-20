@@ -10,8 +10,11 @@ the Great Hall as its own level. **Slice C SHIPPED 2026-06-20** (adaptive camera
 client-only: `static/camera.js` pure math — static for floors that fit, a
 player-centered follow camera for big floors; blits the camera sub-rect of the
 cached full-floor layer; minimap camera-window overlay; click/hover through the
-offset; `test_camera.js` via node). `test_tiles.py`/`test_zones.py` extended,
-suite **255 green**. Slice D (mapgen) remains. *(Deferred polish: a PageUp/PageDn
+offset; `test_camera.js` via node). **Slice D SHIPPED 2026-06-20** (`mapgen.py`
+author-time generator: `cave` (cellular automata) + `rooms` (BSP+corridors),
+deterministic per seed, connected, `validate()`; `test_mapgen.py`). **All four
+slices done** — suite **270 green**. The full map-designer UI that consumes this
+lands in `handoff-10` §2 (roadmap P6). *(Deferred polish: a PageUp/PageDn
 floor-flip overview view — the overview already shows all floors labeled + the
 stack widget.)*
 · **Depends on:** `handoff-01-graphical-overhaul-master.md`,
