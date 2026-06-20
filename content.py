@@ -158,5 +158,22 @@ def _v_gear(d):
         raise ValueError("a gear effect needs at least one of atk/dmg/defn/haste")
 
 
+def _v_class(d):
+    _req(d, ["name"])
+    if "spells" in d and not isinstance(d["spells"], list):
+        raise ValueError("'spells' must be a list of spell ids")
+    if "abilities" in d and not isinstance(d["abilities"], dict):
+        raise ValueError("'abilities' must be an object")
+    if "starting_gear" in d and not isinstance(d["starting_gear"], list):
+        raise ValueError("'starting_gear' must be a list")
+
+
+def _v_race(d):
+    _req(d, ["name"])
+    if "abilities" in d and not isinstance(d["abilities"], dict):
+        raise ValueError("'abilities' must be an object")
+
+
 _VALIDATORS = {"spells": _v_spell, "potions": _v_potion,
-               "debuffs": _v_debuff, "gear": _v_gear}
+               "debuffs": _v_debuff, "gear": _v_gear,
+               "classes": _v_class, "races": _v_race}

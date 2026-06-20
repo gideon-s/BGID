@@ -1191,6 +1191,20 @@ def create_level(data: schemas.LevelBase, db: Session = Depends(get_db),
     return lvl
 
 # ---------- Content config layer (handoff-10 §1) — editable code registries ----------
+@app.get("/classes", tags=["Game"])
+def list_selectable_classes():
+    """Selectable classes for the character-creation gate (reflects content edits)."""
+    return {"classes": [{"id": cid, "name": classes.get_class(cid).get("name", cid.title()),
+                         "glyph": classes.get_class(cid).get("glyph", "🧝")}
+                        for cid in classes.SELECTABLE]}
+
+@app.get("/races", tags=["Game"])
+def list_selectable_races():
+    """Selectable races for the character-creation gate (reflects content edits)."""
+    return {"races": [{"id": rid, "name": races.get_race(rid).get("name", rid.title()),
+                       "glyph": races.get_race(rid).get("glyph", "🧝")}
+                      for rid in races.SELECTABLE]}
+
 @app.get("/admin/content", tags=["Admin"])
 def list_content_kinds(_admin: models.User = Depends(get_current_admin)):
     """The editable registry kinds (spells/potions/debuffs/gear)."""

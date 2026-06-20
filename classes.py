@@ -107,3 +107,19 @@ def spell_ids_for(class_id: str) -> List[str]:
 def starting_gear(class_id: str) -> List[dict]:
     """The class's starting equipment templates (granted once by the chest)."""
     return [dict(g) for g in get_class(class_id).get("starting_gear", [])]
+
+
+# ---------- config layer (handoff-10 §1/§6) ----------
+# CLASSES is editable via content.py; the applier reassigns it AND recomputes
+# SELECTABLE (read by the character-creation validator). get_class/spell_ids_for/
+# starting_gear read the module global at call time, so edits apply live. The
+# 'wanderer' fallback is a code default (never deletable) so characters can't be
+# orphaned; get_class() returns it for any unknown class.
+import content as _content
+
+def _apply_classes(merged):
+    global CLASSES, SELECTABLE
+    CLASSES = merged
+    SELECTABLE = [cid for cid in CLASSES if cid != "wanderer"]
+
+_content.register("classes", dict(CLASSES), _apply_classes)

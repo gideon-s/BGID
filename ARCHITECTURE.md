@@ -479,9 +479,14 @@ Each step keeps the app runnable.
    edit reaches combat/casting immediately; deleting an override reverts to the
    code default. A **Content** tab in the admin console edits entries as JSON.
    Startup `content.reload_all()`s; tests reset to defaults between cases.
-   *(Lowest-risk registries first per the handoff; classes/races — which touch
-   character creation + migration defaults — and the import-frozen tiles set are
-   deferred to follow the same pattern.)*
+   Registries on the layer: `spells`, `potions`, `debuffs`, `gear`, **`classes`,
+   and `races`** — the class/race appliers also recompute `SELECTABLE`, and public
+   `GET /classes`/`GET /races` feed the character-creation gate (which loads them
+   dynamically), so a class/race added in the editor is immediately offered to
+   players; the `wanderer`/`human` fallbacks are never-deletable code defaults so
+   no character is orphaned. The **Content** tab lists every registered kind.
+   *(Deferred to the same pattern: the import-frozen `tiles` set — needs `world`
+   to re-derive its walk/sight sets on reload — and per-field form editors.)*
 
 5. ✅ **Room graph** (`models.RoomExit`, `directions.py`) — directed exits with
    locks/keys; direction-based, lock-aware movement (WS + `/action`); exits in

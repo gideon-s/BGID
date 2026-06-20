@@ -29,3 +29,18 @@ def get_race(race_id: str) -> dict:
 
 def is_valid(race_id: str) -> bool:
     return race_id in RACES
+
+
+# ---------- config layer (handoff-10 §1/§6) ----------
+# RACES is editable via content.py; the applier reassigns it AND recomputes
+# SELECTABLE (read by the character-creation validator). get_race() falls back to
+# the 'human' default (a code default, never deletable), so a bad/removed race
+# can't orphan a character.
+import content as _content
+
+def _apply_races(merged):
+    global RACES, SELECTABLE
+    RACES = merged
+    SELECTABLE = list(RACES)
+
+_content.register("races", dict(RACES), _apply_races)

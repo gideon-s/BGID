@@ -11,14 +11,19 @@ erase tools, room properties incl. `level_id`/`z`, exit + feature management, th
 tile placement; hand-drawn editor skin.)*
 
 §1 **config layer SHIPPED 2026-06-20** (`content.py` + `models.Content` +
-`migrate_content.py`): the code registries `spells`/`potions`/`debuffs`/`gear`
-become editable data — `{**defaults, **DB overrides}` with per-kind validation +
-hot-reload; admin `GET/PUT/DELETE /admin/content/...` + a **Content** tab (JSON
-editor, revert-to-default). This is the §4 (spells/effects) + §5 (items/potions)
-**editing surface** via one generic editor. Suite **284 green** (`test_content.py`).
-*(Remaining: §6 classes/races + the tiles registry on the config layer — same
-pattern, deferred for the character-creation/migration + import-frozen-set risk;
-per-field form editors over the JSON editor.)* · **Depends on:** the admin layer (account/character
+`migrate_content.py`): code registries become editable data —
+`{**defaults, **DB overrides}` with per-kind validation + hot-reload; admin
+`GET/PUT/DELETE /admin/content/...` + a **Content** tab (JSON editor,
+revert-to-default), which lists every registered kind automatically. Registries on
+the layer: `spells`, `potions`, `debuffs`, `gear` (§4/§5) **and §6 `classes` +
+`races`** — the class/race appliers recompute `SELECTABLE` so an added class/race
+is offered at character creation (public `GET /classes`/`GET /races` feed the
+gate, which now loads them dynamically; the `wanderer`/`human` fallbacks are
+never-deletable code defaults, so a character can't be orphaned). **§1 + §4 + §5 +
+§6 done.** Suite **289 green** (`test_content.py`). *(Remaining/deferred: the
+import-frozen `tiles` set on the config layer — needs `world` to re-derive its
+walk/sight sets on reload; and per-field form editors over the generic JSON
+editor. Both follow the same pattern.)* · **Depends on:** the admin layer (account/character
 console + admin-gated REST CRUD), the world model, and the content registries.
 **Goal:** give admins **in-browser authoring tools** instead of editing seed code:
 a **map designer**, and editors for the **monster list, spells & effects, magic items,

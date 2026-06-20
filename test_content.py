@@ -71,3 +71,62 @@ def test_content_admin_only(client, user_headers):
     assert client.get("/admin/content", headers=user_headers).status_code == 403
     assert client.put("/admin/content/spells/firebolt", json={"data": {}},
                       headers=user_headers).status_code == 403
+
+
+# ---------- classes & races on the config layer (handoff-10 §6) ----------
+import classes
+import races
+
+
+def test_class_overlay_recomputes_selectable(db_session):
+    # Add a brand-new class → live + offered at character creation (SELECTABLE).
+    content.upsert("classes", "ranger", {"name": "Ranger", "glyph": "🏹",
+                   "max_mana": 12, "mana_regen": 1, "abilities": {"dex": 15},
+                   "spells": ["throw_dagger"], "starting_gear": []})
+    assert classes.get_class("ranger")["name"] == "Ranger"
+    assert "ranger" in classes.SELECTABLE                 # validator will accept it
+    assert "wanderer" not in classes.SELECTABLE           # fallback stays hidden
+    # Edit an existing class's spell list live.
+    content.upsert("classes", "mage", {**classes.get_class("mage"), "spells": ["firebolt"]})
+    assert classes.spell_ids_for("mage") == ["firebolt"]
+    content.delete("classes", "mage")
+    assert "frost_blast" in classes.spell_ids_for("mage")  # reverted to default
+
+
+def test_race_overlay(db_session):
+    content.upsert("races", "tiefling", {"name": "Tiefling", "abilities": {"cha": 2, "intel": 1}})
+    assert races.get_race("tiefling")["name"] == "Tiefling"
+    assert "tiefling" in races.SELECTABLE
+    content.reset()
+    assert races.is_valid("tiefling") is False
+
+
+def test_class_validation_requires_name(db_session):
+    import pytest
+    with pytest.raises(ValueError):
+        content.upsert("classes", "bad", {"glyph": "x"})           # no name
+    with pytest.raises(ValueError):
+        content.upsert("classes", "bad2", {"name": "X", "spells": "nope"})  # spells not a list
+
+
+def test_new_class_is_selectable_at_creation(client, admin_headers):
+    """A class added via the content API is accepted by the character-creation
+    validator (which reads classes.SELECTABLE)."""
+    r = client.put("/admin/content/classes/ranger",
+                   json={"data": {"name": "Ranger", "glyph": "🏹", "max_mana": 12,
+                                  "mana_regen": 1, "abilities": {"dex": 15}, "spells": []}},
+                   headers=admin_headers)
+    assert r.status_code == 200
+    import auth_schemas
+    cc = auth_schemas.CharacterCreate(name="Robin", char_class="ranger", race="elf")
+    assert cc.char_class == "ranger"
+
+
+def test_classes_races_gate_endpoints(client, admin_headers):
+    base = {c["id"] for c in client.get("/classes").json()["classes"]}
+    assert {"warrior", "mage", "cleric", "rogue"} <= base and "wanderer" not in base
+    client.put("/admin/content/classes/ranger",
+               json={"data": {"name": "Ranger", "glyph": "🏹", "spells": []}},
+               headers=admin_headers)
+    assert "ranger" in {c["id"] for c in client.get("/classes").json()["classes"]}
+    assert {"human", "elf"} <= {r["id"] for r in client.get("/races").json()["races"]}

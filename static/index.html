@@ -2700,13 +2700,24 @@ $('#au-pass').addEventListener('keydown', e=>{ if(e.key==='Enter') submitAuth();
 $('#au-user').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#au-pass').focus(); });
 
 // ─── Class picker (new-character creation) ───
-const CLASS_OPTIONS = [
+// Defaults double as the offline fallback; loadCharOptions() refreshes them from
+// the server so classes/races added via the content editor appear at the gate.
+let CLASS_OPTIONS = [
   {id:'warrior', name:'Warrior', glyph:'🛡️'},
   {id:'mage',    name:'Mage',    glyph:'🧙'},
   {id:'cleric',  name:'Cleric',  glyph:'⛪'},
   {id:'rogue',   name:'Rogue',   glyph:'🗡️'},
 ];
+const RACE_GLYPH = {human:'🧑', elf:'🧝', dwarf:'🧔', halfling:'🧒', 'half-orc':'👹', gnome:'🧙'};
 let newClass = 'warrior';
+async function loadCharOptions(){
+  try{ const r=await api('/classes'); if(r.ok){ const j=await r.json();
+    if(j.classes && j.classes.length) CLASS_OPTIONS = j.classes.map(c=>({id:c.id, name:c.name, glyph:c.glyph||'🧝'})); } }catch(_){}
+  try{ const r=await api('/races'); if(r.ok){ const j=await r.json();
+    if(j.races && j.races.length) RACE_OPTIONS = j.races.map(c=>({id:c.id, name:c.name, glyph:RACE_GLYPH[c.id]||c.glyph||'🧝'})); } }catch(_){}
+  if(!CLASS_OPTIONS.find(c=>c.id===newClass)) newClass = (CLASS_OPTIONS[0]||{}).id || 'warrior';
+  if(!RACE_OPTIONS.find(c=>c.id===newRace)) newRace = (RACE_OPTIONS[0]||{}).id || 'human';
+}
 function renderClassPick(){
   const wrap = $('#classpick'); if(!wrap) return; wrap.innerHTML='';
   CLASS_OPTIONS.forEach(c=>{
@@ -2719,7 +2730,7 @@ function renderClassPick(){
 }
 
 // Race picker
-const RACE_OPTIONS = [
+let RACE_OPTIONS = [
   {id:'human', name:'Human', glyph:'🧑'}, {id:'elf', name:'Elf', glyph:'🧝'},
   {id:'dwarf', name:'Dwarf', glyph:'🧔'}, {id:'halfling', name:'Halfling', glyph:'🧒'},
   {id:'half-orc', name:'Half-Orc', glyph:'👹'}, {id:'gnome', name:'Gnome', glyph:'🧙'},
@@ -2743,9 +2754,10 @@ async function showCharacters(){
   $('#char-greet').textContent = `Signed in as ${S.user.username}. Choose a character:`;
   await refreshCharacters();
 }
-function showCreate(){
+async function showCreate(){
   $('#screen-chars').classList.add('hidden');
   $('#screen-create').classList.remove('hidden');
+  await loadCharOptions();                 // pull live classes/races (content edits)
   renderRacePick(); renderClassPick(); renderGenderPick();
   $('#create-err').textContent = '';
   $('#newchar').focus();
