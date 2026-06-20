@@ -489,7 +489,7 @@
 
 
 <header><b>BGID</b>
-  <span id="hdr-right"><span id="who"></span><span id="controls"><a id="open-admin" class="hidden">Admin</a><a id="open-sheet">Character</a><a id="open-room">Room</a><a id="open-help">Help</a><a id="open-settings">Settings</a></span></span>
+  <span id="hdr-right"><span id="who"></span><span id="controls"><a id="open-admin" class="hidden">Admin</a><a id="open-designer-hdr" class="hidden">🗺 Designer</a><a id="open-sheet">Character</a><a id="open-room">Room</a><a id="open-help">Help</a><a id="open-settings">Settings</a></span></span>
 </header>
 <main>
   <div id="world">
@@ -1727,7 +1727,9 @@ $('#helpview .cardx').onclick = closeHelp;
 
 // ─── Admin overlay (accounts & characters; admins only) ───
 function isAdmin(){ return S.user && S.user.role === 'admin'; }
-function applyAdminUi(){ $('#open-admin').classList.toggle('hidden', !isAdmin()); }
+function applyAdminUi(){ const admin = isAdmin();
+  $('#open-admin').classList.toggle('hidden', !admin);
+  $('#open-designer-hdr').classList.toggle('hidden', !admin); }
 async function openAdmin(){
   if(!isAdmin()) return;
   $('#adminview').classList.remove('hidden');
@@ -2151,6 +2153,7 @@ async function newLevelPrompt(){
   renderLevelSelect(); $('#d-level').value=String((await r.json()).id); dStatus('Level created');
 }
 $('#open-designer').onclick = openDesigner;
+$('#open-designer-hdr').onclick = openDesigner;   // header shortcut (admins only)
 $('#designerview .cardx').onclick = closeDesigner;
 $('#d-room').onchange = e=> loadDesignerRoom(parseInt(e.target.value,10));
 $('#d-new').onclick = newDesignerRoom;
