@@ -90,6 +90,9 @@ async def _combat_tick_once() -> None:
     pace and strike at most every ``MOB_ATTACK_COOLDOWN``, regardless of how
     often the tick fires."""
     now = time.monotonic()
+    # Drain damage-over-time effects (poison) before AI so a lethal DoT removes
+    # the mob this tick.
+    await _apply_dots()
     # Respawn any mobs whose timer elapsed, then run AI.
     for npc_id in world.due_respawns():
         res = world.respawn_npc(npc_id)
@@ -186,15 +189,46 @@ async def _relock_doors() -> None:
         await manager.broadcast_to_room(rid, {"event": "info", "detail": info})
 
 
+async def _apply_dots() -> None:
+    """Drain damage-over-time effects (poison, etc.) on the fast tick, routing each
+    through the shared combat death paths so a lethal tick drops loot + awards XP
+    to the effect's source. The DoT cadence is gated by each effect's own clock
+    (``effects.due_dots``), so calling this every fast tick is correct."""
+    import effects
+    for key, amount, sname, sid, stype in effects.due_dots():
+        kind, ent_id = effects.split_eid(key)
+        by_name = sname or "poison"
+        by_id = sid if sid is not None else 0
+        by_type = stype or "npc"
+        if kind == "npc":
+            room_id = world.room_of_npc(ent_id)
+            if room_id is not None:
+                await combat.damage_npc(room_id, ent_id, amount, by_name, by_id, by_type)
+        elif kind == "player":
+            room_id = world.room_of(ent_id)
+            if room_id is not None:
+                await combat.damage_player(room_id, ent_id, amount, by_name, by_id, by_type)
+
+
 async def _expire_effects() -> None:
-    """Drop expired timed buffs and tell each affected player (effects.py)."""
+    """Drop expired timed effects and tell each affected entity (effects.py).
+    Player keys get a personal `effects` refresh + a '… fades' line; NPC keys
+    broadcast `entity_effects` to their zone so on-token icons clear."""
     import effects
     expired = effects.sweep()
-    for player_id, names in expired.items():
-        await manager.send_personal_message(
-            player_id, {"event": "effects", "effects": effects.snapshot(player_id)})
-        await manager.send_personal_message(
-            player_id, {"event": "info", "detail": f"{', '.join(names)} fades."})
+    for key, names in expired.items():
+        kind, ent_id = effects.split_eid(key)
+        if kind == "player":
+            await manager.send_personal_message(
+                ent_id, {"event": "effects", "effects": effects.snapshot(key)})
+            await manager.send_personal_message(
+                ent_id, {"event": "info", "detail": f"{', '.join(names)} fades."})
+        elif kind == "npc":
+            room_id = world.room_of_npc(ent_id)
+            if room_id is not None:
+                await manager.broadcast_to_room(
+                    room_id, {"event": "entity_effects", "id": ent_id,
+                              "effects": effects.snapshot(key)})
 
 
 async def _loop() -> None:

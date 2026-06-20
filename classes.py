@@ -33,7 +33,7 @@ CLASSES: Dict[str, dict] = {
     "mage": {
         "name": "Mage", "glyph": "🧙", "max_mana": 30, "mana_regen": 3,
         "abilities": {"intel": 15, "dex": 12, "con": 10},
-        "spells": ["firebolt", "frost_blast"],
+        "spells": ["firebolt", "frost_blast", "slow", "venom_bolt"],
         "starting_gear": [
             {"name": "Apprentice Staff", "glyph": "🪄", "item_type": "weapon",
              "equip_slot": "weapon", "attack_bonus": 0, "damage_bonus": 1,
@@ -47,7 +47,7 @@ CLASSES: Dict[str, dict] = {
     "cleric": {
         "name": "Cleric", "glyph": "⛪", "max_mana": 24, "mana_regen": 2,
         "abilities": {"wis": 15, "con": 12, "str": 11},
-        "spells": ["heal", "smite"],
+        "spells": ["heal", "smite", "bless"],
         "starting_gear": [
             {"name": "Oak Mace", "glyph": "🔨", "item_type": "weapon",
              "equip_slot": "weapon", "attack_bonus": 1, "damage_bonus": 1,

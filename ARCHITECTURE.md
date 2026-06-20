@@ -243,12 +243,39 @@ WS cmd applies an instant effect (heal HP / restore mana / full restore, keyed
 by item name) and consumes it, pushing `stats` + `inventory` + a flavor line.
 Unknown potions are inert (not wasted). The Innkeeper sells Healing/Greater/Mana;
 one Healing Draught is seeded in the Cellar. Client: a **drink** button on potions
-(+ `use`/`drink` text verb). **Timed buffs** (`effects.py`): a `buff`-kind potion
-applies an in-memory, per-player timed effect (Strength = +atk/+dmg, Stoneskin =
-+def, Haste = halved move-cooldown). `effects.bonuses`/`haste_factor` read the
-LIVE set and fold into the melee resolvers + the move cooldown; the slow tick
-`sweep`s expiries (fires an `effects` event + "… fades"). Active buffs ride a
-push on connect + an `effects` event; the client shows them in the Status panel.
+(+ `use`/`drink` text verb).
+
+**Status-effect layer** (`effects.py`, handoff-08): in-memory timed effects keyed
+by an **entity key** `"player:{id}"`/`"npc:{id}"` (`effects.eid`) — buffs *and*
+debuffs, on players *and* NPCs. Each effect carries flat combat deltas
+(atk/dmg/defn), a movement `haste` factor, an optional **damage-over-time** (`dot`
+every `dot_interval`s, attributed to its `source` so a DoT kill drops loot +
+awards XP), and `harm`/`gear` flags. `effects.bonuses`/`haste_factor` read the
+LIVE set and fold into **all** the melee resolvers (player, PvP, *and the mob's
+own attack* — a Weaken lowers a mob's hits) + the move cooldown. The fast combat
+tick drains `effects.due_dots()` through the shared `combat.damage_npc`/
+`damage_player` paths (`game_loop._apply_dots`); the slow tick `sweep`s expiries
+(player keys → an `effects` event + "… fades"; npc keys → an `entity_effects`
+broadcast). Effects clear on death (`effects.clear` for mobs;
+`clear_expirable` on respawn keeps gear).
+
+- **Buff potions** (`potions.py`, `buff` kind): Strength/Stoneskin/Haste — unchanged.
+- **Debuffs** (`debuffs.py`): Weaken (−atk/−dmg), Poison (a DoT), Slow (haste×2 =
+  slower). A **venomous** mob (`VENOM_BY_TYPE` keyed by `npc_type`, e.g. the
+  Cave Spider) poisons the player it bites in `resolve_mob_attack`.
+- **Spell buffs/debuffs** (`spells.py` `effect.kind` ∈ `buff`/`debuff`, resolved
+  in `casting.resolve_cast`): **Bless** (self +atk/+def), **Slow** (debuff bolt),
+  **Venom Bolt** (damage + poison). A debuff is applied to each *surviving* npc
+  target with the caster as source; a self-buff pushes an `effects` event.
+- **Gear effects** (`gear_effects.py`): worn gear grants a **non-expiring**
+  (`gear=True`) effect — **Ring of Haste** (haste), **Band of Might** (+atk/+dmg).
+  `gear_effects.sync(pid)` rebuilds them from the worn set on equip / unequip /
+  connect (so they survive a reconnect); `sweep` skips gear.
+- **WS/client:** `zone_state` entities and `you` carry a compact
+  `effects:[{name,glyph,remaining,harm,gear}]`; an `entity_effects {id,effects}`
+  event updates a mob's. The client renders effect **chips** in the Status panel
+  (red = debuff, blue ◆ = gear) and **icons over the token** (tinted; flash on
+  apply — gold buff / green debuff).
 
 **Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
 Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)

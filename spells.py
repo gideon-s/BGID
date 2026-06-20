@@ -60,6 +60,26 @@ SPELLS: Dict[str, dict] = {
         "range": 5, "shape": "bolt",
         "effect": {"kind": "damage", "dice": (1, 6), "mod": "dex"},
     },
+    # Buff/debuff spells (handoff-08 §5). `kind: buff` carries inline effect
+    # params applied to the caster (self shape); `kind: debuff` (or any spell with
+    # a `debuff` key) applies a named template from debuffs.py to each npc target;
+    # Venom Bolt both damages AND poisons.
+    "bless": {
+        "name": "Bless", "glyph": "🙏", "cost": 4, "cooldown": 8.0,
+        "range": 0, "shape": "self",
+        "effect": {"kind": "buff", "name": "Bless", "glyph": "🙏",
+                   "duration": 30, "atk": 2, "defn": 2},
+    },
+    "slow": {
+        "name": "Slow", "glyph": "🐌", "cost": 4, "cooldown": 6.0,
+        "range": 6, "shape": "bolt",
+        "effect": {"kind": "debuff", "debuff": "Slow"},
+    },
+    "venom_bolt": {
+        "name": "Venom Bolt", "glyph": "🟢", "cost": 5, "cooldown": 2.0,
+        "range": 6, "shape": "bolt",
+        "effect": {"kind": "damage", "dice": (1, 6), "mod": "intel", "debuff": "Poison"},
+    },
 }
 
 

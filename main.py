@@ -25,6 +25,7 @@ import shops
 import leveling
 import potions
 import effects
+import gear_effects
 import spells as spellbook
 import skills as skillbook
 import services
@@ -449,10 +450,14 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int,
     await manager.send_personal_message(
         player_id, {"event": "zone_state", **world.zone_snapshot(room_id, player_id)}
     )
-    # Any still-active buffs (reconnect mid-effect) so the UI is in sync.
-    if effects.active(player_id):
+    # Re-sync gear effects from worn equipment, then push any active effects
+    # (buffs/debuffs surviving a reconnect, plus the just-synced gear) so the UI
+    # is in sync.
+    pkey = effects.eid("player", player_id)
+    gear_effects.sync(player_id)
+    if effects.active(pkey):
         await manager.send_personal_message(
-            player_id, {"event": "effects", "effects": effects.snapshot(player_id)})
+            player_id, {"event": "effects", "effects": effects.snapshot(pkey)})
     # The inventory is fetched lazily by the client (an `inventory` command on
     # connect), mirroring `world_map` — so the server-side connect sequence stays
     # stable for tests and reconnection logic.
@@ -544,7 +549,8 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
                 player_id, {"event": "error", "detail": "move must be one tile step (dx/dy = -1, 0, or 1)"})
             return
         now = time.monotonic()
-        cooldown = MOVE_COOLDOWN_SECONDS * effects.haste_factor(player_id)   # Haste = faster
+        cooldown = MOVE_COOLDOWN_SECONDS * effects.haste_factor(
+            effects.eid("player", player_id))   # Haste = faster
         if now - _last_move.get(player_id, 0.0) < cooldown:
             return  # moving too fast — silently drop (client will retry on next keypress)
         _last_move[player_id] = now
@@ -825,6 +831,11 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
             return
         finally:
             db.close()
+        # Re-sync gear-granted effects (e.g. Ring of Haste) from the worn set.
+        gear_effects.sync(player_id)
+        await manager.send_personal_message(
+            player_id, {"event": "effects",
+                        "effects": effects.snapshot(effects.eid("player", player_id))})
         await _send_inventory(player_id)
 
     elif cmd == "use":
@@ -848,7 +859,8 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
                     err = "Nothing happens — the draught is inert."
                 elif effect["kind"] == "buff":
                     effects.apply_effect(
-                        player_id, effect["effect"], effect.get("glyph", "✨"),
+                        effects.eid("player", player_id),
+                        effect["effect"], effect.get("glyph", "✨"),
                         effect.get("duration", 60), atk=effect.get("atk", 0),
                         dmg=effect.get("dmg", 0), defn=effect.get("defn", 0),
                         haste=effect.get("haste", 1.0))
@@ -873,7 +885,8 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         await _send_inventory(player_id)
         if result["buff"]:
             await manager.send_personal_message(
-                player_id, {"event": "effects", "effects": effects.snapshot(player_id)})
+                player_id, {"event": "effects",
+                            "effects": effects.snapshot(effects.eid("player", player_id))})
             await manager.send_personal_message(
                 player_id, {"event": "info", "detail": f"You drink the {result['name']}. {result['flavor']}"})
         else:

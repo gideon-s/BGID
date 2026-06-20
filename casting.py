@@ -23,6 +23,8 @@ import services
 import classes
 import spells
 import combat
+import effects
+import debuffs
 from websocket_manager import manager
 from world import world
 
@@ -134,6 +136,29 @@ async def resolve_cast(player_id: int, room_id: int, spell_id: str,
                 await combat.damage_npc(room_id, tid, amount, caster_name, player_id, "player")
             elif kind == "player" and tid != player_id:
                 await combat.damage_player(room_id, tid, amount, caster_name, player_id, "player")
+
+    # Buff (self) / debuff (each surviving npc target) application (handoff-08 §5).
+    eff = spell["effect"]
+    if eff_kind == "buff":
+        pkey = effects.eid("player", player_id)
+        effects.apply_effect(
+            pkey, eff.get("name", spell["name"]), eff.get("glyph", spell["glyph"]),
+            eff.get("duration", 30), atk=eff.get("atk", 0), dmg=eff.get("dmg", 0),
+            defn=eff.get("defn", 0), haste=eff.get("haste", 1.0))
+        await manager.send_personal_message(
+            player_id, {"event": "effects", "effects": effects.snapshot(pkey)})
+    debuff_name = eff.get("debuff")
+    if debuff_name:
+        for (kind, tid) in targets:
+            # Skip a target the damage already killed (removed from the world).
+            if kind != "npc" or world.position_of("npc", room_id, tid) is None:
+                continue
+            nkey = effects.eid("npc", tid)
+            debuffs.apply_to(nkey, debuff_name, source_name=caster_name,
+                             source_id=player_id, source_type="player")
+            await manager.broadcast_to_room(
+                room_id, {"event": "entity_effects", "id": tid,
+                          "effects": effects.snapshot(nkey)})
 
     # Refresh the caster's bars (mana always; hp too if they healed).
     stats = {"event": "stats", "player_id": player_id,

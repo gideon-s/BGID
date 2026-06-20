@@ -154,6 +154,8 @@
   #buffs{display:flex;flex-wrap:wrap;gap:.25rem;margin:.15rem 0}
   .buff{font-size:.74rem;color:var(--fg);border:1px solid var(--gold-dim);border-radius:3px;padding:.04rem .3rem;background:rgba(199,162,74,.06)}
   .buff .bt{color:var(--dim)}
+  .buff.harm{border-color:#9c4a3a;background:rgba(156,74,58,.10)}      /* debuff: red */
+  .buff.gear{border-color:#7fa6c2;background:rgba(127,166,194,.08)}    /* gear: blue, no timer */
   .xpbar{height:.5rem;background:#161208;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.15rem 0 .1rem}
   .xpbar i{display:block;height:100%;background:linear-gradient(90deg,#7a5a1e,#c7a24a)}
   .manabar{height:.55rem;background:#0f1320;border:1px solid var(--edge);border-radius:4px;overflow:hidden;margin:.1rem 0 .25rem}
@@ -798,10 +800,12 @@ function paint(){
     if(!visible[e.x+','+e.y]) continue;
     const v = vpos(e.id, e.x, e.y); ANIM.last[e.id]=v;
     drawToken(v.x, v.y, e.glyph||'?', cell*0.72, 0.44, {flash:flashOf(e.id), img:tokenImg(e.kind, e.id)});
-    if(e.max_hp && e.hp!=null && e.hp < e.max_hp) drawHealthBar(v.x, v.y, e.hp/e.max_hp); }
+    if(e.max_hp && e.hp!=null && e.hp < e.max_hp) drawHealthBar(v.x, v.y, e.hp/e.max_hp);
+    if(e.effects && e.effects.length) drawEffectIcons(v.x, v.y, e.effects); }
   const yv = vpos('you', S.you.x, S.you.y); ANIM.last['you']=yv;
   drawToken(yv.x, yv.y, S.you.glyph||'🧙', cell*0.72, 0.46, {flash:flashOf('you'), img:tokenImg('player', S.you.id)});
   if(S.you.max_hp && S.you.hp!=null && S.you.hp < S.you.max_hp) drawHealthBar(yv.x, yv.y, S.you.hp/S.you.max_hp);
+  if(S.buffs && S.buffs.length) drawEffectIcons(yv.x, yv.y, S.buffs);
 
   drawReticle(visible);
   drawFx();
@@ -865,6 +869,32 @@ function drawHealthBar(tx, ty, frac){
   ctx.fillStyle = 'rgba(20,16,10,0.88)'; ctx.fillRect(x-1, y-1, w+2, h+2);   // frame
   ctx.fillStyle = 'rgba(60,52,38,0.9)';  ctx.fillRect(x, y, w, h);           // empty track
   ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.fillRect(x, y, w*frac, h);      // fill
+  ctx.restore();
+}
+
+// Active status-effect glyphs in a row just above a token's head (≤3 then "+N").
+// Debuffs get a red disc, gear effects a blue disc, buffs a gold disc.
+function drawEffectIcons(tx, ty, list){
+  if(!list || !list.length) return;
+  const show = list.slice(0, 3), extra = list.length - show.length;
+  const n = show.length + (extra>0?1:0);
+  const s = cell*0.30, gap = cell*0.06, cx = tx*cell + cell/2;
+  const total = n*s + (n-1)*gap;
+  let x = cx - total/2, y = ty*cell + cell/2 - cell*0.70 - s;
+  ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font = Math.floor(s*0.8) + 'px ui-monospace, Menlo, monospace';
+  const disc = (dx, fill) => { ctx.beginPath(); ctx.arc(dx+s/2, y+s/2, s/2, 0, 7);
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.lineWidth = Math.max(1, cell*0.03); ctx.strokeStyle='rgba(20,16,10,0.7)'; ctx.stroke(); };
+  for(const e of show){
+    const fill = e.harm ? 'rgba(156,74,58,0.92)' : (e.gear ? 'rgba(127,166,194,0.92)'
+                                                          : 'rgba(199,162,74,0.92)');
+    disc(x, fill);
+    ctx.fillStyle = '#f3ecda'; ctx.fillText(e.glyph||'✨', x+s/2, y+s/2+1);
+    x += s + gap;
+  }
+  if(extra>0){ disc(x, 'rgba(42,36,25,0.9)');
+    ctx.fillStyle = '#f3ecda'; ctx.fillText('+'+extra, x+s/2, y+s/2+1); }
   ctx.restore();
 }
 
@@ -943,7 +973,13 @@ function setBuffs(list){
   S.buffs = list || [];
   const el = $('#buffs'); if(!el) return;
   el.classList.toggle('hidden', !S.buffs.length);
-  el.innerHTML = S.buffs.map(b=> `<span class="buff" title="${esc(b.name)} — ${b.remaining}s">${esc(b.glyph||'✨')} ${esc(b.name)} <span class="bt">${b.remaining}s</span></span>`).join('');
+  el.innerHTML = S.buffs.map(b=>{
+    const cls = 'buff' + (b.harm?' harm':'') + (b.gear?' gear':'');
+    const tail = b.gear ? `<span class="bt">◆</span>`        // gear: no countdown
+                        : `<span class="bt">${b.remaining}s</span>`;
+    const tip = b.gear ? `${esc(b.name)} (worn)` : `${esc(b.name)} — ${b.remaining}s`;
+    return `<span class="${cls}" title="${tip}">${esc(b.glyph||'✨')} ${esc(b.name)} ${tail}</span>`;
+  }).join('');
 }
 
 // Item stat bonuses → a compact "+1 atk · +2 dmg" string (or '' if none).
@@ -1050,7 +1086,8 @@ function onEvent(m){
       (m.items||[]).forEach(it=>{ S.groundItems[it.id]=it; setToken('item', it.id, it.token_url); });
       if(S.you){ setPortrait('player', S.you.id, S.you.portrait_url); setToken('player', S.you.id, S.you.token_url); }
       rebuildDisplay(); draw(); renderPanel();
-      if(S.you){ setMana(S.you.mana, S.you.max_mana); setPurse(S.you.coins||0); }
+      if(S.you){ setMana(S.you.mana, S.you.max_mana); setPurse(S.you.coins||0);
+                 setBuffs(S.you.effects||[]); }
       if(winOpen('fw-map')) drawOverview();
       if(winOpen('fw-room')) renderRoom();
       logCombat(`— ${m.room?m.room.name:''} —`, 'l-sys');
@@ -1082,7 +1119,22 @@ function onEvent(m){
       }
       break;
     case 'wallet': setPurse(m.coins||0); break;
-    case 'effects': setBuffs(m.effects||[]); break;
+    case 'effects': {
+      const prev = (S.buffs||[]).length, list = m.effects||[];
+      setBuffs(list);
+      if(list.length > prev){                              // a new effect → flash the token
+        const harm = list.some(e=>e.harm && !e.gear);
+        flashEntity('you', harm ? 'rgba(90,170,90,0.85)' : 'rgba(230,189,94,0.9)');
+      }
+      draw();
+      break; }
+    case 'entity_effects': {                               // a mob's effects changed
+      const e = S.entities[m.id];
+      if(e){ e.effects = m.effects||[];
+        if(e.effects.length){ const harm = e.effects.some(x=>x.harm);
+          flashEntity(animId(m.id), harm ? 'rgba(90,170,90,0.8)' : 'rgba(230,189,94,0.85)'); }
+        draw(); }
+      break; }
     case 'shop': renderShop(m); break;
     case 'xp':
       if(S.you){ S.you.experience=m.experience; S.you.level=m.level; }

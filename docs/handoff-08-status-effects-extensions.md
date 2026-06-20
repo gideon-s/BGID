@@ -1,6 +1,14 @@
 # Handoff 08 — Status-effect extensions: debuffs/DoT, gear effects, VFX, spell buffs
 
-**Status:** ready to build · **Depends on:** the timed-buff system already shipped
+**Status:** ✅ SHIPPED 2026-06-19 — entity-keyed effects (`player:`/`npc:`) + DoT
+tick (`game_loop._apply_dots`); debuffs (`debuffs.py`: Weaken/Poison/Slow) +
+mob-attack fold-in + venomous mobs (Cave Spider); spell buffs/debuffs
+(`spells.py` `buff`/`debuff` kinds: Bless/Slow/Venom Bolt, wired into Cleric/Mage);
+effect-granting gear (`gear_effects.py`: Ring of Haste/Band of Might, synced on
+equip/unequip/connect); on-token icons + flash + mob `entity_effects`; seeded
+Ring of Haste + Cave Spider in the Cellar. Suite **227 green** (+ `test_debuffs.py`,
+updated `test_effects.py`). No migration (effects in-memory). See `ARCHITECTURE.md`.
+· **Depends on:** the timed-buff system already shipped
 (`effects.py`, `potions.py` buff-kind, the combat fold-ins, `game_loop._expire_effects`,
 the client `#buffs` panel — all live). **Goal:** grow the one-directional buff
 system into a full status-effect layer: **debuffs + damage-over-time** on mobs (and

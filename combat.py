@@ -31,6 +31,7 @@ import smack_talk
 import loot
 import leveling
 import effects
+import debuffs
 import models
 from config import STARTING_ROOM_ID, RESPAWN_GRACE_SECONDS, PVP_SAFE_ROOM_IDS
 
@@ -145,6 +146,7 @@ async def damage_npc(room_id: int, npc_id: int, amount: int,
     if dead:
         tile = world.position_of("npc", room_id, npc_id)
         world.kill_npc(room_id, npc_id)
+        effects.clear(effects.eid("npc", npc_id))   # no DoT/debuff on a dead mob
         await manager.broadcast_to_room(
             room_id, {"event": "entity_died", "id": npc_id, "kind": "npc",
                       "name": npc_name, "by": by_name})
@@ -214,7 +216,7 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
         npc_max = npc.max_health
         # The player's equipped weapon/rings sharpen the attack (mobs are bare).
         gear = services.ItemService.equipment_bonuses(db, player_id)
-        eb = effects.bonuses(player_id)                 # active buffs (Strength, …)
+        eb = effects.bonuses(effects.eid("player", player_id))   # active buffs (Strength, …)
         roll = _attack_roll(player, npc, atk_bonus=gear["attack"] + eb["attack"],
                             dmg_bonus=gear["damage"] + eb["damage"])
         npc.health = max(0, npc.health - roll["damage"])
@@ -231,6 +233,7 @@ async def resolve_player_attack(player_id: int, room_id: int, npc_id: int) -> No
     if npc_dead:
         tile = world.position_of("npc", room_id, npc_id)
         world.kill_npc(room_id, npc_id)  # removes from map; schedules respawn if hostile
+        effects.clear(effects.eid("npc", npc_id))   # no DoT/debuff on a dead mob
         await manager.broadcast_to_room(
             room_id, {"event": "entity_died", "id": npc_id, "kind": "npc",
                       "name": npc_name, "by": player_name})
@@ -270,7 +273,8 @@ async def resolve_pvp_attack(attacker_id: int, room_id: int, target_id: int) -> 
             return
         ag = services.ItemService.equipment_bonuses(db, attacker_id)
         tg = services.ItemService.equipment_bonuses(db, target_id)
-        ea, et = effects.bonuses(attacker_id), effects.bonuses(target_id)
+        ea = effects.bonuses(effects.eid("player", attacker_id))
+        et = effects.bonuses(effects.eid("player", target_id))
         roll = _attack_roll(attacker, target, atk_bonus=ag["attack"] + ea["attack"],
                             dmg_bonus=ag["damage"] + ea["damage"],
                             def_bonus=tg["defense"] + et["defense"])
@@ -300,11 +304,15 @@ async def resolve_mob_attack(npc_id: int, room_id: int, player_id: int) -> None:
             return
         player_name, npc_name = player.name, npc.name
         player_max = player.max_health
-        npc_glyph = npc.glyph
-        # The player's equipped armor/rings soften the blow (mob attacks bare).
+        npc_glyph, npc_type = npc.glyph, npc.npc_type
+        # The player's equipped armor/rings soften the blow; a Weaken debuff on
+        # the mob (negative atk/dmg) makes it miss/hit softer — symmetric to the
+        # player buff fold-ins above.
         gear = services.ItemService.equipment_bonuses(db, player_id)
-        roll = _attack_roll(npc, player,
-                            def_bonus=gear["defense"] + effects.bonuses(player_id)["defense"])
+        nb = effects.bonuses(effects.eid("npc", npc_id))
+        pdef = effects.bonuses(effects.eid("player", player_id))["defense"]
+        roll = _attack_roll(npc, player, atk_bonus=nb["attack"], dmg_bonus=nb["damage"],
+                            def_bonus=gear["defense"] + pdef)
         player.health = max(0, player.health - roll["damage"])
         db.commit()
         player_hp = player.health
@@ -322,6 +330,14 @@ async def resolve_mob_attack(npc_id: int, room_id: int, player_id: int) -> None:
         event = "player_wounded" if player_hp <= player_max * _LOW_HP_FRACTION else "landed_hit"
         asyncio.create_task(smack_talk.maybe_smack(npc_id, room_id, npc_name, event,
                                                    glyph=npc_glyph))
+        # A venomous mob poisons the player it bites (Layer-1 debuff source).
+        venom = debuffs.venom_for(npc_type)
+        if venom:
+            pkey = effects.eid("player", player_id)
+            debuffs.apply_to(pkey, venom, source_name=npc_name,
+                             source_id=npc_id, source_type="npc")
+            await manager.send_personal_message(
+                player_id, {"event": "effects", "effects": effects.snapshot(pkey)})
 
     if player_dead:
         await manager.broadcast_to_room(
@@ -335,6 +351,7 @@ async def _respawn(player_id: int, from_room: int, player_name: str, player_max:
     and send them a fresh zone snapshot."""
     world.move_player(player_id, STARTING_ROOM_ID)
     pos = world.place_player(player_id, STARTING_ROOM_ID)
+    effects.clear_expirable(effects.eid("player", player_id))  # shed poison/buffs on death
     _respawn_grace[player_id] = time.monotonic() + RESPAWN_GRACE_SECONDS  # escape window
     if from_room != STARTING_ROOM_ID:
         manager.unsubscribe_from_room(player_id, from_room)

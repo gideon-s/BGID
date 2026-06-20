@@ -20,6 +20,7 @@ import services
 import models
 import directions
 import shops
+import effects
 from config import MOB_RESPAWN_SECONDS
 
 # A generous cap so load() pulls the whole table (service defaults are paged).
@@ -707,6 +708,7 @@ class WorldState:
                 rec = {"id": pid, "kind": "player", "name": player.name,
                        "glyph": player.glyph or "🧙", "x": pos[0], "y": pos[1],
                        "hp": player.health, "max_hp": player.max_health,
+                       "effects": effects.snapshot(effects.eid("player", pid)),
                        "portrait_url": player.portrait_url, "token_url": player.token_url}
                 if pid == viewer_id:
                     rec["mana"] = player.mana
@@ -725,6 +727,7 @@ class WorldState:
                     "glyph": meta.get("glyph", npc.glyph or "👤"),
                     "x": pos[0], "y": pos[1], "hostile": meta.get("hostile", False),
                     "hp": npc.health, "max_hp": npc.max_health,
+                    "effects": effects.snapshot(effects.eid("npc", nid)),
                     "vendor": shops.is_vendor(npc.npc_type),
                     "portrait_url": npc.portrait_url, "token_url": npc.token_url,
                 })
@@ -779,6 +782,14 @@ class WorldState:
     def room_of(self, player_id: int) -> Optional[int]:
         """Current room of an online player, or None if offline."""
         return self.player_locations.get(player_id)
+
+    def room_of_npc(self, npc_id: int) -> Optional[int]:
+        """Room currently holding an NPC, or None — mirrors ``room_of`` for mobs.
+        Used to route DoT damage and effect broadcasts to the right zone."""
+        for rid, node in self.rooms.items():
+            if npc_id in node.npc_ids:
+                return rid
+        return None
 
     def move_player(self, player_id: int, to_room_id: int) -> bool:
         """Move an online player to another room, writing the change through to

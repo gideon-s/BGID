@@ -174,6 +174,14 @@ def seed():
             "is_movable": True, "is_equippable": True, "equip_slot": "ring",
             "attack_bonus": 1, "defense_bonus": 1,
         })
+        # A second Cellar reward — gear that grants a status effect while worn
+        # (handoff-08 §3; the name is keyed in gear_effects.py → non-expiring Haste).
+        _get_or_create(db, Item, name="Ring of Haste", defaults={
+            "description": "A quicksilver band; the world seems to slow when worn.",
+            "item_type": "ring", "value": 80, "room_id": cellar.id,
+            "glyph": "💍", "tile_x": 5, "tile_y": 1,
+            "is_movable": True, "is_equippable": True, "equip_slot": "ring",
+        })
 
         # Non-combatant & furniture
         _get_or_create(db, Npc, name="Innkeeper", defaults={
@@ -191,6 +199,15 @@ def seed():
             "combat_enabled": True, "is_hostile": True, "aggro_radius": 6,
             "glyph": "🐀", "home_x": 6, "home_y": 1,
             "str": 12, "dex": 12, "con": 10, "health": 8, "max_health": 8,
+        })
+        # A venomous mob (handoff-08 §2): npc_type "spider" is keyed in
+        # debuffs.VENOM_BY_TYPE → its bite poisons (a DoT) the player it hits.
+        _get_or_create(db, Npc, name="Cave Spider", defaults={
+            "description": "A hunched, bristling spider; venom beads on its fangs.",
+            "npc_type": "spider", "room_id": cellar.id,
+            "combat_enabled": True, "is_hostile": True, "aggro_radius": 6,
+            "glyph": "🕷️", "home_x": 6, "home_y": 3,
+            "str": 11, "dex": 14, "con": 10, "health": 10, "max_health": 10,
         })
         stool = _get_or_create(db, Item, name="Sturdy Stool", defaults={
             "description": "It wobbles but holds.", "item_type": "furniture",
