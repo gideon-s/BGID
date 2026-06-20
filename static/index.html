@@ -594,7 +594,12 @@ function isDoor(x,y){ return tileAt(x,y) === '+'; }
 function isPillar(x,y){ return tileAt(x,y) === 'o'; }
 function isWater(x,y){ return tileAt(x,y) === '~'; }
 function isRubble(x,y){ return tileAt(x,y) === ':'; }
-function isTransparent(x,y){ const t=tileAt(x,y); return t!=='#' && t!=='o'; } // walls+pillars block sight
+// Line-of-sight is data-driven from the server's tile registry (handoff-11 A):
+// the zone_state `tiledefs` map says which glyphs are transparent. Falls back to
+// the old walls+pillars rule for any glyph the snapshot didn't describe.
+function isTransparent(x,y){ const t=tileAt(x,y);
+  const d = S.tiledefs && S.tiledefs[t];
+  return d ? d.transparent : (t!=='#' && t!=='o'); }
 
 function rebuildDisplay(){
   if(!cv){ cv = document.createElement('canvas'); $('#map').appendChild(cv); ctx = cv.getContext('2d');
@@ -1106,7 +1111,7 @@ function onEvent(m){
   switch(m.event){
     case 'zone_state': {
       S.room=m.room; S.you=m.you; S.entities={}; S.groundItems={}; S.target=null;
-      S.tiles=m.tiles.grid; S.w=m.tiles.w; S.h=m.tiles.h;
+      S.tiles=m.tiles.grid; S.w=m.tiles.w; S.h=m.tiles.h; S.tiledefs=m.tiles.tiledefs||{};
       resetAnims();                                        // no stale tweens across zones
       const rid = m.room.id; S.visited[rid] = true;        // for the overview map
       S.explored = S.exploredByRoom[rid] = (S.exploredByRoom[rid] || {});  // per-zone fog memory

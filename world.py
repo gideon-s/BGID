@@ -21,33 +21,26 @@ import models
 import directions
 import shops
 import effects
+import tiles
 from config import MOB_RESPAWN_SECONDS
 
 # A generous cap so load() pulls the whole table (service defaults are paged).
 _LOAD_LIMIT = 100_000
 
-# Tile glyphs in the stored layout string. The palette is intentionally small
-# and authored (no procedural generation — the world is persistent + shared, so
-# every room is hand-made and reviewable). Add a glyph here + a matching render
-# rule in static/index.html to extend it.
-#   '#' wall      — solid, blocks movement + sight
-#   '.' floor     — open ground
-#   '+' door      — open ground, drawn as a single-line doorway
-#   ':' rubble    — open ground, drawn rougher (cosmetic; walkable)
-#   'o' pillar    — solid column, blocks movement + sight (a floor "island")
-#   '~' water     — blocks movement, but see-through (a pool/moat)
-#   '>' '<' stairs— walkable transition tiles (down / up to another zone)
+# Tile semantics now live in the data-driven `tiles.py` registry (handoff-11
+# Slice A): a glyph resolves to {name, walkable, transparent, transition}. The
+# three predicates below (walkable / sight / transition) read the registry, so a
+# new tile type is data, not code. A few glyph constants are kept as readable
+# names for the door/stairs transition geometry.
 WALL, FLOOR, DOOR = "#", ".", "+"
 PILLAR, WATER, RUBBLE = "o", "~", ":"
 STAIRS_DOWN, STAIRS_UP = ">", "<"
-# Glyphs that block movement. Anything not listed is walkable ground.
-BLOCKING = {WALL, PILLAR, WATER}
-# Glyphs that block line of sight (Phase 4 ranged spells). Mirrors the client's
-# `isTransparent` rule: walls and pillars block sight; water/floor/doors don't.
-SIGHT_BLOCKING = {WALL, PILLAR}
-# Tiles that trigger a zone transition when stepped onto (Phase 2). Border doors
-# map to that wall's cardinal exit; stairs map to up/down.
-TRANSITION_TILES = {DOOR, STAIRS_DOWN, STAIRS_UP}
+# Derived from the registry (known glyphs only) — these sets are convenience
+# views; the predicates use the registry directly so UNKNOWN glyphs fail safe
+# (wall/opaque), which a bare set-membership test could not guarantee.
+BLOCKING = {g for g, d in tiles.TILES.items() if not d["walkable"]}
+SIGHT_BLOCKING = {g for g, d in tiles.TILES.items() if not d["transparent"]}
+TRANSITION_TILES = {g for g, d in tiles.TILES.items() if d["transition"]}
 # Fallback box dimensions for rooms with no authored layout (legacy room-graph
 # rooms a player might still end up in — Phase 2 tiles the whole world).
 _DEFAULT_W, _DEFAULT_H = 11, 9
@@ -218,6 +211,12 @@ class WorldState:
             node.tiles = rows
             node.height = room.height or len(rows)
             node.width = room.width or max((len(r) for r in rows), default=_DEFAULT_W)
+            # Validate glyphs against the registry — unknown glyphs still load
+            # (they fail safe as walls) but we warn so an author catches a typo.
+            unknown = {g for row in rows for g in row if not tiles.known(g)}
+            if unknown:
+                print(f"world: room {room.id} '{room.name}' has unknown tile "
+                      f"glyphs {sorted(unknown)} — rendering them as walls")
         else:
             node.width = room.width or _DEFAULT_W
             node.height = room.height or _DEFAULT_H
@@ -260,7 +259,7 @@ class WorldState:
     def _is_walkable_grid(node: "RoomNode", x: int, y: int) -> bool:
         if not (0 <= y < node.height and 0 <= x < len(node.tiles[y])):
             return False
-        return node.tiles[y][x] not in BLOCKING
+        return tiles.walkable(node.tiles[y][x])   # registry-driven (unknown → wall)
 
     def _is_spawnable(self, node: "RoomNode", x: int, y: int) -> bool:
         """Open, unoccupied ground a player/mob may be placed on — explicitly
@@ -634,7 +633,7 @@ class WorldState:
         """A tile sight can pass *through* (in-bounds, not a wall/pillar)."""
         if not (0 <= y < node.height and 0 <= x < len(node.tiles[y])):
             return False
-        return node.tiles[y][x] not in SIGHT_BLOCKING
+        return tiles.transparent(node.tiles[y][x])   # registry-driven (unknown → opaque)
 
     def line_of_sight(self, room_id: int, a: Tuple[int, int], b: Tuple[int, int]) -> bool:
         """True if nothing sight-blocking lies strictly between tiles a and b
@@ -766,13 +765,11 @@ class WorldState:
         node = self.rooms.get(room_id)
         if node is None or not self._is_walkable_grid(node, x, y):
             return None
-        t = node.tiles[y][x]
+        kind = tiles.transition(node.tiles[y][x])   # None | "door" | "up" | "down"
         direction = None
-        if t == STAIRS_UP:
-            direction = "up"
-        elif t == STAIRS_DOWN:
-            direction = "down"
-        elif t == DOOR:
+        if kind in ("up", "down"):
+            direction = kind
+        elif kind == "door":
             if y == 0:
                 direction = "north"
             elif y == node.height - 1:
@@ -917,7 +914,10 @@ class WorldState:
         return {
             "room": {"id": node.id, "name": node.name, "description": node.description,
                      "room_type": node.room_type, "is_safe": node.is_safe},
-            "tiles": {"w": node.width, "h": node.height, "grid": node.tiles},
+            "tiles": {"w": node.width, "h": node.height, "grid": node.tiles,
+                      # Registry defs for the glyphs present, so the client derives
+                      # its render/sight rules from data (handoff-11 Slice A).
+                      "tiledefs": tiles.tiledefs_for("".join(node.tiles))},
             "you": you,
             "entities": entities,
             "items": self.ground_items(room_id),

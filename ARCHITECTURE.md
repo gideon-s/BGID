@@ -334,9 +334,19 @@ BGID is being reshaped into an **overhead, real-time roguelike** while keeping
 the LLM social layer. Two tiers share one world view (see
 `docs/handoff-01-graphical-overhaul-master.md`):
 
+- **Structured tiles** (`tiles.py`, handoff-11 Slice A): authoring stays a terse
+  glyph grid (`Room.tiles`), but each glyph **resolves through a data-driven
+  registry** into `{name, walkable, transparent, transition}`. The three tile
+  predicates — `_is_walkable_grid`, `_is_transparent`, and `transition_for_tile`'s
+  kind switch — read the registry (an **unknown glyph fails safe** as a solid,
+  opaque wall); `BLOCKING`/`SIGHT_BLOCKING`/`TRANSITION_TILES` are derived views.
+  `zone_state.tiles` ships a compact `tiledefs` map of the glyphs present, so the
+  client derives its FOV/`isTransparent` rule from data — a new tile type behaves
+  correctly with no engine or client change. This is also the designer's palette
+  source + the first registry slated to move to the config layer (handoff-10 §1).
 - **Layer 1 — the dungeon (no LLM):** each room is now an overhead **tile grid**
   (`Room.width/height/tiles/spawn_x/spawn_y`; glyphs `#` wall, `.` floor, `+`
-  door). `WorldState` tracks live tile positions (`RoomNode.player_pos` /
+  door — see the tile registry above). `WorldState` tracks live tile positions (`RoomNode.player_pos` /
   `npc_pos`) and resolves all movement through one helper, `try_step` →
   `MOVED | BLOCKED | ATTACK` (bump-to-attack). Melee is adjacency-gated and
   single-strike. A **fast combat tick** (`game_loop._combat_loop`,

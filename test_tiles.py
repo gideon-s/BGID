@@ -221,3 +221,56 @@ def test_smack_talk_respects_cooldown(db_session, monkeypatch):
 
     asyncio.run(_twice())
     assert len(sent) == 1   # second call suppressed by the per-mob cooldown
+
+
+# ---------- structured tiles registry (handoff-11 Slice A) ----------
+import tiles as tile_registry
+
+
+def test_seed_glyphs_all_in_registry(db_session):
+    """Every glyph in every authored room layout resolves in the registry."""
+    world.load()
+    for node in world.rooms.values():
+        for row in node.tiles:
+            for g in row:
+                assert tile_registry.known(g), f"unknown glyph {g!r} in room {node.id}"
+
+
+def test_predicates_derive_from_registry(db_session, monkeypatch):
+    """Adding a tile type is data, not code: a new glyph's walkable/transparent/
+    transition follow from the registry without touching world.py predicates."""
+    monkeypatch.setitem(tile_registry.TILES, "G",
+                        {"name": "gate", "walkable": True, "transparent": False, "transition": "down"})
+    # A room whose only interior tile is the new glyph.
+    room = models.Room(name="GateRoom", width=3, height=3,
+                       tiles="###\n#G#\n###", spawn_x=1, spawn_y=1)
+    db_session.add(room); db_session.commit()
+    world.load()
+    node = world.rooms[room.id]
+    assert world._is_walkable_grid(node, 1, 1) is True       # walkable from data
+    assert world._is_transparent(node, 1, 1) is False        # opaque from data
+    # transition kind flows from the registry (live) into transition_for_tile.
+    assert tile_registry.transition("G") == "down"
+    assert world.transition_for_tile(room.id, 1, 1) is None   # recognised, but no exit wired
+
+
+def test_unknown_glyph_fails_safe(db_session):
+    """An unknown glyph renders as a solid, opaque wall (fail safe)."""
+    room = models.Room(name="Typo", width=3, height=3,
+                       tiles="###\n#Z#\n###", spawn_x=1, spawn_y=1)
+    db_session.add(room); db_session.commit()
+    world.load()
+    node = world.rooms[room.id]
+    assert world._is_walkable_grid(node, 1, 1) is False
+    assert world._is_transparent(node, 1, 1) is False
+
+
+def test_zone_snapshot_carries_tiledefs(db_session):
+    world.load(); world.enter_world(1); world.place_player(1, 1)
+    snap = world.zone_snapshot(1, 1)
+    defs = snap["tiles"]["tiledefs"]
+    assert defs["#"]["walkable"] is False and defs["#"]["transparent"] is False
+    assert defs["."]["walkable"] is True
+    # only glyphs actually present are shipped
+    present = set("".join(world.rooms[1].tiles))
+    assert set(defs) == present

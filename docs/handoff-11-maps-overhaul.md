@@ -1,6 +1,10 @@
 # Handoff 11 — Maps overhaul: structured tiles, z-floors, levels & adaptive camera
 
-**Status:** design locked / phased build · **Depends on:** `handoff-01-graphical-overhaul-master.md`,
+**Status:** phased build — **Slice A SHIPPED 2026-06-20** (`tiles.py` registry;
+walkability/sight/transition derived from it with unknown-glyph fail-safe;
+`tiledefs` in `zone_state` + client `isTransparent` reads it; `test_tiles.py`
+extended, suite 251 green). Slices B (levels/z) → C (camera) → D (mapgen) remain.
+· **Depends on:** `handoff-01-graphical-overhaul-master.md`,
 Phases 1–5 (live), and the **maps-model decision** that gated the map designer
 (`handoff-10-tool-suite.md` §2) — now **settled** (see §1). **Goal:** evolve the
 world from uniform small glyph-string rooms into a heterogeneous, vertical world:
