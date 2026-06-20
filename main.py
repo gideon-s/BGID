@@ -38,7 +38,7 @@ from llm_npcs import BaseLLMNPC, NPCContext, NPCDisposition, NPCStats, NPCRole
 from deepseek_integration import initialize_deepseek_npcs, cleanup_deepseek_npcs
 from novita_integration import initialize_novita, cleanup_novita, portrait_manager
 import portraits
-from services import PlayerService, RoomService, ItemService, NpcService, GameActionService, NpcReactionService, RoomExitService
+from services import PlayerService, RoomService, ItemService, NpcService, GameActionService, NpcReactionService, RoomExitService, RoomFeatureService
 from dependencies import get_current_user, get_current_admin, authenticate_ws
 import auth_api
 import auth_service
@@ -1091,7 +1091,65 @@ def get_room(room_id: int, db: Session = Depends(get_db)):
 def create_room(room: schemas.RoomCreate, db: Session = Depends(get_db),
                 _admin: models.User = Depends(get_current_admin)):
     """Create a new room (admin)."""
-    return RoomService.create_room(db, room)
+    room_row = RoomService.create_room(db, room)
+    world.reload()
+    return room_row
+
+@app.put("/rooms/{room_id}", response_model=schemas.RoomOut, tags=["Rooms"])
+def update_room(room_id: int, data: schemas.RoomUpdate, db: Session = Depends(get_db),
+                _admin: models.User = Depends(get_current_admin)):
+    """Edit a room — name/description, the tile grid (designer), and room type
+    (admin). Refreshes the live world (preserves online players)."""
+    room_row = RoomService.update_room(db, room_id, data)
+    world.reload()
+    return room_row
+
+@app.delete("/rooms/{room_id}", tags=["Rooms"])
+def delete_room(room_id: int, db: Session = Depends(get_db),
+                _admin: models.User = Depends(get_current_admin)):
+    """Delete a room and its contents (admin). Refreshes the live world."""
+    RoomService.delete_room(db, room_id)
+    world.reload()
+    return {"message": f"Room {room_id} deleted"}
+
+# ---------- Room feature (trap/sign/spawner/keg) CRUD — admin / designer ----------
+@app.get("/rooms/{room_id}/features", response_model=List[schemas.RoomFeatureOut], tags=["Rooms"])
+def list_room_features(room_id: int, db: Session = Depends(get_db),
+                       _admin: models.User = Depends(get_current_admin)):
+    """List a room's tile features (admin/designer)."""
+    return RoomFeatureService.list_features(db, room_id)
+
+@app.post("/rooms/{room_id}/features", response_model=schemas.RoomFeatureOut, tags=["Rooms"])
+def create_room_feature(room_id: int, data: schemas.RoomFeatureCreate,
+                        db: Session = Depends(get_db),
+                        _admin: models.User = Depends(get_current_admin)):
+    """Place a tile feature in a room (admin/designer). Refreshes the live world."""
+    feat = RoomFeatureService.create_feature(db, room_id, data)
+    world.reload()
+    return feat
+
+@app.put("/features/{feature_id}", response_model=schemas.RoomFeatureOut, tags=["Rooms"])
+def update_room_feature(feature_id: int, data: schemas.RoomFeatureUpdate,
+                        db: Session = Depends(get_db),
+                        _admin: models.User = Depends(get_current_admin)):
+    """Edit a tile feature (admin/designer). Refreshes the live world."""
+    feat = RoomFeatureService.update_feature(db, feature_id, data)
+    world.reload()
+    return feat
+
+@app.delete("/features/{feature_id}", tags=["Rooms"])
+def delete_room_feature(feature_id: int, db: Session = Depends(get_db),
+                        _admin: models.User = Depends(get_current_admin)):
+    """Remove a tile feature (admin/designer). Refreshes the live world."""
+    RoomFeatureService.delete_feature(db, feature_id)
+    world.reload()
+    return {"message": f"Feature {feature_id} deleted"}
+
+@app.post("/admin/world/reload", tags=["Admin"])
+def admin_world_reload(_admin: models.User = Depends(get_current_admin)):
+    """Re-sync the in-memory world from the DB (admin). Preserves online players."""
+    world.reload()
+    return {"message": "World reloaded"}
 
 @app.get("/rooms/{room_id}/state", tags=["Rooms"])
 def get_room_state(room_id: int, db: Session = Depends(get_db)):
@@ -1180,8 +1238,27 @@ def get_npc(npc_id: int, db: Session = Depends(get_db)):
 @app.post("/npcs/", response_model=schemas.NpcOut, tags=["NPCs"])
 def create_npc(npc: schemas.NpcCreate, db: Session = Depends(get_db),
                _admin: models.User = Depends(get_current_admin)):
-    """Create a new NPC (admin)."""
-    return NpcService.create_npc(db, npc)
+    """Create a new NPC (admin). Refreshes the live world so it appears in-zone."""
+    npc_row = NpcService.create_npc(db, npc)
+    world.reload()
+    return npc_row
+
+@app.put("/npcs/{npc_id}", response_model=schemas.NpcOut, tags=["NPCs"])
+def update_npc(npc_id: int, data: schemas.NpcUpdate, db: Session = Depends(get_db),
+               _admin: models.User = Depends(get_current_admin)):
+    """Edit an NPC — name/type/room, combat & AI flags, glyph, home, abilities
+    (admin). Refreshes the live world (preserves online players)."""
+    npc_row = NpcService.update_npc(db, npc_id, data)
+    world.reload()
+    return npc_row
+
+@app.delete("/npcs/{npc_id}", tags=["NPCs"])
+def delete_npc(npc_id: int, db: Session = Depends(get_db),
+               _admin: models.User = Depends(get_current_admin)):
+    """Delete an NPC (admin). Refreshes the live world."""
+    NpcService.delete_npc(db, npc_id)
+    world.reload()
+    return {"message": f"NPC {npc_id} deleted"}
 
 @app.get("/npcs/{npc_id}/sheet", response_model=schemas.NpcSheet, tags=["NPCs"])
 def get_npc_sheet(npc_id: int, db: Session = Depends(get_db)):

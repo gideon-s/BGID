@@ -52,9 +52,46 @@ class RoomCreate(RoomBase):
     pass
 
 class RoomUpdate(RoomBase):
-    """Schema for updating a room"""
+    """Schema for updating a room (partial). Includes the tile-grid fields the
+    map designer (handoff-10 §2) edits, plus room-type flags (handoff-09 §5)."""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=1000)
+    width: Optional[int] = Field(None, ge=1, le=200)
+    height: Optional[int] = Field(None, ge=1, le=200)
+    tiles: Optional[str] = None
+    spawn_x: Optional[int] = Field(None, ge=0)
+    spawn_y: Optional[int] = Field(None, ge=0)
+    room_type: Optional[str] = Field(None, max_length=20)
+    is_safe: Optional[bool] = None
+
+
+class RoomFeatureCreate(BaseModel):
+    """Create a tile feature (handoff-09 §6): trap/hazard/sign/spawner/keg."""
+    x: int = Field(..., ge=0)
+    y: int = Field(..., ge=0)
+    kind: str = Field(..., max_length=20)
+    glyph: str = Field("", max_length=8)
+    config: dict = Field(default_factory=dict)
+
+
+class RoomFeatureUpdate(BaseModel):
+    """Partial update of a tile feature."""
+    x: Optional[int] = Field(None, ge=0)
+    y: Optional[int] = Field(None, ge=0)
+    kind: Optional[str] = Field(None, max_length=20)
+    glyph: Optional[str] = Field(None, max_length=8)
+    config: Optional[dict] = None
+
+
+class RoomFeatureOut(BaseModel):
+    """A tile feature for the designer/admin."""
+    id: int
+    room_id: int
+    x: int
+    y: int
+    kind: str
+    glyph: str
+    config: dict
 
 class RoomOut(RoomBase):
     """Schema for room output"""
@@ -199,18 +236,32 @@ class NpcCreate(NpcBase):
     """Schema for creating a new NPC"""
     combat_enabled: bool = True
     is_friendly: bool = False
+    # Tile/AI fields (graphical overhaul + handoff-09): exposed so the admin
+    # monster editor can author hostility, aggro, glyph, home tile, and wandering.
+    is_hostile: bool = False
+    aggro_radius: int = Field(6, ge=0)
+    glyph: str = Field("👤", max_length=8)
+    home_x: Optional[int] = Field(None, ge=0)
+    home_y: Optional[int] = Field(None, ge=0)
+    wanders: bool = False
     health: Optional[int] = Field(8, ge=1)
     max_health: Optional[int] = Field(8, ge=1)
     abilities: Optional[AbilityScores] = None
 
 class NpcUpdate(BaseModel):
-    """Schema for updating an NPC"""
+    """Schema for updating an NPC (all fields optional / partial)."""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=1000)
     npc_type: Optional[str] = Field(None, max_length=50)
     room_id: Optional[int] = Field(None, gt=0)
     combat_enabled: Optional[bool] = None
     is_friendly: Optional[bool] = None
+    is_hostile: Optional[bool] = None
+    aggro_radius: Optional[int] = Field(None, ge=0)
+    glyph: Optional[str] = Field(None, max_length=8)
+    home_x: Optional[int] = Field(None, ge=0)
+    home_y: Optional[int] = Field(None, ge=0)
+    wanders: Optional[bool] = None
     health: Optional[int] = Field(None, ge=0)
     max_health: Optional[int] = Field(None, ge=1)
     abilities: Optional[AbilityScores] = None
@@ -220,6 +271,12 @@ class NpcOut(NpcBase):
     id: int
     combat_enabled: bool
     is_friendly: bool
+    is_hostile: bool = False
+    aggro_radius: int = 6
+    glyph: str = "👤"
+    home_x: Optional[int] = None
+    home_y: Optional[int] = None
+    wanders: bool = False
     health: int
     max_health: int
     abilities: AbilityScores

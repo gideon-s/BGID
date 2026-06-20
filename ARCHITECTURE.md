@@ -407,6 +407,17 @@ Each step keeps the app runnable.
    /admin/characters/{id}`. The client header shows an **Admin** link to admins
    only, opening an overlay to manage accounts/characters.
 
+   **World authoring** (handoff-10 §3): admin-gated CRUD over live content —
+   `PUT/DELETE /rooms/{id}` (name/desc + tile grid + room type), `PUT/DELETE
+   /npcs/{id}` (combat & AI flags, glyph, home, abilities), `GET/POST
+   /rooms/{id}/features` + `PUT/DELETE /features/{id}` (the `RoomFeature` layer:
+   traps/signs/spawners/kegs), and `POST /admin/world/reload`. Every write calls
+   `world.reload()` (resyncs the in-memory world, preserving online players). The
+   admin overlay is now **tabbed** (`#admintabs`): an **Accounts** tab + a
+   **Monsters** tab (list/create/edit/delete NPCs with a per-NPC form) + a
+   **Reload world** button. These endpoints back the future map designer
+   (handoff-10 §2).
+
 5. ✅ **Room graph** (`models.RoomExit`, `directions.py`) — directed exits with
    locks/keys; direction-based, lock-aware movement (WS + `/action`); exits in
    room_state/`/state`; exit-management API. **Consumable shared unlock:** using

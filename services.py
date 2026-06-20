@@ -275,6 +275,30 @@ class RoomService:
     def get_rooms(db: Session, skip: int = 0, limit: int = 100) -> List[models.Room]:
         """Get list of rooms with pagination"""
         return db.query(models.Room).offset(skip).limit(limit).all()
+
+    @staticmethod
+    def update_room(db: Session, room_id: int, data: "schemas.RoomUpdate") -> models.Room:
+        """Apply a partial update to a room (name/desc + tile grid + room type).
+        The caller refreshes the live world (world.reload) after."""
+        room = RoomService.get_room(db, room_id)
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+        for key, value in data.dict(exclude_unset=True).items():
+            setattr(room, key, value)
+        db.commit()
+        db.refresh(room)
+        log_action("update_room", 0, f"Updated room '{room.name}'")
+        return room
+
+    @staticmethod
+    def delete_room(db: Session, room_id: int) -> None:
+        """Delete a room (cascades its players/npcs/items/exits)."""
+        room = RoomService.get_room(db, room_id)
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+        db.delete(room)
+        db.commit()
+        log_action("delete_room", 0, f"Deleted room {room_id}")
     
     @staticmethod
     def get_room_state(db: Session, room_id: int) -> Dict[str, Any]:
@@ -544,6 +568,35 @@ class NpcService:
     def get_npcs(db: Session, skip: int = 0, limit: int = 100) -> List[models.Npc]:
         """Get list of NPCs with pagination"""
         return db.query(models.Npc).offset(skip).limit(limit).all()
+
+    @staticmethod
+    def update_npc(db: Session, npc_id: int, data: "schemas.NpcUpdate") -> models.Npc:
+        """Apply a partial update to an NPC (flattening nested abilities like
+        create_npc). The caller refreshes the live world afterward."""
+        npc = NpcService.get_npc(db, npc_id)
+        if not npc:
+            raise HTTPException(status_code=404, detail="NPC not found")
+        update = data.dict(exclude_unset=True)
+        abilities = update.pop("abilities", None)
+        for key, value in update.items():
+            setattr(npc, key, value)
+        if abilities:
+            for key, value in abilities.items():
+                setattr(npc, key, value)
+        db.commit()
+        db.refresh(npc)
+        log_action("update_npc", 0, f"Updated NPC '{npc.name}'")
+        return npc
+
+    @staticmethod
+    def delete_npc(db: Session, npc_id: int) -> None:
+        """Delete an NPC (and its reactions, via cascade)."""
+        npc = NpcService.get_npc(db, npc_id)
+        if not npc:
+            raise HTTPException(status_code=404, detail="NPC not found")
+        db.delete(npc)
+        db.commit()
+        log_action("delete_npc", 0, f"Deleted NPC {npc_id}")
     
     @staticmethod
     def get_npc_sheet(db: Session, npc_id: int) -> schemas.NpcSheet:
@@ -583,6 +636,66 @@ class NpcService:
             modifiers=modifiers,
             location_name=location_name
         )
+
+# ---------- Room Feature Services (handoff-09 §6 / handoff-10 designer) ----------
+class RoomFeatureService:
+    """CRUD over per-tile RoomFeatures (traps/signs/spawners/kegs). `config` is
+    stored as a JSON string on the row but exposed as a dict to callers."""
+
+    @staticmethod
+    def _out(feat: models.RoomFeature) -> dict:
+        try:
+            cfg = json.loads(feat.config or "{}")
+        except (ValueError, TypeError):
+            cfg = {}
+        return {"id": feat.id, "room_id": feat.room_id, "x": feat.x, "y": feat.y,
+                "kind": feat.kind, "glyph": feat.glyph or "", "config": cfg}
+
+    @staticmethod
+    def list_features(db: Session, room_id: int) -> List[dict]:
+        rows = db.query(models.RoomFeature).filter_by(room_id=room_id).all()
+        return [RoomFeatureService._out(f) for f in rows]
+
+    @staticmethod
+    def get_feature(db: Session, feature_id: int) -> models.RoomFeature:
+        feat = db.query(models.RoomFeature).filter_by(id=feature_id).first()
+        if not feat:
+            raise HTTPException(status_code=404, detail="Feature not found")
+        return feat
+
+    @staticmethod
+    def create_feature(db: Session, room_id: int, data: "schemas.RoomFeatureCreate") -> dict:
+        if RoomService.get_room(db, room_id) is None:
+            raise HTTPException(status_code=404, detail="Room not found")
+        feat = models.RoomFeature(room_id=room_id, x=data.x, y=data.y, kind=data.kind,
+                                  glyph=data.glyph, config=json.dumps(data.config or {}))
+        db.add(feat)
+        db.commit()
+        db.refresh(feat)
+        log_action("create_feature", 0, f"Added {feat.kind} to room {room_id}")
+        return RoomFeatureService._out(feat)
+
+    @staticmethod
+    def update_feature(db: Session, feature_id: int, data: "schemas.RoomFeatureUpdate") -> dict:
+        feat = RoomFeatureService.get_feature(db, feature_id)
+        update = data.dict(exclude_unset=True)
+        if "config" in update and update["config"] is not None:
+            feat.config = json.dumps(update.pop("config"))
+        else:
+            update.pop("config", None)
+        for key, value in update.items():
+            setattr(feat, key, value)
+        db.commit()
+        db.refresh(feat)
+        return RoomFeatureService._out(feat)
+
+    @staticmethod
+    def delete_feature(db: Session, feature_id: int) -> None:
+        feat = RoomFeatureService.get_feature(db, feature_id)
+        db.delete(feat)
+        db.commit()
+        log_action("delete_feature", 0, f"Deleted feature {feature_id}")
+
 
 # ---------- NPC Reaction Services ----------
 class NpcReactionService:

@@ -1,6 +1,12 @@
 # Handoff 10 — Authoring tool suite (map designer + content editors)
 
-**Status:** design / phased build · **Depends on:** the admin layer (account/character
+**Status:** phased build — **§3 SHIPPED 2026-06-20** (room/npc/feature CRUD:
+`PUT/DELETE /rooms/{id}`, `PUT/DELETE /npcs/{id}`, `RoomFeature` CRUD,
+`POST /admin/world/reload`; tabbed admin overlay with a **Monsters** editor +
+Reload button; `test_authoring.py`, suite 247 green). **§2 (map designer) gate is
+RESOLVED** — the maps model is settled in `handoff-11-maps-overhaul.md`; build §2
+against that model (after handoff-11 Slices A/B land). §1 config layer + §4/§5/§6
+editors remain. · **Depends on:** the admin layer (account/character
 console + admin-gated REST CRUD), the world model, and the content registries.
 **Goal:** give admins **in-browser authoring tools** instead of editing seed code:
 a **map designer**, and editors for the **monster list, spells & effects, magic items,

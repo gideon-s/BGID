@@ -198,6 +198,23 @@
   .shoprow button:disabled{opacity:.4;cursor:default}
   /* Admin overlay: a wider card listing accounts + characters. */
   .mapcard.wide{width:min(720px,94vw)}
+  #admintabs{display:flex;gap:.4rem;align-items:center;margin:.2rem 0 .5rem}
+  #admintabs button{background:rgba(199,162,74,.05);border:1px solid var(--gold-dim);color:var(--fg);
+           border-radius:3px;cursor:pointer;font-size:.78rem;padding:.2rem .6rem}
+  #admintabs button:hover{border-color:var(--accent);color:var(--accent)}
+  #admintabs .atab.active{background:rgba(199,162,74,.15);border-color:var(--accent);color:var(--accent)}
+  #admin-reload{margin-left:auto}
+  .mrow{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;border:1px solid var(--edge);
+        border-radius:4px;padding:.35rem .5rem;background:rgba(199,162,74,.03)}
+  .mrow .mn{font-family:var(--serif);color:var(--fg)}
+  .mrow .mmeta{font-size:.74rem;color:var(--dim)}
+  .mrow .acct-actions{margin-left:auto}
+  .mform{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.4rem;
+         border:1px solid var(--gold-dim);border-radius:4px;padding:.5rem;margin:.3rem 0;background:rgba(199,162,74,.04)}
+  .mform label{display:flex;flex-direction:column;font-size:.66rem;color:var(--dim);gap:.15rem}
+  .mform input, .mform select{background:#1a1710;border:1px solid var(--edge);color:var(--fg);
+         border-radius:3px;padding:.2rem .35rem;font-size:.8rem}
+  .mform .mfull{grid-column:1/-1;display:flex;gap:.4rem;justify-content:flex-end}
   #adminbody{max-height:70vh;overflow-y:auto;display:flex;flex-direction:column;gap:.5rem;min-width:300px}
   .acct{border:1px solid var(--edge);border-radius:4px;padding:.5rem .6rem;background:rgba(199,162,74,.03)}
   .acct.me{border-color:var(--gold-dim)}
@@ -364,9 +381,14 @@
 <!-- Admin: account & character management (admins only) -->
 <div id="adminview" class="hidden">
   <div class="mapcard wide"><a class="cardx" title="Close (Esc)">✕</a>
-    <div class="maptitle">Admin — Accounts &amp; Characters</div>
+    <div class="maptitle">Admin Console</div>
+    <div id="admintabs">
+      <button class="atab" data-tab="accounts">Accounts</button>
+      <button class="atab" data-tab="monsters">Monsters</button>
+      <button id="admin-reload" title="Re-sync the live world from the database">⟳ Reload world</button>
+    </div>
     <div id="adminbody"></div>
-    <div class="maphint" id="admin-hint">Manage accounts and their characters. <b>Esc</b> to close.</div>
+    <div class="maphint" id="admin-hint">Manage accounts, characters, and monsters. <b>Esc</b> to close.</div>
   </div>
 </div>
 
@@ -1583,7 +1605,15 @@ async function openAdmin(){
   renderAdmin();
 }
 function closeAdmin(){ $('#adminview').classList.add('hidden'); }
-async function renderAdmin(){
+function renderAdmin(){
+  const tab = S.adminTab || 'accounts';
+  document.querySelectorAll('#admintabs .atab').forEach(b=>
+    b.classList.toggle('active', b.dataset.tab===tab));
+  $('#adminbody').innerHTML = '<div style="color:var(--dim);padding:.6rem">Loading…</div>';
+  if(tab==='monsters') renderMonsters();
+  else renderAccounts();
+}
+async function renderAccounts(){
   const r = await api('/admin/accounts');
   if(!r.ok){ $('#adminbody').innerHTML = `<div class="gerr">Couldn't load accounts (${r.status}).</div>`; return; }
   const accts = await r.json();
@@ -1650,6 +1680,87 @@ async function grantCoins(id, amount){
   if(!r.ok) $('#admin-hint').textContent = humanError(d)||('Error '+r.status);
   else $('#admin-hint').textContent = `${d.name}: 👛 ${coinStr(d.coins)}`;
 }
+// ─── Admin: Monsters (NPC authoring) ───
+async function renderMonsters(){
+  const [nr, rr] = await Promise.all([api('/npcs/'), api('/rooms/')]);
+  if(!nr.ok){ $('#adminbody').innerHTML = `<div class="gerr">Couldn't load NPCs (${nr.status}).</div>`; return; }
+  const npcs = (await nr.json()).items || [];
+  S.adminRooms = rr.ok ? ((await rr.json()).items || []) : [];
+  const body = $('#adminbody'); body.innerHTML='';
+  const newBtn = document.createElement('button'); newBtn.textContent='+ new monster';
+  newBtn.onclick = ()=> openMonsterForm(null); body.appendChild(newBtn);
+  const roomName = id => { const r = (S.adminRooms||[]).find(x=>x.id===id); return r?r.name:('#'+id); };
+  npcs.forEach(n=>{
+    const el = document.createElement('div'); el.className='mrow';
+    const flags = [n.is_hostile?'hostile':'', n.combat_enabled?'combat':'', n.wanders?'wanders':'']
+      .filter(Boolean).join(' · ');
+    el.innerHTML = `<span class="mn">${esc(n.glyph||'👤')} ${esc(n.name)}</span>`
+      + `<span class="mmeta">${esc(n.npc_type)} · ${esc(roomName(n.room_id))} · HP ${n.health}/${n.max_health}`
+      + (flags?` · ${esc(flags)}`:'') + ` · #${n.id}</span>`
+      + `<span class="acct-actions"></span>`;
+    const act = el.querySelector('.acct-actions');
+    const e=document.createElement('button'); e.textContent='edit'; e.onclick=()=>openMonsterForm(n); act.appendChild(e);
+    const d=document.createElement('button'); d.textContent='delete'; d.className='danger';
+    d.onclick=()=>{ if(confirm(`Delete monster "${n.name}"?`)) delMonster(n.id); }; act.appendChild(d);
+    body.appendChild(el);
+  });
+  if(!npcs.length) body.insertAdjacentHTML('beforeend', '<div style="color:var(--dim);padding:.6rem">No monsters.</div>');
+}
+function openMonsterForm(n){
+  n = n || {};
+  const rooms = S.adminRooms || [];
+  const roomOpts = rooms.map(r=>`<option value="${r.id}"${r.id===n.room_id?' selected':''}>${esc(r.name)}</option>`).join('');
+  const f = document.createElement('div'); f.className='mform';
+  const num = (k,v,min)=>`<label>${k}<input data-k="${k}" type="number"${min!=null?` min="${min}"`:''} value="${v??''}"></label>`;
+  const chk = (k,v,lbl)=>`<label class="">${lbl}<input data-k="${k}" type="checkbox"${v?' checked':''}></label>`;
+  f.innerHTML =
+    `<label>name<input data-k="name" value="${esc(n.name||'')}"></label>`
+    + `<label>type<input data-k="npc_type" value="${esc(n.npc_type||'combat_mob')}"></label>`
+    + `<label>room<select data-k="room_id">${roomOpts}</select></label>`
+    + `<label>glyph<input data-k="glyph" value="${esc(n.glyph||'👤')}" maxlength="8"></label>`
+    + num('health', n.health??8, 1) + num('max_health', n.max_health??8, 1)
+    + num('aggro_radius', n.aggro_radius??6, 0)
+    + num('home_x', n.home_x, 0) + num('home_y', n.home_y, 0)
+    + num('str', n.abilities?n.abilities.str:10) + num('dex', n.abilities?n.abilities.dex:10)
+    + num('con', n.abilities?n.abilities.con:10)
+    + chk('is_hostile', n.is_hostile, 'hostile') + chk('combat_enabled', n.combat_enabled!==false, 'combat')
+    + chk('wanders', n.wanders, 'wanders')
+    + `<div class="mfull"><button data-act="cancel">cancel</button><button data-act="save">save</button></div>`;
+  f.querySelector('[data-act="cancel"]').onclick = ()=> renderMonsters();
+  f.querySelector('[data-act="save"]').onclick = ()=> saveMonster(n.id, f);
+  $('#adminbody').prepend(f);
+}
+function _formBody(f){
+  const body = {}; const ab = {};
+  f.querySelectorAll('[data-k]').forEach(el=>{
+    const k = el.dataset.k;
+    let v = el.type==='checkbox' ? el.checked : (el.type==='number' ? (el.value===''?null:parseInt(el.value,10)) : el.value);
+    if(['str','dex','con'].includes(k)){ if(v!=null) ab[k]=v; }
+    else if(v!==null && v!=='') body[k]=v;
+  });
+  if(Object.keys(ab).length) body.abilities = ab;
+  return body;
+}
+async function saveMonster(id, f){
+  const body = _formBody(f);
+  const r = id ? await api(`/npcs/${id}`, {method:'PUT', body})
+               : await api('/npcs/', {method:'POST', body});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); $('#admin-hint').textContent = humanError(e)||('Error '+r.status); return; }
+  $('#admin-hint').textContent = id ? 'Monster updated.' : 'Monster created.';
+  renderMonsters();
+}
+async function delMonster(id){
+  const r = await api(`/npcs/${id}`, {method:'DELETE'});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); $('#admin-hint').textContent = humanError(e)||('Error '+r.status); }
+  renderMonsters();
+}
+async function reloadWorld(){
+  const r = await api('/admin/world/reload', {method:'POST'});
+  $('#admin-hint').textContent = r.ok ? 'World reloaded.' : ('Reload failed ('+r.status+').');
+}
+document.querySelectorAll('#admintabs .atab').forEach(b=>
+  b.onclick = ()=>{ S.adminTab = b.dataset.tab; renderAdmin(); });
+$('#admin-reload').onclick = reloadWorld;
 $('#open-admin').onclick = openAdmin;
 $('#adminview .cardx').onclick = closeAdmin;
 
