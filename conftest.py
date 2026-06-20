@@ -163,14 +163,19 @@ def _reset_mob_clocks():
     import smack_talk
     import combat
     import casting
+    import features
     from world import world
     import effects
     game_loop._aggroed.clear()
     game_loop._last_move_at.clear()
     game_loop._last_attack_at.clear()
+    game_loop._last_wander_at.clear()
+    game_loop._last_spawn_at.clear()
+    game_loop._spawner_children.clear()
     combat._respawn_grace.clear()
     casting.reset()
     smack_talk.reset()
+    features.reset()             # a leaked sprung-trap set would skip a trap test
     world.door_unlocks.clear()   # a leaked open door would unlock locked-exit tests
     effects._active.clear()      # a leaked buff would skew combat assertions
     yield
@@ -207,6 +212,11 @@ def _reset_singletons():
     game_loop._aggroed.clear()      # clear mob aggro state
     game_loop._last_move_at.clear()    # clear mob move/attack cooldown clocks
     game_loop._last_attack_at.clear()
+    game_loop._last_wander_at.clear()
+    game_loop._last_spawn_at.clear()
+    game_loop._spawner_children.clear()
+    import features
+    features.reset()
     import combat
     combat._respawn_grace.clear()   # clear post-respawn invulnerability windows
     import casting

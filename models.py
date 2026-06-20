@@ -61,6 +61,11 @@ class Room(Base):
     tiles = Column(Text, nullable=True)
     spawn_x = Column(Integer, nullable=True)
     spawn_y = Column(Integer, nullable=True)
+    # Room type / behavior (handoff-09 §5). room_type is descriptive
+    # (dungeon/town/tavern/sanctuary); is_safe makes the room a sanctuary —
+    # PvP is refused AND hostile mobs won't acquire targets here.
+    room_type = Column(String(20), default="dungeon", nullable=False)
+    is_safe = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -75,6 +80,29 @@ class Room(Base):
         back_populates="from_room",
         cascade="all, delete-orphan",
     )
+
+class RoomFeature(Base):
+    """A thing attached to a tile that isn't a plain item or NPC (handoff-09 §6).
+
+    The general per-tile data layer: traps/hazards, readable signs, monster
+    spawners, AoE objects (powder kegs), and whatever else later slices need.
+    Keeps ``Room.tiles`` purely geometric. ``config`` is a JSON string (like
+    ``Player.skills``/``opened_chests``) carrying per-kind parameters, parsed on
+    load into ``RoomNode.features``. This is also what the map designer
+    (handoff-10) will read/write.
+    """
+    __tablename__ = "room_features"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    x = Column(Integer, nullable=False)
+    y = Column(Integer, nullable=False)
+    kind = Column(String(20), nullable=False)   # trap|hazard|sign|spawner|keg|…
+    glyph = Column(String(8), default="", nullable=False)   # map overlay glyph
+    config = Column(Text, default="{}", nullable=False)     # JSON params per kind
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class RoomExit(Base):
     """A directed exit from one room to another in a given direction.
@@ -237,6 +265,9 @@ class Npc(Base, AbilityScoresMixin):
     # Caretaker); the Innkeeper is neither combat_enabled nor hostile.
     is_hostile = Column(Boolean, default=False, nullable=False)
     aggro_radius = Column(Integer, default=6, nullable=False)  # 0 = passive
+    # Idle movement (handoff-09 §4): a non-aggroed mob ambles around its home
+    # tile (within a leash) on a slow wander cooldown; it still aggros on sight.
+    wanders = Column(Boolean, default=False, nullable=False)
     health = Column(Integer, default=DEFAULT_NPC_HEALTH, nullable=False)
     max_health = Column(Integer, default=DEFAULT_NPC_HEALTH, nullable=False)
     # Overhead tile rendering: the emoji/glyph drawn for this NPC, and its

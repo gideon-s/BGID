@@ -34,6 +34,11 @@ SPELLS: Dict[str, dict] = {
         "range": 6, "radius": 1, "shape": "blast",
         "effect": {"kind": "damage", "dice": (2, 4), "mod": "intel"},
     },
+    "fireball": {
+        "name": "Fireball", "glyph": "🔥", "cost": 10, "cooldown": 6.0,
+        "range": 7, "radius": 2, "shape": "blast",   # a wider, harder-hitting AoE
+        "effect": {"kind": "damage", "dice": (3, 6), "mod": "intel"},
+    },
     "heal": {
         "name": "Heal", "glyph": "✨", "cost": 5, "cooldown": 3.0,
         "range": 0, "shape": "self",

@@ -18,6 +18,7 @@ stall the loop. Player input is handled on the WS coroutine, not here.
 See ARCHITECTURE.md and docs/handoff-02-phase1-tiled-combat-slice.md §5.
 """
 import asyncio
+import random
 import time
 from typing import Optional, Set
 
@@ -25,11 +26,13 @@ from database import SessionLocal
 import services
 import combat
 import classes
+import features
 import smack_talk
 from websocket_manager import manager
 from world import world
 from config import (COMBAT_TICK_SECONDS, MOB_MOVE_COOLDOWN_SECONDS,
-                    MOB_ATTACK_COOLDOWN_SECONDS)
+                    MOB_ATTACK_COOLDOWN_SECONDS, MOB_WANDER_COOLDOWN_SECONDS,
+                    MOB_WANDER_LEASH, SPAWNER_TICK_SECONDS)
 
 TICK_SECONDS = 15
 NPC_REGEN_PER_TICK = 1
@@ -44,6 +47,11 @@ _aggroed: Set[int] = set()
 # independent of the tick rate. A missing entry means "ready now".
 _last_move_at: dict[int, float] = {}
 _last_attack_at: dict[int, float] = {}
+# Per-mob idle-wander clock (handoff-09 §4).
+_last_wander_at: dict[int, float] = {}
+# Per-spawner clock (handoff-09 §3) + spawner -> set of live child npc ids.
+_last_spawn_at: dict[int, float] = {}
+_spawner_children: dict[int, set] = {}
 
 
 def _ready(table: dict, npc_id: int, cooldown: float, now: float) -> bool:
@@ -93,6 +101,8 @@ async def _combat_tick_once() -> None:
     # Drain damage-over-time effects (poison) before AI so a lethal DoT removes
     # the mob this tick.
     await _apply_dots()
+    # Monster spawners repopulate their area up to a cap on a timer (§3).
+    await _spawn_tick(now)
     # Respawn any mobs whose timer elapsed, then run AI.
     for npc_id in world.due_respawns():
         res = world.respawn_npc(npc_id)
@@ -105,15 +115,31 @@ async def _combat_tick_once() -> None:
     for room_id, node in list(world.rooms.items()):
         if not node.player_pos:          # no online players standing in this zone
             continue
-        for npc_id in world.hostile_mobs(room_id):
+        # Sanctuaries (handoff-09 §5) suppress mob aggro entirely.
+        sanctuary = node.is_safe
+        for npc_id in list(node.npc_ids):
             mpos = world.position_of("npc", room_id, npc_id)
             if mpos is None:
                 continue
             meta = node.npc_meta.get(npc_id, {})
             radius = meta.get("aggro_radius", 6)
-            target = world.nearest_player_within(room_id, mpos, radius) if radius else None
+            target = None
+            if meta.get("hostile") and radius and not sanctuary:
+                target = world.nearest_player_within(room_id, mpos, radius)
             if target is None:
                 _aggroed.discard(npc_id)
+                # Idle: amble around home if this mob wanders (handoff-09 §4).
+                if meta.get("wanders") and _ready(_last_wander_at, npc_id,
+                                                  MOB_WANDER_COOLDOWN_SECONDS, now):
+                    cands = world.wander_candidates(room_id, npc_id, MOB_WANDER_LEASH)
+                    if cands:
+                        res = world.try_step("npc", npc_id, room_id, *random.choice(cands))
+                        if res.kind == "MOVED":
+                            _last_wander_at[npc_id] = now
+                            await manager.broadcast_to_room(
+                                room_id, {"event": "entity_moved", "id": npc_id,
+                                          "x": res.x, "y": res.y})
+                            await features.on_enter(room_id, "npc", npc_id, res.x, res.y)
                 continue
             pid, ppos = target
             if npc_id not in _aggroed:    # just acquired this player
@@ -136,6 +162,7 @@ async def _combat_tick_once() -> None:
                     _last_move_at[npc_id] = now
                     await manager.broadcast_to_room(
                         room_id, {"event": "entity_moved", "id": npc_id, "x": res.x, "y": res.y})
+                    await features.on_enter(room_id, "npc", npc_id, res.x, res.y)
                     break
                 if res.kind == "ATTACK" and res.target_id == pid:
                     # Reached the player mid-step — resolve as an attack.
@@ -187,6 +214,36 @@ async def _relock_doors() -> None:
     for rid, drop_ev, info in events:
         await manager.broadcast_to_room(rid, drop_ev)
         await manager.broadcast_to_room(rid, {"event": "info", "detail": info})
+
+
+async def _spawn_tick(now: float) -> None:
+    """Each spawner feature repopulates its radius up to ``max_active`` on its
+    ``interval`` (handoff-09 §3). Spawned mobs use the normal hostile AI + loot/XP;
+    dead children free a slot and their DB row is reaped here."""
+    for room_id, node in list(world.rooms.items()):
+        if not node.player_pos:              # only repopulate where players are
+            continue
+        for feat in list(node.features.values()):
+            if feat["kind"] != "spawner":
+                continue
+            sid, cfg = feat["id"], feat["config"]
+            children = _spawner_children.setdefault(sid, set())
+            alive = {cid for cid in children if world.room_of_npc(cid) is not None}
+            for dead in children - alive:    # reap rows of children that died
+                world.delete_npc(dead)
+            _spawner_children[sid] = alive
+            max_active = int(cfg.get("max_active", 3))
+            interval = float(cfg.get("interval", SPAWNER_TICK_SECONDS))
+            if len(alive) >= max_active or not _ready(_last_spawn_at, sid, interval, now):
+                continue
+            template = cfg.get("template") or {}
+            radius = int(cfg.get("radius", 2))
+            res = world.spawn_npc_from_template(room_id, template, (feat["x"], feat["y"]), radius)
+            if res:
+                _last_spawn_at[sid] = now
+                alive.add(res["id"])
+                await manager.broadcast_to_room(
+                    room_id, {"event": "entity_spawned", **res["entity"]})
 
 
 async def _apply_dots() -> None:
@@ -271,3 +328,6 @@ def stop() -> None:
     _aggroed.clear()
     _last_move_at.clear()
     _last_attack_at.clear()
+    _last_wander_at.clear()
+    _last_spawn_at.clear()
+    _spawner_children.clear()

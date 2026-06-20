@@ -6,8 +6,10 @@ Idempotent: safe to run repeatedly (won't duplicate rows). Run directly:
 
     python seed.py
 """
+import json
+
 from database import SessionLocal, engine, Base
-from models import Room, Player, Item, Npc, NpcReaction, RoomExit
+from models import Room, Player, Item, Npc, NpcReaction, RoomExit, RoomFeature
 
 # Authored tiled zones (Phase 1 palette + Phase 2 transitions). Glyphs: '#' wall,
 # '.' floor, '+' door (on a border → that wall's cardinal exit), 'o' pillar,
@@ -76,6 +78,18 @@ def _ensure_exit(db, from_id, direction, to_id, description="", is_locked=False,
     db.commit()
 
 
+def _ensure_feature(db, room_id, x, y, kind, glyph="", config=None):
+    """Idempotently create a tile feature (trap/sign/spawner/keg) at (x, y)."""
+    existing = db.query(RoomFeature).filter_by(room_id=room_id, x=x, y=y, kind=kind).first()
+    if existing:
+        return existing
+    feat = RoomFeature(room_id=room_id, x=x, y=y, kind=kind, glyph=glyph,
+                       config=json.dumps(config or {}))
+    db.add(feat)
+    db.commit()
+    return feat
+
+
 def seed():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -95,6 +109,12 @@ def seed():
             "width": CELLAR_W, "height": CELLAR_H, "tiles": CELLAR_TILES,
             "spawn_x": CELLAR_SPAWN[0], "spawn_y": CELLAR_SPAWN[1],
         })
+        # Room types (handoff-09 §5): the Foyer is the safe arrival hub — a
+        # tavern (you may `rest` there) and a sanctuary (no PvP, no mob aggro).
+        # In-place so a pre-§5 Foyer row gets the flags too.
+        if not foyer.is_safe or foyer.room_type != "tavern":
+            foyer.room_type, foyer.is_safe = "tavern", True
+            db.commit()
 
         # No player characters are seeded: every character now belongs to a
         # registered account (POST /characters). The first account to register
@@ -104,8 +124,13 @@ def seed():
             "description": "A curt, watchful presence.", "npc_type": "caretaker",
             "room_id": foyer.id, "is_friendly": False, "combat_enabled": True,
             "is_hostile": False, "glyph": "🧹", "home_x": 2, "home_y": 2,
-            "cha": 8, "wis": 12,
+            "cha": 8, "wis": 12, "wanders": True,
         })
+        # The Caretaker ambles about the Foyer (handoff-09 §4); set it in place
+        # for a pre-§4 row that predates the column.
+        if not caretaker.wanders:
+            caretaker.wanders = True
+            db.commit()
         rusty = _get_or_create(db, Item, name="Rusty Key", defaults={
             "description": "Pitted iron, still turns.", "item_type": "key",
             "value": 1, "room_id": foyer.id, "is_movable": True, "is_usable": True,
@@ -272,6 +297,24 @@ def seed():
         if down is not None and not down.is_locked:
             down.is_locked, down.key_item_id = True, rusty.id
             db.commit()
+
+        # Tile features (handoff-09). All idempotent (keyed by room/x/y/kind).
+        #   - A readable sign in the Foyer.
+        #   - A poison-gas AoE trap + a powder keg (an AoE object) in the Cellar.
+        #   - A Cave-Bat spawner in the Great Hall (repopulates up to 2).
+        _ensure_feature(db, foyer.id, 7, 4, "sign", glyph="🪧", config={
+            "title": "Weathered Sign",
+            "text": "BLACK GOAT SOCIETY — rest by the hearth (you are safe here). "
+                    "Beware the cellar below: traps, kegs, and worse."})
+        _ensure_feature(db, cellar.id, 3, 2, "trap", glyph="☠️", config={
+            "name": "Poison Gas Trap", "damage": 2, "radius": 1, "debuff": "Poison"})
+        _ensure_feature(db, cellar.id, 3, 3, "keg", glyph="🛢️", config={
+            "name": "Powder Keg", "damage": 8, "radius": 1})
+        _ensure_feature(db, hall.id, 2, 2, "spawner", glyph="🕳️", config={
+            "interval": 8, "max_active": 2, "radius": 2,
+            "template": {"name": "Cave Bat", "glyph": "🦇", "npc_type": "combat_mob",
+                         "is_hostile": True, "aggro_radius": 5, "wanders": True,
+                         "health": 5, "str": 9, "dex": 13, "con": 9}})
 
         print("Seeded.")
     finally:

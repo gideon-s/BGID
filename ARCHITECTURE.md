@@ -277,6 +277,41 @@ broadcast). Effects clear on death (`effects.clear` for mobs;
   (red = debuff, blue ◆ = gear) and **icons over the token** (tinted; flash on
   apply — gold buff / green debuff).
 
+**Traps & environments** (handoff-09): a general per-tile **feature layer** keeps
+`Room.tiles` purely geometric. A `RoomFeature(room_id, x, y, kind, glyph, config)`
+row (`config` = JSON, like `Player.skills`) loads into `RoomNode.features`;
+`world.feature_at`/`feature_near`/`features_payload` query it, and it rides
+`zone_state.features` (client draws a glyph overlay). `migrate_features.py`
+(idempotent) creates the table + adds `rooms.room_type`/`rooms.is_safe` +
+`npcs.wanders`. Kinds:
+
+- **Traps / hazards** (`features.py`): firing on entry (the player `move` handler
+  and the mob AI step both call `features.on_enter`). A trap deals `damage`
+  (via the shared `combat.damage_player`/`damage_npc`, by_type `"trap"` → no XP)
+  and/or applies a `debuff` (e.g. Poison); `radius>0` makes it **AoE**
+  (`tiles_in_radius`); `one_shot` fires once (in-memory `_sprung`).
+- **AoE objects** — a **powder keg** (`kind:"keg"`): the `trigger` WS cmd ignites
+  a keg on/adjacent to you → a radius blast → the keg is consumed (`feature_removed`).
+- **Signs** (`kind:"sign"`): the `read` WS cmd → a `sign {title,text}` event.
+- **Spawners** (`kind:"spawner"`): a spawner tick (`game_loop._spawn_tick`)
+  repopulates its `radius` up to `max_active` on its `interval`, creating fresh
+  NPC rows from an inline `template` (`world.spawn_npc_from_template`). Spawned
+  mobs are flagged `spawned` (so they don't auto-respawn — the spawner manages
+  population) and their dead rows are reaped on the next tick.
+- **Wandering mobs** (`npcs.wanders`): a non-aggroed wandering mob ambles one tile
+  on `MOB_WANDER_COOLDOWN_SECONDS` within `MOB_WANDER_LEASH` of home
+  (`world.wander_candidates`); it still aggros on sight.
+- **Room types** (`rooms.room_type`/`is_safe`): a **sanctuary** (`is_safe`) refuses
+  PvP (`resolve_pvp_attack`) *and* suppresses mob aggro (the combat tick acquires
+  no targets there); `PVP_SAFE_ROOM_IDS` now falls back to flagged rooms. A
+  **tavern** (`room_type:"tavern"`) supports the `rest` WS cmd — full HP/mana
+  recovery when no hostiles are present. The Foyer is seeded as a tavern+sanctuary.
+
+New WS: `read`/`trigger`/`rest` (client→server); `sign`/`feature_triggered`/
+`feature_removed`/`entity_effects` (server→client). Demo content (seed): a Foyer
+sign, a Cellar poison-gas AoE trap + powder keg, a Great-Hall Cave-Bat spawner, a
+wandering Caretaker, and a new **Fireball** AoE spell (Mage).
+
 **Class-gear chest:** an immovable `item_type:"chest"` item (the Old Chest in the
 Great Hall) grants the **opener's class starting kit** (`classes.starting_gear`)
 on the `open` WS command (**O** key when on/adjacent) — created in the pack and

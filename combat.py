@@ -254,7 +254,8 @@ async def resolve_pvp_attack(attacker_id: int, room_id: int, target_id: int) -> 
     damage_player path (broadcast + respawn + grace), exactly like a mob hit."""
     if attacker_id == target_id:
         return
-    if room_id in PVP_SAFE_ROOM_IDS:
+    # Truce zones: the configured safe rooms OR any room flagged a sanctuary (§5).
+    if room_id in PVP_SAFE_ROOM_IDS or world.is_sanctuary(room_id):
         await manager.send_personal_message(
             attacker_id, {"event": "error",
                           "detail": "This hall is under truce — no fighting here."})

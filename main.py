@@ -26,6 +26,7 @@ import leveling
 import potions
 import effects
 import gear_effects
+import features
 import spells as spellbook
 import skills as skillbook
 import services
@@ -564,6 +565,9 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
             ex = world.transition_for_tile(room_id, res.x, res.y)
             if ex:
                 await _try_transition(player_id, player_name, room_id, ex)
+            else:
+                # Stepping onto a trap/hazard tile triggers it (handoff-09 §1).
+                await features.on_enter(room_id, "player", player_id, res.x, res.y)
         elif res.kind == "ATTACK" and res.target_kind == "npc":
             await resolve_player_attack(player_id, room_id, res.target_id)
         # PvP is not bump-triggered (intentional only) — see the `attack` command.
@@ -659,6 +663,63 @@ async def _handle_ws_command(player_id: int, player_name: str, user_id: int, raw
         else:
             await manager.send_personal_message(
                 player_id, {"event": "info", "detail": "The chest is empty."})
+
+    elif cmd == "read":
+        # Read a sign on/adjacent to the player (handoff-09 §2).
+        pos = world.position_of("player", room_id, player_id)
+        feat = world.feature_near(room_id, *pos, kind="sign") if pos else None
+        if feat is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "There's nothing to read here."})
+            return
+        cfg = feat["config"]
+        await manager.send_personal_message(player_id, {
+            "event": "sign", "id": feat["id"], "x": feat["x"], "y": feat["y"],
+            "title": cfg.get("title", "A sign"), "text": cfg.get("text", "")})
+
+    elif cmd == "trigger":
+        # Ignite a powder keg (an AoE object) on/adjacent to the player.
+        pos = world.position_of("player", room_id, player_id)
+        feat = world.feature_near(room_id, *pos, kind="keg") if pos else None
+        if feat is None:
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "There's nothing to set off here."})
+            return
+        await features.trigger_keg(room_id, feat)
+
+    elif cmd == "rest":
+        # Recover HP/mana in a tavern, out of combat (handoff-09 §5).
+        if world.room_type(room_id) != "tavern":
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "You can only rest in a tavern."})
+            return
+        if world.living_hostiles(room_id):
+            await manager.send_personal_message(
+                player_id, {"event": "error", "detail": "It's not safe to rest — enemies are near."})
+            return
+        db = SessionLocal()
+        try:
+            player = PlayerService.get_player(db, player_id)
+            if player is None or player.health <= 0:
+                hp = mp = 0
+            else:
+                hp = player.heal(player.max_health)
+                mp = player.restore_mana(player.max_mana)
+                vals = (player.health, player.max_health, player.mana, player.max_mana)
+        finally:
+            db.close()
+        if hp == 0 and mp == 0:
+            await manager.send_personal_message(
+                player_id, {"event": "info", "detail": "You rest a while, already hale and rested."})
+            return
+        await manager.send_personal_message(player_id, {
+            "event": "stats", "player_id": player_id,
+            "hp": vals[0], "max_hp": vals[1], "mana": vals[2], "max_mana": vals[3]})
+        gained = [f"+{hp} HP"] if hp else []
+        if mp:
+            gained.append(f"+{mp} MP")
+        await manager.send_personal_message(player_id, {
+            "event": "info", "detail": f"You rest by the hearth and recover ({', '.join(gained)})."})
 
     elif cmd == "shop":
         vendor = _vendor_in_room(room_id, msg.get("npc_id"))

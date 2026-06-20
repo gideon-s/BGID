@@ -785,12 +785,18 @@ function draw(){
 
 // Per-frame paint: blit the cached ink map, then dynamic tokens at their visual
 // positions + flashes / floaters / dying ghosts. Run by draw() and the rAF loop.
+// Fallback glyphs when a feature row carries no glyph of its own.
+const FEATURE_GLYPH = {trap:'⚠️', hazard:'🔥', sign:'🪧', spawner:'🕳️', keg:'🛢️'};
+
 function paint(){
   if(!ctx || !S.you) return;
   const visible = lastVisible || {};
   ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
   if(mapLayer) ctx.drawImage(mapLayer,0,0); ctx.restore();
 
+  // Tile features (traps/hazards/signs/spawners/kegs) — overlay beneath items.
+  for(const id in (S.features||{})){ const f=S.features[id];
+    if(visible[f.x+','+f.y]) drawToken(f.x, f.y, f.glyph||FEATURE_GLYPH[f.kind]||'❔', cell*0.5, 0.32, {}); }
   for(const id in S.groundItems){ const it=S.groundItems[id];
     if(visible[it.x+','+it.y]) drawToken(it.x, it.y, it.glyph||'📦', cell*0.58, 0.36, {img:tokenImg('item', it.id)}); }
   for(const id in ANIM.dying){ const g=ANIM.dying[id];
@@ -1084,6 +1090,7 @@ function onEvent(m){
       S.explored = S.exploredByRoom[rid] = (S.exploredByRoom[rid] || {});  // per-zone fog memory
       (m.entities||[]).forEach(e=>{ S.entities[e.id]=e; setPortrait(e.kind, e.id, e.portrait_url); setToken(e.kind, e.id, e.token_url); });
       (m.items||[]).forEach(it=>{ S.groundItems[it.id]=it; setToken('item', it.id, it.token_url); });
+      S.features = {}; (m.features||[]).forEach(f=>{ S.features[f.id]=f; });
       if(S.you){ setPortrait('player', S.you.id, S.you.portrait_url); setToken('player', S.you.id, S.you.token_url); }
       rebuildDisplay(); draw(); renderPanel();
       if(S.you){ setMana(S.you.mana, S.you.max_mana); setPurse(S.you.coins||0);
@@ -1135,6 +1142,18 @@ function onEvent(m){
           flashEntity(animId(m.id), harm ? 'rgba(90,170,90,0.8)' : 'rgba(230,189,94,0.85)'); }
         draw(); }
       break; }
+    case 'sign':                                           // read a sign (handoff-09 §2)
+      logCombat(`📜 ${m.title||'A sign'}: "${m.text||'…'}"`, 'l-win');
+      break;
+    case 'feature_triggered':                              // trap/keg went off — FX
+      floatText(m.x, m.y, '💥', '#c2402f');
+      logCombat(`💥 ${m.name||'A trap'} goes off!`, 'l-sys');
+      draw();
+      break;
+    case 'feature_removed':                                // a consumed keg, etc.
+      if(S.features && S.features[m.id]) delete S.features[m.id];
+      draw();
+      break;
     case 'shop': renderShop(m); break;
     case 'xp':
       if(S.you){ S.you.experience=m.experience; S.you.level=m.level; }
@@ -1238,6 +1257,22 @@ function grabHint(){
       logCombat(`You see ${it.name} here — press ${keyLabel(S.keys.grab)} to grab.`, 'l-sys');
   }
   _lastHinted = it ? it.id : null;
+  featureHint();
+}
+// Announce an interactable feature (sign/keg) on/adjacent to you, once on arrival.
+let _lastFeatHinted = null;
+function featureHint(){
+  if(!S.you) return;
+  const near = Object.values(S.features||{}).find(f=>
+    (f.kind==='sign' || f.kind==='keg') &&
+    Math.max(Math.abs(f.x-S.you.x), Math.abs(f.y-S.you.y)) <= 1);
+  if(near && near.id !== _lastFeatHinted){
+    if(near.kind==='sign')
+      logCombat(`There's a sign here — press ${keyLabel(S.keys.read)} to read it.`, 'l-sys');
+    else
+      logCombat(`A ${near.glyph||'🛢️'} powder keg sits here — press ${keyLabel(S.keys.interact)} to set it off.`, 'l-sys');
+  }
+  _lastFeatHinted = near ? near.id : null;
 }
 
 // ─── Inventory overlay ───
@@ -1396,6 +1431,8 @@ const ACTIONS = [
   {id:'attack',        label:'Attack target',    def:' '},
   {id:'grab',          label:'Grab item',        def:'g'},
   {id:'open',          label:'Open chest',       def:'o'},
+  {id:'read',          label:'Read sign',        def:'r'},
+  {id:'interact',      label:'Set off / trigger',def:'f'},
   {id:'inventory',     label:'Inventory',        def:'i'},
   {id:'sheet',         label:'Character sheet',  def:'k'},
   {id:'map',           label:'Map',              def:'m'},
@@ -1431,6 +1468,8 @@ function runAction(id){
   else if(id==='attack') attackTarget();
   else if(id==='grab') send({cmd:'pickup'});
   else if(id==='open') send({cmd:'open'});
+  else if(id==='read') send({cmd:'read'});
+  else if(id==='interact') send({cmd:'trigger'});
   else if(id==='inventory') toggleInv();
   else if(id==='sheet') toggleSheet();
   else if(id==='map') toggleMap();
@@ -2037,6 +2076,9 @@ function handleCommand(raw){
   if(verb==='use' || verb==='drink' || verb==='quaff'){
     const it = invByName(parts.slice(1).join(' ')); if(!it){ logCombat(`You aren't carrying "${parts.slice(1).join(' ')}".`,'l-err'); return; }
     send({cmd:'use', item_id:it.id}); return; }
+  if(verb==='read'){ send({cmd:'read'}); return; }
+  if(verb==='trigger' || verb==='ignite' || verb==='light'){ send({cmd:'trigger'}); return; }
+  if(verb==='rest' || verb==='sleep'){ send({cmd:'rest'}); return; }
   if(verb==='say'){ send({cmd:'say', text:parts.slice(1).join(' ')}); return; }
   if(verb==='talk'){
     const npc = npcByName(parts[1]||''); if(!npc){ logCombat(`No NPC like "${parts[1]||''}" here.`,'l-err'); return; }

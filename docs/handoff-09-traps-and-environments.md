@@ -1,6 +1,18 @@
 # Handoff 09 — Traps & environments
 
-**Status:** ready to build (independent slices) · **Depends on:** the live world
+**Status:** ✅ SHIPPED 2026-06-19 — adopted the **RoomFeature** table (§6:
+`room_features(room_id,x,y,kind,glyph,config-JSON)` → `RoomNode.features`,
+`migrate_features.py`). All slices: §1 traps/hazards (incl. **AoE** radius +
+one-shot, fired on player & mob entry via `features.py`), §2 readable signs +
+**powder-keg AoE objects** (`read`/`trigger`), §3 monster spawners
+(`game_loop._spawn_tick`, fresh rows capped + reaped), §4 wandering mobs
+(`npcs.wanders` + leash), §5 room types (sanctuary blocks PvP+aggro; tavern
+`rest`). Plus a **Fireball** AoE spell. Client: feature overlay glyphs, read/
+trigger/rest verbs + keys (R/F), sign popup, trap/keg FX. Seeded demo content
+(Foyer sign+tavern+sanctuary, Cellar trap+keg, Great-Hall bat spawner, wandering
+Caretaker). Suite **238 green** (+ `test_features.py`). Migration: run
+`migrate_features.py && python seed.py`. See `ARCHITECTURE.md`.
+· **Depends on:** the live world
 (tiled rooms, NPC AI, combat, the status-effect layer). **Goal:** make zones feel
 *alive and dangerous* beyond hand-placed mobs — **traps & hazard tiles**,
 **interactive props (signs, etc.)**, **monster spawners**, **wandering mobs**, and

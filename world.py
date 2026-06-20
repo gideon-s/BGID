@@ -104,6 +104,13 @@ class RoomNode:
     # so the combat tick can reason about mobs without touching the DB. Live HP
     # is read from the DB only when an attack actually resolves.
     npc_meta: Dict[int, dict] = field(default_factory=dict)
+    # ----- room type (Phase 7 / handoff-09 §5) -----
+    room_type: str = "dungeon"
+    is_safe: bool = False           # sanctuary: blocks PvP + mob aggro
+    # ----- tile features (handoff-09 §6): id -> {id,x,y,kind,glyph,config} -----
+    # Traps/hazards/signs/spawners/kegs attached to tiles. Room.tiles stays
+    # geometric; features are an overlay layer the client draws on top.
+    features: Dict[int, dict] = field(default_factory=dict)
 
 
 class WorldState:
@@ -131,10 +138,16 @@ class WorldState:
             rooms: Dict[int, RoomNode] = {}
             for room in services.RoomService.get_rooms(db, limit=_LOAD_LIMIT):
                 node = RoomNode(
-                    id=room.id, name=room.name, description=room.description or ""
+                    id=room.id, name=room.name, description=room.description or "",
+                    room_type=getattr(room, "room_type", None) or "dungeon",
+                    is_safe=bool(getattr(room, "is_safe", False)),
                 )
                 self._load_tiles(node, room)
                 rooms[room.id] = node
+            for feat in db.query(models.RoomFeature).all():
+                node = rooms.get(feat.room_id)
+                if node is not None:
+                    node.features[feat.id] = self._feature_record(feat)
             for npc in services.NpcService.get_npcs(db, limit=_LOAD_LIMIT):
                 node = rooms.get(npc.room_id)
                 if node is None:
@@ -226,6 +239,7 @@ class WorldState:
             "hostile": bool(npc.is_hostile),
             "aggro_radius": npc.aggro_radius if npc.aggro_radius is not None else 6,
             "combat_enabled": bool(npc.combat_enabled),
+            "wanders": bool(getattr(npc, "wanders", False)),
             "home": (x, y),   # anchor tile, used to respawn the mob
         }
 
@@ -265,6 +279,79 @@ class WorldState:
                 if self._is_spawnable(node, x, y):
                     return (x, y)
         return node.spawn
+
+    def _free_tile_near(self, node: "RoomNode", near: Tuple[int, int],
+                        radius: int) -> Optional[Tuple[int, int]]:
+        """Nearest spawnable tile within ``radius`` of ``near`` (spiral out), or
+        None if the area is full — used by spawners (handoff-09 §3)."""
+        cx, cy = near
+        for r in range(0, radius + 1):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if max(abs(dx), abs(dy)) != r:    # only this ring
+                        continue
+                    x, y = cx + dx, cy + dy
+                    if self._is_spawnable(node, x, y):
+                        return (x, y)
+        return None
+
+    def spawn_npc_from_template(self, room_id: int, template: dict,
+                                near: Tuple[int, int], radius: int) -> Optional[Dict[str, Any]]:
+        """Create a fresh NPC row from a spawner template and register it live.
+        Marks the mob ``spawned`` so it won't auto-respawn (the spawner manages
+        population). Returns ``{id, entity}`` for an ``entity_spawned`` broadcast,
+        or None if there's no free tile."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        tile = self._free_tile_near(node, near, radius)
+        if tile is None:
+            return None
+        hp = int(template.get("max_health", template.get("health", 8)))
+        db = SessionLocal()
+        try:
+            npc = models.Npc(
+                name=template.get("name", "Creature"),
+                description=template.get("description", ""),
+                npc_type=template.get("npc_type", "combat_mob"), room_id=room_id,
+                combat_enabled=bool(template.get("combat_enabled", True)),
+                is_hostile=bool(template.get("is_hostile", True)),
+                aggro_radius=int(template.get("aggro_radius", 6)),
+                wanders=bool(template.get("wanders", False)),
+                glyph=template.get("glyph", "👾"),
+                home_x=tile[0], home_y=tile[1], health=hp, max_health=hp,
+                str=int(template.get("str", 10)), dex=int(template.get("dex", 10)),
+                con=int(template.get("con", 10)), intel=int(template.get("intel", 10)),
+                wis=int(template.get("wis", 10)), cha=int(template.get("cha", 10)),
+            )
+            db.add(npc); db.commit()
+            nid, name, glyph = npc.id, npc.name, npc.glyph
+            hostile, aggro, combat_on = npc.is_hostile, npc.aggro_radius, npc.combat_enabled
+            wanders = npc.wanders
+        finally:
+            db.close()
+        node.npc_ids.add(nid)
+        node.npc_pos[nid] = tile
+        node.npc_meta[nid] = {
+            "name": name, "glyph": glyph or "👾", "hostile": bool(hostile),
+            "aggro_radius": aggro, "combat_enabled": bool(combat_on),
+            "wanders": bool(wanders), "home": tile, "spawned": True,
+        }
+        return {"id": nid, "entity": {
+            "id": nid, "kind": "npc", "name": name, "glyph": glyph or "👾",
+            "x": tile[0], "y": tile[1], "hostile": bool(hostile),
+            "hp": hp, "max_hp": hp, "vendor": False, "effects": [],
+            "portrait_url": None, "token_url": None}}
+
+    def delete_npc(self, npc_id: int) -> None:
+        """Permanently remove a (dead, spawner-managed) NPC's DB row."""
+        db = SessionLocal()
+        try:
+            row = db.get(models.Npc, npc_id)
+            if row is not None:
+                db.delete(row); db.commit()
+        finally:
+            db.close()
 
     # ---------- tile helpers ----------
     def is_walkable(self, room_id: int, x: int, y: int) -> bool:
@@ -361,6 +448,67 @@ class WorldState:
             node.item_pos.pop(item_id, None)
             node.item_meta.pop(item_id, None)
 
+    # ---------- tile features (handoff-09 §6) ----------
+    @staticmethod
+    def _feature_record(feat) -> dict:
+        """Parse a RoomFeature row into the live dict held in RoomNode.features."""
+        import json
+        try:
+            cfg = json.loads(feat.config or "{}")
+        except (ValueError, TypeError):
+            cfg = {}
+        return {"id": feat.id, "x": feat.x, "y": feat.y, "kind": feat.kind,
+                "glyph": feat.glyph or "", "config": cfg}
+
+    def feature_at(self, room_id: int, x: int, y: int, kind: str = None) -> Optional[dict]:
+        """The feature on tile (x, y) (optionally filtered by kind), or None."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        for f in node.features.values():
+            if f["x"] == x and f["y"] == y and (kind is None or f["kind"] == kind):
+                return f
+        return None
+
+    def feature_near(self, room_id: int, x: int, y: int, kind: str = None) -> Optional[dict]:
+        """A feature on or adjacent to (x, y) (Chebyshev ≤ 1), or None — the
+        interaction reach for signs/kegs (mirrors ``chest_near``)."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        for f in node.features.values():
+            if max(abs(f["x"] - x), abs(f["y"] - y)) <= 1 \
+                    and (kind is None or f["kind"] == kind):
+                return f
+        return None
+
+    def add_feature(self, room_id: int, feat) -> Optional[dict]:
+        """Register a freshly-created RoomFeature row into the live world."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return None
+        rec = self._feature_record(feat)
+        node.features[feat.id] = rec
+        return rec
+
+    def remove_feature(self, room_id: int, feature_id: int) -> None:
+        """Drop a feature from the live world (e.g. a consumed powder keg)."""
+        node = self.rooms.get(room_id)
+        if node is not None:
+            node.features.pop(feature_id, None)
+
+    def features_payload(self, room_id: int) -> List[Dict[str, Any]]:
+        """Serializable features for the client overlay: signs hide their text
+        (read on demand); everything else exposes glyph + harmless config hints."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return []
+        out = []
+        for f in node.features.values():
+            out.append({"id": f["id"], "x": f["x"], "y": f["y"],
+                        "kind": f["kind"], "glyph": f["glyph"]})
+        return out
+
     def position_of(self, kind: str, room_id: int, entity_id: int) -> Optional[Tuple[int, int]]:
         node = self.rooms.get(room_id)
         if node is None:
@@ -453,6 +601,34 @@ class WorldState:
     def chebyshev(a: Tuple[int, int], b: Tuple[int, int]) -> int:
         return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
+    def wander_candidates(self, room_id: int, npc_id: int, leash: int) -> List[Tuple[int, int]]:
+        """Step deltas to an adjacent walkable, unoccupied, non-transition tile
+        within ``leash`` of the mob's home — for idle wandering (handoff-09 §4).
+        Empty if boxed in. The caller picks one (randomly) and applies try_step."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return []
+        pos = node.npc_pos.get(npc_id)
+        if pos is None:
+            return []
+        home = node.npc_meta.get(npc_id, {}).get("home", pos)
+        out: List[Tuple[int, int]] = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                nx, ny = pos[0] + dx, pos[1] + dy
+                if not self._is_walkable_grid(node, nx, ny):
+                    continue
+                if node.tiles[ny][nx] in TRANSITION_TILES:   # don't wander through doors
+                    continue
+                if self._occupant(node, nx, ny) is not None:
+                    continue
+                if max(abs(nx - home[0]), abs(ny - home[1])) > leash:
+                    continue
+                out.append((dx, dy))
+        return out
+
     # ---------- line of sight & area (Phase 4) ----------
     def _is_transparent(self, node: "RoomNode", x: int, y: int) -> bool:
         """A tile sight can pass *through* (in-bounds, not a wall/pillar)."""
@@ -534,7 +710,9 @@ class WorldState:
         meta = node.npc_meta.get(npc_id, {})
         node.npc_ids.discard(npc_id)
         node.npc_pos.pop(npc_id, None)
-        if meta.get("hostile"):
+        # Spawner-managed mobs don't auto-respawn — their spawner repopulates
+        # (and reaps the dead row); only hand-placed hostiles respawn at home.
+        if meta.get("hostile") and not meta.get("spawned"):
             self.pending_respawns[npc_id] = {
                 "room_id": room_id, "due": time.monotonic() + MOB_RESPAWN_SECONDS}
 
@@ -737,11 +915,13 @@ class WorldState:
             sx, sy = node.spawn
             you = {"id": viewer_id, "x": sx, "y": sy, "glyph": "🧙"}
         return {
-            "room": {"id": node.id, "name": node.name, "description": node.description},
+            "room": {"id": node.id, "name": node.name, "description": node.description,
+                     "room_type": node.room_type, "is_safe": node.is_safe},
             "tiles": {"w": node.width, "h": node.height, "grid": node.tiles},
             "you": you,
             "entities": entities,
             "items": self.ground_items(room_id),
+            "features": self.features_payload(room_id),
         }
 
     def reload(self) -> None:
@@ -782,6 +962,23 @@ class WorldState:
     def room_of(self, player_id: int) -> Optional[int]:
         """Current room of an online player, or None if offline."""
         return self.player_locations.get(player_id)
+
+    def is_sanctuary(self, room_id: int) -> bool:
+        """True if the room is a sanctuary (PvP refused + mob aggro suppressed)."""
+        node = self.rooms.get(room_id)
+        return bool(node and node.is_safe)
+
+    def room_type(self, room_id: int) -> str:
+        node = self.rooms.get(room_id)
+        return node.room_type if node else "dungeon"
+
+    def living_hostiles(self, room_id: int) -> int:
+        """Count of hostile mobs currently present (for the tavern `rest` gate)."""
+        node = self.rooms.get(room_id)
+        if node is None:
+            return 0
+        return sum(1 for nid in node.npc_ids
+                   if node.npc_meta.get(nid, {}).get("hostile"))
 
     def room_of_npc(self, npc_id: int) -> Optional[int]:
         """Room currently holding an NPC, or None — mirrors ``room_of`` for mobs.

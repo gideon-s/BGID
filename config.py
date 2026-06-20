@@ -51,6 +51,12 @@ MOVE_COOLDOWN_SECONDS = float(os.getenv("MOVE_COOLDOWN_SECONDS", "0.12"))  # per
 # tick rate so the tick can stay snappy without mobs zipping a tile every tick.
 MOB_MOVE_COOLDOWN_SECONDS = float(os.getenv("MOB_MOVE_COOLDOWN_SECONDS", "0.5"))
 MOB_ATTACK_COOLDOWN_SECONDS = float(os.getenv("MOB_ATTACK_COOLDOWN_SECONDS", "1.2"))
+# Idle wandering (handoff-09 §4): how often a non-aggroed wandering mob ambles
+# one tile, and how far it may drift from its home tile (a leash radius).
+MOB_WANDER_COOLDOWN_SECONDS = float(os.getenv("MOB_WANDER_COOLDOWN_SECONDS", "2.5"))
+MOB_WANDER_LEASH = int(os.getenv("MOB_WANDER_LEASH", "3"))
+# Spawner cadence cap (handoff-09 §3): a spawner spawns at most one mob this often.
+SPAWNER_TICK_SECONDS = float(os.getenv("SPAWNER_TICK_SECONDS", "5"))
 # Seconds after a hostile mob is slain before it respawns at its home tile with
 # full health (so a one-mob zone stays fightable).
 MOB_RESPAWN_SECONDS = float(os.getenv("MOB_RESPAWN_SECONDS", "15"))
